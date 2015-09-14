@@ -360,12 +360,12 @@ void BasisSetExp::computeSHCoefs(const double r, double coefsF[], double coefsdF
 // init coefs from point mass set
 SplineExp::SplineExp(unsigned int _Ncoefs_radial, unsigned int _Ncoefs_angular, 
     const particles::PointMassArray<coord::PosSph> &points, SymmetryType _sym, 
-    double smoothfactor, const std::vector<double> *radii):
+    double smoothfactor, double Rmin, double Rmax):
     BasePotentialSphericalHarmonic(_Ncoefs_angular),
     Ncoefs_radial(std::max<size_t>(5,_Ncoefs_radial))
 {
     setSymmetry(_sym);
-    prepareCoefsDiscrete(points, smoothfactor, radii);
+    prepareCoefsDiscrete(points, smoothfactor, Rmin, Rmax);
 }
 
 // init from existing coefs
@@ -382,12 +382,12 @@ SplineExp::SplineExp(
 
 // init potential from analytic mass model
 SplineExp::SplineExp(unsigned int _Ncoefs_radial, unsigned int _Ncoefs_angular, 
-    const BaseDensity& srcdensity, const std::vector<double> *radii):
+    const BaseDensity& srcdensity, double Rmin, double Rmax):
     BasePotentialSphericalHarmonic(_Ncoefs_angular), 
     Ncoefs_radial(std::max<unsigned int>(5,_Ncoefs_radial))
 {
     setSymmetry(srcdensity.symmetry());
-    prepareCoefsAnalytic(srcdensity, radii);
+    prepareCoefsAnalytic(srcdensity, Rmin, Rmax);
 }
 
 /// radius-dependent multiplication factor for density integration in SplineExp potential
@@ -401,31 +401,29 @@ private:
     const int n;
 };
     
-void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, const std::vector<double> *srcradii)
+void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin, double Rmax)
 {
     std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);  // SHE coefficients to pass to initspline routine
     std::vector<double> radii(Ncoefs_radial+1);  // true radii to pass to initspline routine
     for(unsigned int i=0; i<=Ncoefs_radial; i++)
         coefsArray[i].assign(pow_2(1+Ncoefs_angular), 0);
-    bool initUserRadii = (srcradii!=NULL && srcradii->size()==Ncoefs_radial+1 && srcradii->front()==0);
-    if(srcradii!=NULL && !initUserRadii)  // something went wrong with manually supplied radii
-        throw std::invalid_argument("Invalid call to constructor of SplineExp potential");
-    // find inner/outermost radius
+    // find inner/outermost radius if they were not provided
+    if(Rmin<0 || Rmax<0 || (Rmax>0 && Rmax<=Rmin*Ncoefs_radial))
+        throw std::invalid_argument("SplineExp: invalid choice of min/max grid radii");
     double totalmass = srcdensity.totalMass();
     if(!math::isFinite(totalmass))
         throw std::invalid_argument("SplineExp: source density model has infinite mass");
-    if(initUserRadii)
-        radii= *srcradii;
-    else {
+    if(Rmax==0) {
         // how far should be the outer node (leave out this fraction of mass)
         double epsout = 0.1/sqrt(pow_2(Ncoefs_radial)+0.01*pow(Ncoefs_radial*1.0,4.0));
+        Rmax = getRadiusByMass(srcdensity, totalmass*(1-epsout));
+    }
+    if(Rmin==0) {
         // how close can we get to zero, in terms of innermost grid node
         double epsin = 5.0/pow(Ncoefs_radial*1.0,3.0);
-        // somewhat arbitrary choice for min/max radii, but probably reasonable
-        double rout = getRadiusByMass(srcdensity, totalmass*(1-epsout));
-        double rin  = getRadiusByMass(srcdensity, totalmass*epsin*0.1);
-        math::createNonuniformGrid(Ncoefs_radial+1, rin, rout, true, radii); 
+        Rmin  = getRadiusByMass(srcdensity, totalmass*epsin*0.1);
     }
+    math::createNonuniformGrid(Ncoefs_radial+1, Rmin, Rmax, true, radii); 
     const double rscale = getRadiusByMass(srcdensity, 0.5*totalmass);  // scaling factor for integration in radius
     std::vector<double> coefsInner, coefsOuter;
     const double SPLINE_MIN_RADIUS = 1e-10;
@@ -580,10 +578,13 @@ double get_ascale(const std::vector<double>& radii, const std::vector<std::vecto
 }
     
 void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosSph> &points, 
-    double smoothfactor, const std::vector<double> *userradii)
+    double smoothfactor, double innerBinRadius, double outerBinRadius)
 {
     if(points.size() <= Ncoefs_radial*10)
         throw std::invalid_argument("SplineExp: number of particles is too small");
+    if(innerBinRadius<0 || outerBinRadius<0 ||
+        (outerBinRadius>0 && outerBinRadius<=innerBinRadius*Ncoefs_radial))
+        throw std::invalid_argument("SplineExp: invalid choice of min/max grid radii");
     // radii of each point in ascending order
     std::vector<double> pointRadii;
     // note that array indexing is swapped w.r.t. coefsArray (i.e. pointCoefs[coefIndex][pointIndex])
@@ -591,43 +592,58 @@ void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosS
     std::vector< std::vector<double> > pointCoefs;
     computeCoefsFromPoints(points, pointRadii, pointCoefs);
 
-    size_t npoints = pointRadii.size();
-    std::vector<double> radii(Ncoefs_radial+1);                         // radii of grid nodes to pass to initspline routine
-    std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);     // SHE coefficients to pass to initspline routine
+    // radii of grid nodes to pass to initspline routine
+    std::vector<double> radii(Ncoefs_radial+1);
+    // SHE coefficients to pass to initspline routine
+    std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);
     for(size_t i=0; i<=Ncoefs_radial; i++)
         coefsArray[i].assign(pow_2(Ncoefs_angular+1), 0);
 
-    // choose the radial grid parameters: innermost cell contains minBinMass and outermost radial node should encompass cutoffMass
-    // spline definition region extends up to outerRadius which is ~several times larger than outermost radial node, however coefficients at that radius are not used in the potential computation later
-    const size_t minBinPoints=10;
-    bool initUserRadii = (userradii!=NULL && userradii->size()==Ncoefs_radial+1 && userradii->front()==0 && userradii->at(1)>= pointRadii[minBinPoints]);
-    if(userradii!=NULL && !initUserRadii)  // something went wrong with manually supplied radii
-        throw std::invalid_argument("SplineExp: invalid radial grid");
-    if(initUserRadii)
-        radii= *userradii;
-    else
-    {
-        size_t npointsMargin    = static_cast<size_t>(sqrt(npoints*0.1));
-        size_t npointsInnerGrid = std::max<size_t>(minBinPoints, npointsMargin);    // number of points within 1st grid radius
-        size_t npointsOuterGrid = npoints - std::max<size_t>(minBinPoints, npointsMargin);   // number of points within outermost grid radius
-        double innerBinRadius = pointRadii[npointsInnerGrid];
-        double outerBinRadius = pointRadii[npointsOuterGrid];
-        math::createNonuniformGrid(Ncoefs_radial+1, innerBinRadius, outerBinRadius, true, radii);
-    }
+    // choose the radial grid parameters if they were not provided:
+    // innermost cell contains minBinMass and outermost radial node should encompass cutoffMass.
+    // spline definition region extends up to outerRadius which is 
+    // ~several times larger than outermost radial node, 
+    // however coefficients at that radius are not used in the potential computation later
+    const size_t npoints = pointRadii.size();
+    const size_t minBinPoints = 10;
+    size_t npointsMargin = static_cast<size_t>(sqrt(npoints*0.1));
+    // number of points within 1st grid radius
+    size_t npointsInnerGrid = std::max<size_t>(minBinPoints, npointsMargin);
+    // number of points within outermost grid radius
+    size_t npointsOuterGrid = npoints - std::max<size_t>(minBinPoints, npointsMargin);
+    if(innerBinRadius < pointRadii[0])
+        innerBinRadius = pointRadii[npointsInnerGrid];
+    if(outerBinRadius == 0 || outerBinRadius > pointRadii.back())
+        outerBinRadius = pointRadii[npointsOuterGrid];
+    math::createNonuniformGrid(Ncoefs_radial+1, innerBinRadius, outerBinRadius, true, radii);
+
     // find index of the inner- and outermost points which are used in b-spline fitting
     size_t npointsInnerSpline = 0;
-    while(pointRadii[npointsInnerSpline]<radii[1]) npointsInnerSpline++;
-    npointsInnerSpline = std::min<size_t>(npointsInnerSpline-2, std::max<size_t>(minBinPoints, npointsInnerSpline/2));
-    // index of last point used in b-spline fitting (it is beyond outer grid radius, since b-spline definition region is larger than the range of radii for which the spline approximation will eventually be constructed)
-    double outerRadiusSpline = pow_2(radii[Ncoefs_radial])/radii[Ncoefs_radial-1];  // roughly equally logarithmically spaced from the last two points
+    while(pointRadii[npointsInnerSpline]<radii[1])
+        npointsInnerSpline++;
+    npointsInnerSpline = std::min<size_t>(npointsInnerSpline-2,
+        std::max<size_t>(minBinPoints, npointsInnerSpline/2));
+    // index of last point used in b-spline fitting 
+    // (it is beyond outer grid radius, since b-spline definition region
+    // is larger than the range of radii for which the spline approximation
+    // will eventually be constructed) -
+    // roughly equally logarithmically spaced from the last two points
+    double outerRadiusSpline = pow_2(radii[Ncoefs_radial])/radii[Ncoefs_radial-1];
     size_t npointsOuterSpline = npoints-1;
-    while(pointRadii[npointsOuterSpline]>outerRadiusSpline) npointsOuterSpline--;
+    while(pointRadii[npointsOuterSpline]>outerRadiusSpline)
+        npointsOuterSpline--;
     //!!!FIXME: what happens if the outermost pointRadius is < outerBinRadius ?
 
-    size_t numPointsUsed = npointsOuterSpline-npointsInnerSpline;  // outer and inner points are ignored
-    size_t numBSplineKnots = Ncoefs_radial+2;  // including zero and outermost point; only interior nodes are actually used for computing best-fit coefs (except l=0 coef, for which r=0 is also used)
-    std::vector<double> scaledPointRadii(numPointsUsed), scaledPointCoefs(numPointsUsed);  // transformed x- and y- values of original data points which will be approximated by a spline regression
-    std::vector<double> scaledKnotRadii(numBSplineKnots), scaledSplineValues;              // transformed x- and y- values of regression spline knots
+    // outer and inner points are ignored
+    size_t numPointsUsed = npointsOuterSpline-npointsInnerSpline;
+    // including zero and outermost point; only interior nodes are actually used
+    // for computing best-fit coefs (except l=0 coef, for which r=0 is also used)
+    size_t numBSplineKnots = Ncoefs_radial+2;
+    // transformed x- and y- values of original data points
+    // which will be approximated by a spline regression
+    std::vector<double> scaledPointRadii(numPointsUsed), scaledPointCoefs(numPointsUsed);
+    // transformed x- and y- values of regression spline knots
+    std::vector<double> scaledKnotRadii(numBSplineKnots), scaledSplineValues;
 
     // open block so that temp variable "appr" will be destroyed upon closing this block
     {
@@ -874,27 +890,23 @@ void SplineExp::initSpline(const std::vector<double> &_radii, const std::vector<
 #endif
 }
 
-void SplineExp::getCoefs(std::vector<double> *radii, std::vector< std::vector<double> > *coefsArray, bool useNodes) const
+void SplineExp::getCoefs(std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const
 {
-    if(radii==NULL || coefsArray==NULL) return;
-    if(useNodes) {
-        radii->resize(Ncoefs_radial+1);
-        for(size_t i=0; i<=Ncoefs_radial; i++)
-            (*radii)[i] = gridradii[i];
-    }
-    size_t numrad = radii->size();
-    coefsArray->resize(numrad);
-    for(size_t i=0; i<numrad; i++) {
-        double rad = (*radii)[i];
-        double xi = log(ascale+rad);
+    radii.resize(Ncoefs_radial+1);
+    for(size_t i=0; i<=Ncoefs_radial; i++)
+        radii[i] = gridradii[i];
+    coefsArray.resize(Ncoefs_radial+1);
+    for(size_t i=0; i<=Ncoefs_radial; i++) {
+        double rad = radii[i];
         double Coef00;
         coef0(rad, &Coef00, NULL, NULL);
-        (*coefsArray)[i].assign(pow_2(Ncoefs_angular+1), 0);
-        (*coefsArray)[i][0] = Coef00;
+        coefsArray[i].assign(pow_2(Ncoefs_angular+1), 0);
+        coefsArray[i][0] = Coef00;
+        double xi = log(ascale+rad);
         for(int l=lstep; l<=lmax; l+=lstep)
             for(int m=l*mmin; m<=l*mmax; m+=mstep) {
                 int coefind=l*(l+1)+m;
-                coeflm(coefind, rad, xi, &((*coefsArray)[i][l*(l+1)+m]), NULL, NULL, Coef00);
+                coeflm(coefind, rad, xi, &(coefsArray[i][l*(l+1)+m]), NULL, NULL, Coef00);
             }
     }
 }

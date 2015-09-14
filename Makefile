@@ -19,6 +19,7 @@ SOURCES   = \
             cubature.cpp \
             df_base.cpp \
             df_disk.cpp \
+            df_factory.cpp \
             df_halo.cpp \
             galaxymodel.cpp \
             math_core.cpp \

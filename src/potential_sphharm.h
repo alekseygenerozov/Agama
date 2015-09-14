@@ -42,23 +42,24 @@ private:
 /** basis-set expansion on the Zhao(1996) basis set (alpha models) **/
 class BasisSetExp: public BasePotentialSphericalHarmonic {
 public:
-    /// init coefficients from a discrete point mass set
-    BasisSetExp(double _Alpha, unsigned int _Ncoefs_radial, unsigned int _Ncoefs_angular, 
-        const particles::PointMassArray<coord::PosSph> &points, SymmetryType _sym=ST_TRIAXIAL);
+    /// init potential from an analytic mass model
+    BasisSetExp(double _Alpha, unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
+        const BaseDensity& density);
 
-    /// load coefficients from stored values
+    /// init potential from a discrete point mass set
+    BasisSetExp(double _Alpha, unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
+        const particles::PointMassArray<coord::PosSph> &points, SymmetryType sym=ST_TRIAXIAL);
+
+    /// init potential from stored coefficients
     BasisSetExp(double _Alpha, const std::vector< std::vector<double> > &coefs);
 
-    /// init potential coefficients from an analytic mass model
-    BasisSetExp(double _Alpha, unsigned int _Ncoefs_radial, unsigned int _Ncoefs_angular, 
-        const BaseDensity& density);
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "BasisSetExp"; };
 
     //  get functions:
-    /// return BSE coefficients array
-    void getCoefs(std::vector< std::vector<double>  > *coefsArray) const
-    { if(coefsArray!=0) *coefsArray=SHcoefs; };
+    /// return the array of BSE coefficients
+    void getCoefs(std::vector< std::vector<double> > &coefsArray) const
+    { coefsArray=SHcoefs; };
 
     /// return the shape parameter of basis set
     double getAlpha() const { return Alpha; };
@@ -93,35 +94,47 @@ private:
 class SplineExp: public BasePotentialSphericalHarmonic
 {
 public:
-    /// init potential from N point masses with given assumed symmetry type, 
-    /// may also provide desired grid radii (otherwise assigned automatically)
-    SplineExp(unsigned int _Ncoefs_radial, unsigned int _Ncoefs_angular, 
+    /** init potential from analytic mass model:
+        \param[in] numCoefsRadial  is the number of grid nodes in radius (excluding the one at r=0);
+        \param[in] numCoefsAngular  is the maximum order of angular spherical-harmonic expansion;
+        \param[in] density  is the input density profile;
+        \param[in] Rmin is the radius of the innermost grid node (0 means auto-detect);
+        \param[in] Rmax is the radius of the outermost grid node (0 means auto-detect);
+    */
+    SplineExp(unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
+        const BaseDensity& density, double Rmin=0, double Rmax=0);
+
+    /** init potential from an array of N point masses:
+        \param[in] numCoefsRadial  is the number of grid nodes in radius (excluding the one at r=0);
+        \param[in] numCoefsAngular  is the maximum order of angular spherical-harmonic expansion;
+        \param[in] points  is the array of point masses;
+        \param[in] sym  is the assumed symmetry of the model;
+        \param[in] smoothFactor  is the amount of smoothing applied to the l>0 terms in the expansion;
+        \param[in] Rmin is the radius of the innermost grid node (0 means auto-detect);
+        \param[in] Rmax is the radius of the outermost grid node (0 means auto-detect);
+    */
+    SplineExp(unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
         const particles::PointMassArray<coord::PosSph> &points, 
-        SymmetryType _sym=ST_TRIAXIAL, double smoothfactor=0, 
-        const std::vector<double>  *_gridradii=0);
+        SymmetryType sym=ST_TRIAXIAL, double smoothFactor=0, 
+        double Rmin=0, double Rmax=0);
 
-    /// init potential from stored SHE coefficients at given radii
-    SplineExp(const std::vector<double>  &_gridradii, const std::vector< std::vector<double>  > &_coefs);
-
-    /// init potential from analytic mass model, 
-    /// may also provide desired grid radii (if not given, assign automatically)
-    SplineExp(unsigned int _Ncoefs_radial, unsigned int _Ncoefs_angular, 
-        const BaseDensity& density, const std::vector<double>  *_gridradii=0);
+    /// init potential from stored spherical-harmonic coefficients at given radii
+    SplineExp(const std::vector<double> &_gridradii,
+        const std::vector< std::vector<double> > &_coefs);
 
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "SplineExp"; };
 
     // get functions
-    unsigned int getNumCoefsRadial() const { return Ncoefs_radial; }   ///< return the number of radial points in the spline (excluding r=0)
+    /// return the number of radial points in the spline (excluding r=0)
+    unsigned int getNumCoefsRadial() const { return Ncoefs_radial; }
 
-    /** compute SHE coefficients at given radii.
-        \param[in] useNodes tells whether the radii in question are 
-                   the original spline nodes (true) or user-specified radii (true);
-        \param[in,out] radii: if useNodes=true, this array is filled with spline nodes [output parameter, but must point to an existing array], 
-                   otherwise the coefficients are computed at the supplied radii [input parameter];
-        \param[out] coefsArray is filled by the computed coefficients (must point to an existing array)
+    /** return the array of spherical-harmonic expansion coefficients.
+        \param[out] radii  will contain the radii of grid nodes;
+        \param[out] coefsArray  will contain the spherical-harmonic 
+        expansion coefficients at the given radii.
     */
-    void getCoefs(std::vector<double> *radii, std::vector< std::vector<double> > *coefsArray, bool useNodes=true) const;
+    void getCoefs(std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const;
 
     /// a faster estimate of M(r) from the l=0 harmonic only
     double enclosedMass(const double radius) const;
@@ -133,7 +146,7 @@ private:
     double ascale;                           ///< value of scaling radius for non-spherical expansion coefficients which are tabulated as functions of log(r+ascale)
     double gammain,  coefin;                 ///< slope and coef. for extrapolating potential inside minr (spherically-symmetric part, l=0)
     double gammaout, coefout, der2out;       ///< slope and coef. for extrapolating potential outside maxr (spherically-symmetric part, l=0)
-    double potcenter, potmax, potminr;       ///< (abs.value) potential in the center (for transformation of l=0 spline), at the outermost spline node, and at 1st spline node
+    double potcenter, potmax, potminr;       ///< (abs.value) potential in the center (for transformation of l=0 spline), at the outermost spline node, and at the innermost spline node
     std::vector<math::CubicSpline> splines;  ///< spline coefficients at each harmonic
     std::vector<double> slopein, slopeout;   ///< slope of coefs for l>0 for extrapolating inside rmin/outside rmax
 
@@ -161,20 +174,22 @@ private:
 
     /** create smoothing splines from the coefficients computed at each particle's radius.
         \param[in] points is the array of particle coordinates and masses
-        \param[in] userradii may contain the radial grid to construct the splines; 
-                   if it is NULL then the radial grid is constructed automatically 
-                   taking into account the range of radii covered by source points.
         \param[in] smoothfactor determines how much smoothing is applied to the spline 
                    (good results are obtained for smoothfactor=1-2). 
+        \param[in] Rmin,Rmax are the innermost/outermost grid radii;
+                   if either is 0 then it is assigned automatically 
+                   taking into account the range of radii covered by source points.
     */
     void prepareCoefsDiscrete(const particles::PointMassArray<coord::PosSph>& points, 
-        double smoothfactor, const std::vector<double> * userradii);
+        double smoothfactor, double Rmin, double Rmax);
 
     /** compute expansion coefficients from an analytical mass profile.
         \param[in] density is the density profile to be approximated
-        \param[in] srcradii may contain the radial grid; if NULL then it is assigned automatically.
+        \param[in] Rmin,Rmax are the innermost/outermost grid radii;
+                   if either is 0 then it is assigned automatically 
+                   taking into account the range of radii covered by source points.
     */
-    void prepareCoefsAnalytic(const BaseDensity& density, const std::vector<double>  *srcradii);
+    void prepareCoefsAnalytic(const BaseDensity& density, double Rmin, double Rmax);
 
     /// evaluate value and optionally up to two derivatives of l=0 coefficient, 
     /// taking into account extrapolation beyond the grid definition range and log-scaling of splines

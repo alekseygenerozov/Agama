@@ -217,7 +217,7 @@ void findPlanarOrbitExtent(const potential::BasePotential& poten, double E, doub
                 throw std::runtime_error("Error in locating Rmax in findPlanarOrbitExtent");
         }
     }   // else Rmax=Rinit
-    assert(Rmin>=0 && Rmin<=Rinit && Rinit<=Rmax);
+//!!!    assert(Rmin>=0 && Rmin<=Rinit && Rinit<=Rmax);
     if(Jr!=NULL) {  // compute radial action
         fnc.mode = OrbitSizeFunction::FIND_JR;
         *Jr = math::integrateGL(fnc, Rmin, Rmax, 10) / M_PI;
@@ -230,7 +230,7 @@ class OrbitIntegratorMeridionalPlane: public math::IOdeSystem {
 public:
     OrbitIntegratorMeridionalPlane(const potential::BasePotential& p, double Lz) :
         poten(p), Lz2(Lz*Lz) {};
-    
+
     /** apply the equations of motion in R,z plane without tracking the azimuthal motion */
     virtual void eval(const double /*t*/, const math::OdeStateType& y, math::OdeStateType& dydt) const
     {

@@ -244,8 +244,8 @@ static ConfigPotential parseParams(const utils::KeyValueMap& params, const units
 {
     ConfigPotential config;
     config.potentialType = getPotentialTypeByName(params.getString("Type"));
-    config.densityType   = getDensityTypeByName(params.getString("Density"));
-    config.symmetryType  = getSymmetryTypeByName(params.getString("Symmetry"));
+    config.densityType   = getDensityTypeByName  (params.getString("Density"));
+    config.symmetryType  = getSymmetryTypeByName (params.getString("Symmetry"));
     config.fileName    = params.getString("File");
     config.mass        = params.getDouble("Mass", config.mass) * conv.massUnit;
     config.q           = params.getDoubleAlt("axisRatioY", "q", config.q);
@@ -295,18 +295,10 @@ const BasePotential* createPotentialFromPoints(const ConfigPotential& config,
     const particles::PointMassArray<ParticleT>& points)
 {
     switch(config.potentialType) {
-    case PT_SPLINE: {
-        if(config.splineRMin>0 && config.splineRMax>0) 
-        {
-            std::vector<double> radii;
-            math::createNonuniformGrid(config.numCoefsRadial+1, config.splineRMin, 
-                config.splineRMax, true, radii);
-            return new SplineExp(config.numCoefsRadial, config.numCoefsAngular, 
-                points, config.symmetryType, config.splineSmoothFactor, &radii);
-        } else
-            return new SplineExp(config.numCoefsRadial, config.numCoefsAngular, 
-                points, config.symmetryType, config.splineSmoothFactor);
-    }
+    case PT_SPLINE:
+        return new SplineExp(config.numCoefsRadial, config.numCoefsAngular, 
+            points, config.symmetryType, config.splineSmoothFactor, 
+            config.splineRMin, config.splineRMax);
     case PT_CYLSPLINE:
         return new CylSplineExp(config.numCoefsRadial, config.numCoefsVertical,
             config.numCoefsAngular, points, config.symmetryType, 
@@ -508,7 +500,7 @@ static void writePotentialExpCoefs(const std::string& fileName,
         const BasisSetExp& potBSE = dynamic_cast<const BasisSetExp&>(potential);
         indices.resize(potBSE.getNumCoefsRadial()+1);
         for(size_t i=0; i<indices.size(); i++) indices[i]=i*1.0;
-        potBSE.getCoefs(&coefs);
+        potBSE.getCoefs(coefs);
         assert(coefs.size() == indices.size());
         ncoefsAngular = potBSE.getNumCoefsAngular();
         strm << "BSEcoefs\t#header\n" << 
@@ -520,10 +512,10 @@ static void writePotentialExpCoefs(const std::string& fileName,
     }
     case PT_SPLINE: {
         const SplineExp& potSpline = dynamic_cast<const SplineExp&>(potential);
-        potSpline.getCoefs(&indices, &coefs);
+        potSpline.getCoefs(indices, coefs);
         assert(coefs.size() == indices.size());
         assert(indices[0] == 0);  // leftmost radius is 0
-        coefs[0].resize(1);     // retain only l=0 term for r=0, the rest is supposed to be zero
+        coefs[0].resize(1);       // retain only l=0 term for r=0, the rest is supposed to be zero
         ncoefsAngular = potSpline.getNumCoefsAngular();
         strm << "SHEcoefs\t#header\n" << 
             potSpline.getNumCoefsRadial() << "\t#n_radial\n" << 
@@ -731,16 +723,8 @@ static const BasePotential* createPotentialExpansion(const ConfigPotential& conf
             config.alpha, config.numCoefsRadial, config.numCoefsAngular, *densModel);
         break;
     case PT_SPLINE: {
-        if(config.splineRMin>0 && config.splineRMax>0)
-        {
-            std::vector<double> grid;
-            math::createNonuniformGrid(config.numCoefsRadial+1, 
-                config.splineRMin, config.splineRMax, true, grid);
-            poten = new SplineExp(
-                config.numCoefsRadial, config.numCoefsAngular, *densModel, &grid);
-        } else  // no user-supplied grid extent -- will be assigned by default
-            poten = new SplineExp(
-                config.numCoefsRadial, config.numCoefsAngular, *densModel);
+        poten = new SplineExp(config.numCoefsRadial, config.numCoefsAngular,
+            *densModel, config.splineRMin, config.splineRMax);
         break;
     }
     case PT_CYLSPLINE: {

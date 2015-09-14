@@ -28,17 +28,19 @@
 #include "potential_factory.h"
 #include "potential_composite.h"
 #include "actions_staeckel.h"
-#include "actions_torus.h"
+//#include "actions_torus.h"
+#include "df_factory.h"
 #include "orbit.h"
 #include "math_spline.h"
 #include "utils_config.h"
 
 //#define DEBUGPRINT
 
-/// \name  Some general definitions
+/// \name  ----- Some general definitions -----
 ///@{
 
-std::string toString(PyObject* obj)
+/// return a string representation of a Python object
+static std::string toString(PyObject* obj)
 {
     if(PyString_Check(obj))
         return std::string(PyString_AsString(obj));
@@ -48,7 +50,8 @@ std::string toString(PyObject* obj)
     return str;
 }
 
-void convertPyDictToKeyValueMap(PyObject* args, utils::KeyValueMap& params)
+/// convert a Python dictionary to its c++ analog
+static void convertPyDictToKeyValueMap(PyObject* args, utils::KeyValueMap& params)
 {
     PyObject *key, *value;
     Py_ssize_t pos = 0;
@@ -140,8 +143,7 @@ static PyObject* reset_units(PyObject* /*self*/, PyObject* args)
 }
 
 ///@}
-/// \name ----- a truly general interface for evaluating some function 
-///             for some input data and storing its output somewhere -----
+/// \name ----- a truly general interface for evaluating some function for some input data and storing its output somewhere -----
 ///@{
 
 /// any function that evaluates something for a given object and an `input` array of floats,
@@ -283,12 +285,12 @@ template<> void formatOutputArr<OUTPUT_VALUE_TRIPLET_AND_SEXTET>(
 }
 
 /** A general function that computes something for one or many input points.
-    \param[in]  fnc  is the function pointer to the routine that actually computes something,
-    taking a pointer to an instance of Python object, an array of floats as the input point,
-    and producing another array of floats as the output.
     \tparam numArgs  is the size of array that contains the value of a single input point.
     \tparam numOutput is the identifier (not literally the size) of output data format 
     for a single input point: it may be a single number, an array of floats, or even several arrays.
+    \param[in]  fnc  is the function pointer to the routine that actually computes something,
+    taking a pointer to an instance of Python object, an array of floats as the input point,
+    and producing another array of floats as the output.
     \param[in] self  is the pointer to Python object that is passed to the 'fnc' routine
     \param[in] args  is the arguments of the function call: it may be a sequence of numArg floats 
     that represents a single input point, or a 1d array of the same length and same meaning,
@@ -638,8 +640,6 @@ static PyObject* Potential_potential(PyObject* self, PyObject* args) {
         (self, args, fncPotential);
 }
 static PyObject* Potential_value(PyObject* self, PyObject* args, PyObject* /*namedargs*/) {
-    if(!Potential_isCorrect(self))
-        return NULL;
     return Potential_potential(self, args);
 }
 
@@ -731,6 +731,13 @@ static PyObject* Potential_export(PyObject* self, PyObject* args)
     }
 }
 
+static PyObject* Potential_totalMass(PyObject* self)
+{
+    if(!Potential_isCorrect(self))
+        return NULL;
+    return Py_BuildValue("d", ((PotentialObject*)self)->pot->totalMass());
+}
+
 static PyMethodDef Potential_methods[] = {
     { "name", (PyCFunction)Potential_name, METH_NOARGS, 
       "Return the name of the potential\n"
@@ -759,6 +766,10 @@ static PyMethodDef Potential_methods[] = {
       "Export potential expansion coefficients to a text file\n"
       "Arguments: filename (string)\n"
       "Returns: none" },
+    { "total_mass", (PyCFunction)Potential_totalMass, METH_NOARGS, 
+      "Return the total mass of the density model\n"
+      "No arguments\n"
+      "Returns: float number" },
     { NULL, NULL, 0, NULL }
 };
 
@@ -939,6 +950,113 @@ static PyObject* find_actions(PyObject* /*self*/, PyObject* args, PyObject* name
     return callAnyFunctionOnArray<INPUT_VALUE_SEXTET, OUTPUT_VALUE_TRIPLET>
         ((PyObject*)(&params), points_obj, fncActionsStandalone);
 }
+
+///@}
+/// \name  --------- DistributionFunction class -----------
+///@{
+
+/// Python type corresponding to SplineApprox class
+typedef struct {
+    PyObject_HEAD
+    const df::BaseDistributionFunction* df;
+} DistributionFunctionObject;
+
+static PyObject* DistributionFunction_new(PyTypeObject *type, PyObject*, PyObject*)
+{
+    DistributionFunctionObject *self = (DistributionFunctionObject*)type->tp_alloc(type, 0);
+    if(self)
+        self->df=NULL;
+    return (PyObject*)self;
+}
+
+static void DistributionFunction_dealloc(DistributionFunctionObject* self)
+{
+    if(self->df)
+        delete self->df;
+    self->ob_type->tp_free((PyObject*)self);
+}
+
+static const char* docstringDistributionFunction = "DistributionFunction";
+
+static int DistributionFunction_init(PyObject* self, PyObject* args, PyObject* namedArgs)
+{
+    PyObject* dict = namedArgs;
+    if(args!=NULL && PyTuple_Check(args) && PyTuple_Size(args)==1 && PyDict_Check(PyTuple_GET_ITEM(args, 0))) {
+        if(dict!=NULL) {
+            PyErr_SetString(PyExc_ValueError, "Should provide either a list of key=value arguments or a dictionary, not both");
+            return -1;
+        }
+        dict = PyTuple_GET_ITEM(args, 0);
+    }
+    if(dict==NULL || !PyDict_Check(dict) || PyDict_Size(dict)==0) {
+        PyErr_SetString(PyExc_ValueError, "Should provide a list of key=value arguments or a dictionary");
+        return -1;
+    }
+    try{
+        utils::KeyValueMap params;
+        convertPyDictToKeyValueMap(dict, params);
+        const df::BaseDistributionFunction* df = df::createDistributionFunction(params, *conv);
+        assert(df!=NULL);
+        if(((DistributionFunctionObject*)self)->df)
+        {  // check if this is not the first time that constructor is called
+            delete ((DistributionFunctionObject*)self)->df;
+        }
+        ((DistributionFunctionObject*)self)->df = df;
+        return 0;
+    }
+    catch(std::exception& e) {
+        PyErr_SetString(PyExc_ValueError, (std::string("Error in creating distribution function: ")+e.what()).c_str());
+        return -1;
+    }
+}
+
+static void fncDistributionFunction(void* obj, const double input[], double *result) {
+    const actions::Actions acts(
+        input[0] * conv->lengthUnit * conv->velocityUnit, 
+        input[1] * conv->lengthUnit * conv->velocityUnit, 
+        input[2] * conv->lengthUnit * conv->velocityUnit);
+    // dimension of distribution function is M L^-3 V^-3
+    const double dim = pow_3(conv->velocityUnit * conv->lengthUnit) / conv->massUnit;
+    try{
+        result[0] = ((DistributionFunctionObject*)obj)->df->value(acts) * dim;
+    }
+    catch(std::exception& ) {
+        result[0] = NAN;
+    }
+}
+
+static PyObject* DistributionFunction_value(PyObject* self, PyObject* args, PyObject* /*namedArgs*/)
+{
+    if(((DistributionFunctionObject*)self)->df==NULL)
+        return NULL;
+    return callAnyFunctionOnArray<INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE>
+        (self, args, fncDistributionFunction);
+}
+
+static PyObject* DistributionFunction_totalMass(PyObject* self)
+{
+    if(((DistributionFunctionObject*)self)->df==NULL)
+        return NULL;
+    return Py_BuildValue("d", ((DistributionFunctionObject*)self)->df->totalMass());
+}
+
+static PyMethodDef DistributionFunction_methods[] = {
+    { "total_mass", (PyCFunction)DistributionFunction_totalMass, METH_NOARGS,
+      "Return the total mass of the model (integral of the distribution function over the entire phase space of actions\n"
+      "No arguments\n"
+      "Returns: float number" },
+    { NULL, NULL, 0, NULL }
+};
+
+static PyTypeObject DistributionFunctionType = {
+    PyObject_HEAD_INIT(NULL)
+    0, "py_wrapper.DistributionFunction",
+    sizeof(DistributionFunctionObject), 0, (destructor)DistributionFunction_dealloc,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, DistributionFunction_value, 0, 0, 0, 0,
+    Py_TPFLAGS_DEFAULT, docstringDistributionFunction, 
+    0, 0, 0, 0, 0, 0, DistributionFunction_methods, 0, 0, 0, 0, 0, 0, 0,
+    DistributionFunction_init, 0, DistributionFunction_new
+};
 
 ///@}
 /// \name  --------- SplineApprox class -----------
@@ -1187,7 +1305,6 @@ initpy_wrapper(void)
     if(!mod) return;
     conv = new units::ExternalUnits();
 
-    // Potential class
     PotentialTypePtr = &PotentialType;
     if (PyType_Ready(&PotentialType) < 0) return;
     Py_INCREF(&PotentialType);
@@ -1197,11 +1314,15 @@ initpy_wrapper(void)
     Py_INCREF(&ActionFinderType);
     PyModule_AddObject(mod, "ActionFinder", (PyObject *)&ActionFinderType);
 
+    if (PyType_Ready(&DistributionFunctionType) < 0) return;
+    Py_INCREF(&DistributionFunctionType);
+    PyModule_AddObject(mod, "DistributionFunction", (PyObject *)&DistributionFunctionType);
+
     if (PyType_Ready(&SplineApproxType) < 0) return;
     Py_INCREF(&SplineApproxType);
     PyModule_AddObject(mod, "SplineApprox", (PyObject *)&SplineApproxType);
 
-    import_array();
+    import_array();  // needed for NumPy to work properly
 }
 
 /// \endcond
