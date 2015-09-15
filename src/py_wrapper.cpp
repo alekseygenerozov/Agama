@@ -30,6 +30,7 @@
 #include "actions_staeckel.h"
 //#include "actions_torus.h"
 #include "df_factory.h"
+#include "galaxymodel.h"
 #include "orbit.h"
 #include "math_spline.h"
 #include "utils_config.h"
@@ -123,7 +124,7 @@ static PyObject* set_units(PyObject* /*self*/, PyObject* args, PyObject* namedAr
     return Py_None;
 }
 
-/// description of set_units function
+/// description of reset_units function
 static const char* docstringResetUnits = 
     "Reset the unit conversion system to a trivial one "
     "(i.e., no conversion involved and all quantities are assumed to be in N-body units, "
@@ -132,7 +133,7 @@ static const char* docstringResetUnits =
 /// reset the unit conversion
 static PyObject* reset_units(PyObject* /*self*/, PyObject* args)
 {
-    if(PyTuple_Check(args) && PyTuple_Size(args)>0) {
+    if(args!=NULL && PyTuple_Check(args) && PyTuple_Size(args)>0) {
         PyErr_SetString(PyExc_ValueError, "No arguments are expected");
         return NULL;
     }
@@ -976,25 +977,27 @@ static void DistributionFunction_dealloc(DistributionFunctionObject* self)
     self->ob_type->tp_free((PyObject*)self);
 }
 
-static const char* docstringDistributionFunction = "DistributionFunction";
+static const char* docstringDistributionFunction =
+    "DistributionFunction class represents an action-based distribution function.\n\n"
+    "The constructor accepts several key=value arguments that describe the parameters "
+    "of distribution function.\n"
+    "Required parameter is type='...', specifying the type of DF: currently available types are "
+    "'DoublePowerLaw' (for the halo) and 'PseudoIsothermal' (for the disk component).\n"
+    "Other parameters are specific to each DF type.\n\n"
+    "The () operator computes the value of distribution function for the given triplet of actions.\n"
+    "The total_mass() function computes the total mass in the entire phase space.\n";
 
 static int DistributionFunction_init(PyObject* self, PyObject* args, PyObject* namedArgs)
 {
-    PyObject* dict = namedArgs;
-    if(args!=NULL && PyTuple_Check(args) && PyTuple_Size(args)==1 && PyDict_Check(PyTuple_GET_ITEM(args, 0))) {
-        if(dict!=NULL) {
-            PyErr_SetString(PyExc_ValueError, "Should provide either a list of key=value arguments or a dictionary, not both");
-            return -1;
-        }
-        dict = PyTuple_GET_ITEM(args, 0);
-    }
-    if(dict==NULL || !PyDict_Check(dict) || PyDict_Size(dict)==0) {
-        PyErr_SetString(PyExc_ValueError, "Should provide a list of key=value arguments or a dictionary");
-        return -1;
+    if(namedArgs==NULL || !PyDict_Check(namedArgs) || PyDict_Size(namedArgs)==0 || 
+        (args!=0 && PyTuple_Check(args) && PyTuple_Size(args)>0) ) 
+    {
+        PyErr_SetString(PyExc_ValueError, "Should provide a list of key=value arguments and no positional arguments");
+        return NULL;
     }
     try{
         utils::KeyValueMap params;
-        convertPyDictToKeyValueMap(dict, params);
+        convertPyDictToKeyValueMap(namedArgs, params);
         const df::BaseDistributionFunction* df = df::createDistributionFunction(params, *conv);
         assert(df!=NULL);
         if(((DistributionFunctionObject*)self)->df)
@@ -1213,6 +1216,69 @@ static PyTypeObject SplineApproxType = {
 
 
 ///@}
+/// \name  ----- GalaxyModel routines -----
+///@{
+
+static const char* docstringSample = "Sample distribution function in the given potential by N points";
+
+/// generate samples in position/velocity space
+static PyObject* sample_posvel(PyObject* /*self*/, PyObject* args, PyObject* namedArgs)
+{
+    // parse and check input arguments
+    static const char* keywords[] = {"pot", "df", "N", NULL};
+    PyObject *pot_obj = NULL, *df_obj = NULL;
+    int numPoints=0;
+    if(!PyArg_ParseTupleAndKeywords(
+        args, namedArgs, "|OOi", const_cast<char**>(keywords),
+        &pot_obj, &df_obj, &numPoints) || numPoints<=0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Invalid arguments passed to sample()");
+        return NULL;
+    }
+    if(!PyObject_TypeCheck(pot_obj, &PotentialType) ||
+        ((PotentialObject*)pot_obj)->pot==NULL ) {
+        PyErr_SetString(PyExc_TypeError, "Argument 'pot' must be a valid instance of Potential class");
+        return NULL;
+    }
+    /*if(!PyObject_TypeCheck(af_obj, &ActionFinderType) ||
+        ((ActionFinderObject*)af_obj)->finder==NULL || ((ActionFinderObject*)af_obj)->pot!=pot_obj) {
+        PyErr_SetString(PyExc_TypeError, "Argument 'af' must be a valid instance of ActionFinder class "
+            "corresponding to the given potential");
+        return NULL;
+    }*/
+    if(!PyObject_TypeCheck(df_obj, &DistributionFunctionType) ||
+        ((DistributionFunctionObject*)df_obj)->df==NULL ) {
+        PyErr_SetString(PyExc_TypeError, "Argument 'df' must be a valid instance of DistributionFunction class");
+        return NULL;
+    }
+
+    // do the sampling
+    try{
+        const potential::BasePotential& pot = *((PotentialObject*)pot_obj)->pot;
+        actions::ActionFinderAxisymFudge af(pot);
+        galaxymodel::GalaxyModel galmod(pot, af, *((DistributionFunctionObject*)df_obj)->df);
+        particles::PointMassArrayCar points;
+        galaxymodel::generatePosVelSamples(galmod, numPoints, points);
+        numPoints = points.size();
+
+        // convert output to NumPy array
+        npy_intp dims[] = {numPoints, 6};
+        PyObject* posvel_arr = PyArray_SimpleNew(2, dims, NPY_DOUBLE);
+        PyObject* mass_arr   = PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+        for(int i=0; i<numPoints; i++) {
+            points.point(i).unpack_to( ((double*)PyArray_DATA((PyArrayObject*)posvel_arr)) + i*6 );
+            ((double*)PyArray_DATA((PyArrayObject*)mass_arr))[i] = points.mass(i);
+        }
+        return Py_BuildValue("NN", posvel_arr, mass_arr);
+    }
+    catch(std::exception& e) {
+        PyErr_SetString(PyExc_ValueError, 
+            (std::string("Error in sample: ")+e.what()).c_str());
+        return NULL;
+    }
+}
+
+///@}
 /// \name  ----- Orbit integration -----
 ///@{
 
@@ -1294,6 +1360,7 @@ static PyMethodDef py_wrapper_methods[] = {
     {"set_units", (PyCFunction)set_units, METH_VARARGS | METH_KEYWORDS, docstringSetUnits},
     {"reset_units", reset_units, METH_NOARGS, docstringResetUnits},
     {"orbit", (PyCFunction)integrate_orbit, METH_VARARGS | METH_KEYWORDS, docstringOrbit},
+    {"sample", (PyCFunction)sample_posvel, METH_VARARGS | METH_KEYWORDS, docstringSample},
     {"actions", (PyCFunction)find_actions, METH_VARARGS | METH_KEYWORDS, docstringActions},
     {NULL}
 };
