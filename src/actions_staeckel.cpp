@@ -76,7 +76,7 @@ AxisymFunctionFudge findIntegralsOfMotionAxisymFudge
     double Lz= coord::Lz(point);
     const coord::PosVelProlSph pprol = coord::toPosVel<coord::Cyl, coord::ProlSph>(point, coordsys);
     const double absnu = fabs(pprol.nu);
-    
+
     // check for various extreme cases, and provide asymptotically valid expressions if necessary
     // if R is nearly zero and z^2 < delta, then lambda-delta ~= 0
     const bool lambda_near_min = pprol.lambda - coordsys.delta <= MINIMUM_RANGE*coordsys.delta;
@@ -84,7 +84,7 @@ AxisymFunctionFudge findIntegralsOfMotionAxisymFudge
     const bool nu_near_max = coordsys.delta-absnu <= MINIMUM_RANGE*coordsys.delta;
     // if z is nearly zero, then nu ~= 0
     const bool nu_near_min = absnu <= MINIMUM_RANGE*coordsys.delta;
-    
+
     const double El = lambda_near_min ? 
         pow_2(point.vphi) * absnu / coordsys.delta / 2 :
         pow_2(Lz) / 2 / (pprol.lambda - coordsys.delta);
@@ -453,21 +453,6 @@ ActionAngles computeActionAngles(
 
 // -------- THE DRIVER ROUTINES --------
 
-// a special case of spherical potential does not require any fudge
-static Actions sphericalActions(const potential::BasePotential& potential,
-    const coord::PosVelCyl& point)
-{
-    if(!isSpherical(potential))
-        throw std::invalid_argument("This routine only can deal with actions in a spherical potential");
-    Actions acts;
-    double Ltot = Ltotal(point);
-    acts.Jphi = Lz(point);
-    acts.Jz = Ltot - fabs(acts.Jphi);
-    double R1, R2;
-    findPlanarOrbitExtent(potential, totalEnergy(potential, point), Ltot, R1, R2, &acts.Jr);
-    return acts;
-}
-
 Actions axisymStaeckelActions(const potential::OblatePerfectEllipsoid& potential, 
     const coord::PosVelCyl& point)
 {
@@ -489,8 +474,6 @@ Actions axisymFudgeActions(const potential::BasePotential& potential,
 {
     if(!isAxisymmetric(potential))
         throw std::invalid_argument("Fudge approximation only works for axisymmetric potentials");
-    if(isSpherical(potential))
-        return sphericalActions(potential, point);
     const coord::ProlSph coordsys(pow_2(interfocalDistance));
     const AxisymFunctionFudge fnc = findIntegralsOfMotionAxisymFudge(potential, point, coordsys);
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
@@ -503,7 +486,7 @@ ActionAngles axisymFudgeActionAngles(const potential::BasePotential& potential,
     if(!isAxisymmetric(potential))
         throw std::invalid_argument("Fudge approximation only works for axisymmetric potentials");
     const coord::ProlSph coordsys(pow_2(interfocalDistance));
-    const AxisymFunctionFudge fnc = findIntegralsOfMotionAxisymFudge(potential, point, coordsys);    
+    const AxisymFunctionFudge fnc = findIntegralsOfMotionAxisymFudge(potential, point, coordsys);
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
     return computeActionAngles(fnc, lim, freq);
 }

@@ -13,6 +13,7 @@ TORUSDIR  = src/torus
 # sources of the main library
 SOURCES   = \
             actions_interfocal_distance_finder.cpp \
+            actions_spherical.cpp \
             actions_staeckel.cpp \
             actions_torus.cpp \
             coord.cpp \

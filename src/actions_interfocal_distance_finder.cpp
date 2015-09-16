@@ -147,12 +147,13 @@ void findPlanarOrbitExtent(const potential::BasePotential& poten, double E, doub
     OrbitSizeFunction fnc(poten, E, Lz);
     // first guess for the radius that should lie between Rmin and Rmax
     double Rinit = R_from_Lz(poten, Lz);
-    assert(Rinit>=0);
+    if(!(Rinit>=0))  // could be NaN or inf, although it's a really bad luck
+        throw std::runtime_error("Error in findPlanarOrbitExtent: cannot determine R(Lz)");
     // we make sure that f(R)>=0, since otherwise we cannot initiate root-finding
     math::PointNeighborhood nh(fnc, Rinit);
     double dR_to_zero = nh.dxToNearestRoot();
     int nIter = 0;
-    while(nh.f0<0 && nIter<4) {  // safety measure to avoid roundoff errors
+    while(nh.f0<0 && nIter<10) {  // safety measure to avoid roundoff errors
         if(Rinit+dR_to_zero == Rinit)  // delta-step too small
             Rinit *= (1 + 1e-15*math::sign(dR_to_zero));
         else

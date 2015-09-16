@@ -455,8 +455,6 @@ void Multipole::setup(const BaseDensity& source_density,
   delete[] P1;
   delete[] P2;
   //
-  // 3. establish L_circ(R) on the logarithmic grid (skipped)
-  //
   // 4.  Put potential and its derivatives on a 2D grid in log[r] & cos[theta]
   //
   // 4.1 set linear grid in theta
@@ -480,6 +478,11 @@ void Multipole::setup(const BaseDensity& source_density,
   // 4.3 establish 2D Pspline of Phi in log[r] & cos[theta]
   //
   WD::Pspline2D(X,Y,K,Z);
+
+  // 5.0 determine if the potential is spherically-symmetric
+  // (could determine this explicitly by analyzing the angular dependence of Phi(r,theta),
+  // but for now simply ask the source density model
+  isSpherical = (source_density.symmetry() & ST_SPHERICAL) == ST_SPHERICAL;
 }
 
 void Multipole::evalCyl(const coord::PosCyl &pos,

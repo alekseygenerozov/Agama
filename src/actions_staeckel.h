@@ -245,7 +245,7 @@ private:
     It is more suitable for massive computation in a fixed potential than just using 
     the standalone routines, because it estimates the interfocal distance using a pre-computed 
     interpolation grid, rather than doing it individually for each point. This results in 
-    up to 40% speedup in action computation, for a negligible overhead during initialization.
+    a considerable speedup in action computation, for a negligible overhead during initialization.
 */
 class ActionFinderAxisymFudge: public BaseActionFinder {
 public:

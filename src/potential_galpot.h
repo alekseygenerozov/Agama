@@ -212,10 +212,11 @@ public:
                const int num_grid_points,
                const double gamma, const double beta);
     ~Multipole();
-    virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
+    virtual SymmetryType symmetry() const { return isSpherical ? ST_SPHERICAL : ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "AxisymmetricMultipole"; };
 private:
+    bool isSpherical;
     virtual void evalCyl(const coord::PosCyl &pos,
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
 };

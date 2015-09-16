@@ -27,8 +27,8 @@
 #include "units.h"
 #include "potential_factory.h"
 #include "potential_composite.h"
+#include "actions_spherical.h"
 #include "actions_staeckel.h"
-//#include "actions_torus.h"
 #include "df_factory.h"
 #include "galaxymodel.h"
 #include "orbit.h"
@@ -131,12 +131,8 @@ static const char* docstringResetUnits =
     "with the gravitational constant equal to 1\n";
 
 /// reset the unit conversion
-static PyObject* reset_units(PyObject* /*self*/, PyObject* args)
+static PyObject* reset_units(PyObject* /*self*/, PyObject* /*args*/)
 {
-    if(args!=NULL && PyTuple_Check(args) && PyTuple_Size(args)>0) {
-        PyErr_SetString(PyExc_ValueError, "No arguments are expected");
-        return NULL;
-    }
     delete conv;
     conv = new units::ExternalUnits();
     Py_INCREF(Py_None);
@@ -736,7 +732,7 @@ static PyObject* Potential_totalMass(PyObject* self)
 {
     if(!Potential_isCorrect(self))
         return NULL;
-    return Py_BuildValue("d", ((PotentialObject*)self)->pot->totalMass());
+    return Py_BuildValue("d", ((PotentialObject*)self)->pot->totalMass() / conv->massUnit);
 }
 
 static PyMethodDef Potential_methods[] = {
@@ -791,7 +787,7 @@ static PyTypeObject PotentialType = {
 /// Python type corresponding to ActionFinder class
 typedef struct {
     PyObject_HEAD
-    const actions::InterfocalDistanceFinder* finder;  // C++ object for interfocal distance finder
+    const actions::BaseActionFinder* af;  // C++ object for action finder
     PyObject* pot;  // Python object for potential
 } ActionFinderObject;
 
@@ -799,7 +795,7 @@ static PyObject* ActionFinder_new(PyTypeObject *type, PyObject*, PyObject*)
 {
     ActionFinderObject *self = (ActionFinderObject*)type->tp_alloc(type, 0);
     if(self) {
-        self->finder=NULL;
+        self->af=NULL;
         self->pot=NULL;
     }
     return (PyObject*)self;
@@ -807,8 +803,8 @@ static PyObject* ActionFinder_new(PyTypeObject *type, PyObject*, PyObject*)
 
 static void ActionFinder_dealloc(ActionFinderObject* self)
 {
-    if(self->finder)
-        delete self->finder;
+    if(self->af)
+        delete self->af;
     Py_XDECREF(self->pot);
     self->ob_type->tp_free((PyObject*)self);
 }
@@ -833,14 +829,18 @@ static int ActionFinder_init(PyObject* self, PyObject* args, PyObject* namedargs
         return -1;
     }
     try{
-        const actions::InterfocalDistanceFinder* finder = 
-            new actions::InterfocalDistanceFinder(*((PotentialObject*)objPot)->pot);
+        const potential::BasePotential& pot = *((PotentialObject*)objPot)->pot;
+        const actions::BaseActionFinder* af = NULL;
+        if(isSpherical(pot))
+            af = new actions::ActionFinderSpherical(pot);
+        else
+            af = new actions::ActionFinderAxisymFudge(pot);
         // ensure valid cleanup if the constructor was called more than once
-        if(((ActionFinderObject*)self)->finder!=NULL)
-            delete ((ActionFinderObject*)self)->finder;
+        if(((ActionFinderObject*)self)->af!=NULL)
+            delete ((ActionFinderObject*)self)->af;
         Py_XDECREF(((ActionFinderObject*)self)->pot);
         // replace the member variables with freshly created ones
-        ((ActionFinderObject*)self)->finder = finder;
+        ((ActionFinderObject*)self)->af  = af;
         ((ActionFinderObject*)self)->pot = objPot;
         Py_INCREF(objPot);
         return 0;
@@ -861,9 +861,7 @@ static void fncActions(void* obj, const double input[], double *result) {
             input[3] * conv->velocityUnit,
             input[4] * conv->velocityUnit,
             input[5] * conv->velocityUnit) );
-        double ifd = ((ActionFinderObject*)obj)->finder->value(point);
-        actions::Actions acts = actions::axisymFudgeActions(
-            *((PotentialObject*)((ActionFinderObject*)obj)->pot)->pot, point, ifd);
+        actions::Actions acts = ((ActionFinderObject*)obj)->af->actions(point);
         // unit of action is V*L
         const double convA = 1 / (conv->velocityUnit * conv->lengthUnit);
         result[0] = acts.Jr   * convA;
@@ -876,7 +874,7 @@ static void fncActions(void* obj, const double input[], double *result) {
 }
 static PyObject* ActionFinder_value(PyObject* self, PyObject* args, PyObject* /*namedArgs*/)
 {
-    if(((ActionFinderObject*)self)->finder==NULL)
+    if(((ActionFinderObject*)self)->af==NULL)
         return NULL;
     return callAnyFunctionOnArray<INPUT_VALUE_SEXTET, OUTPUT_VALUE_TRIPLET>
         (self, args, fncActions);
@@ -910,8 +908,9 @@ static void fncActionsStandalone(void* obj, const double input[], double *result
             input[4] * conv->velocityUnit,
             input[5] * conv->velocityUnit) );
         double ifd = ((ActionFinderParams*)obj)->ifd * conv->lengthUnit;
-        actions::Actions acts = actions::axisymFudgeActions(
-            *((ActionFinderParams*)obj)->pot, point, ifd);
+        actions::Actions acts = isSpherical(*((ActionFinderParams*)obj)->pot) ?
+            actions::sphericalActions  (*((ActionFinderParams*)obj)->pot, point) :
+            actions::axisymFudgeActions(*((ActionFinderParams*)obj)->pot, point, ifd);
         // unit of action is V*L
         const double convA = 1 / (conv->velocityUnit * conv->lengthUnit);
         result[0] = acts.Jr   * convA;
@@ -926,9 +925,9 @@ static void fncActionsStandalone(void* obj, const double input[], double *result
 static const char* docstringActions = 
     "Compute actions for a given position/velocity point, or array of points\n"
     "Arguments: \n"
-    "    point : a sextet of floats (x,y,z,vx,vy,vz) or array of such sextets;\n"
-    "    pot=Potential object that defines the gravitational potential;\n"
-    "    ifd=float : interfocal distance for the prolate spheroidal coordinate system.\n"
+    "    point - a sextet of floats (x,y,z,vx,vy,vz) or array of such sextets;\n"
+    "    pot - Potential object that defines the gravitational potential;\n"
+    "    ifd (float) - interfocal distance for the prolate spheroidal coordinate system.\n"
     "Returns: float or array of floats (for each point: Jr, Jz, Jphi)";
 static PyObject* find_actions(PyObject* /*self*/, PyObject* args, PyObject* namedArgs)
 {
@@ -1040,7 +1039,7 @@ static PyObject* DistributionFunction_totalMass(PyObject* self)
 {
     if(((DistributionFunctionObject*)self)->df==NULL)
         return NULL;
-    return Py_BuildValue("d", ((DistributionFunctionObject*)self)->df->totalMass());
+    return Py_BuildValue("d", ((DistributionFunctionObject*)self)->df->totalMass() / conv->massUnit);
 }
 
 static PyMethodDef DistributionFunction_methods[] = {
@@ -1219,7 +1218,14 @@ static PyTypeObject SplineApproxType = {
 /// \name  ----- GalaxyModel routines -----
 ///@{
 
-static const char* docstringSample = "Sample distribution function in the given potential by N points";
+static const char* docstringSample =
+    "Sample distribution function in the given potential by N points\n"
+    "Named arguments:\n"
+    "  pot -- an instance of Potential class;\n"
+    "  df  -- an instance of DistributionFunction class;\n"
+    "  N   -- number of points to sample.\n"
+    "Returns:\n"
+    "  A tuple of two arrays: position/velocity (2d array of size Nx6) and mass (1d array of length N).";
 
 /// generate samples in position/velocity space
 static PyObject* sample_posvel(PyObject* /*self*/, PyObject* args, PyObject* namedArgs)
@@ -1253,25 +1259,36 @@ static PyObject* sample_posvel(PyObject* /*self*/, PyObject* args, PyObject* nam
     }
 
     // do the sampling
+    const actions::BaseActionFinder* af = NULL;
     try{
         const potential::BasePotential& pot = *((PotentialObject*)pot_obj)->pot;
-        actions::ActionFinderAxisymFudge af(pot);
-        galaxymodel::GalaxyModel galmod(pot, af, *((DistributionFunctionObject*)df_obj)->df);
+        if(isSpherical(pot))
+            af = new actions::ActionFinderSpherical(pot);
+        else
+            af = new actions::ActionFinderAxisymFudge(pot);
+        galaxymodel::GalaxyModel galmod(pot, *af, *((DistributionFunctionObject*)df_obj)->df);
         particles::PointMassArrayCar points;
         galaxymodel::generatePosVelSamples(galmod, numPoints, points);
         numPoints = points.size();
+        delete af;
 
         // convert output to NumPy array
         npy_intp dims[] = {numPoints, 6};
-        PyObject* posvel_arr = PyArray_SimpleNew(2, dims, NPY_DOUBLE);
-        PyObject* mass_arr   = PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+        PyArrayObject* posvel_arr = (PyArrayObject*)PyArray_SimpleNew(2, dims, NPY_DOUBLE);
+        PyArrayObject* mass_arr   = (PyArrayObject*)PyArray_SimpleNew(1, dims, NPY_DOUBLE);
         for(int i=0; i<numPoints; i++) {
-            points.point(i).unpack_to( ((double*)PyArray_DATA((PyArrayObject*)posvel_arr)) + i*6 );
-            ((double*)PyArray_DATA((PyArrayObject*)mass_arr))[i] = points.mass(i);
+            ((double*)PyArray_DATA(posvel_arr))[i*6  ] = points.point(i).x / conv->lengthUnit;
+            ((double*)PyArray_DATA(posvel_arr))[i*6+1] = points.point(i).y / conv->lengthUnit;
+            ((double*)PyArray_DATA(posvel_arr))[i*6+2] = points.point(i).z / conv->lengthUnit;
+            ((double*)PyArray_DATA(posvel_arr))[i*6+3] = points.point(i).vx / conv->velocityUnit;
+            ((double*)PyArray_DATA(posvel_arr))[i*6+4] = points.point(i).vy / conv->velocityUnit;
+            ((double*)PyArray_DATA(posvel_arr))[i*6+5] = points.point(i).vz / conv->velocityUnit;
+            ((double*)PyArray_DATA(mass_arr))[i] = points.mass(i) / conv->massUnit;
         }
         return Py_BuildValue("NN", posvel_arr, mass_arr);
     }
     catch(std::exception& e) {
+        delete af;
         PyErr_SetString(PyExc_ValueError, 
             (std::string("Error in sample: ")+e.what()).c_str());
         return NULL;
