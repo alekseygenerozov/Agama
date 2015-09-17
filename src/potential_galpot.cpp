@@ -222,6 +222,11 @@ SpheroidDensity::SpheroidDensity (const SphrParam &_params) :
         throw std::invalid_argument("Spheroid axis ratio cannot be <=0");
     if(params.outerCutoffRadius<0)
         throw std::invalid_argument("Spheroid outer cutoff radius cannot be <0");
+    if(params.gamma<0 || params.gamma>=3)
+        throw std::invalid_argument("Spheroid inner slope gamma must be between 0 and 3");
+    if(params.beta<=2 && params.outerCutoffRadius==0)
+        throw std::invalid_argument("Spheroid outer slope beta must be greater than 2, "
+            "or a positive cutoff radius must be provided");
 };
 
 double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
