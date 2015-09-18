@@ -7,6 +7,7 @@
 #pragma once
 #include "actions_base.h"
 #include "potential_base.h"
+#include "math_spline.h"
 
 namespace actions {
 
@@ -26,17 +27,19 @@ ActionAngles sphericalActionAngles(
     const coord::PosVelCyl& point,
     Frequencies* freq=0);
 
+/** Fast computation of actions in any spherical potential by using
+    2d interpolation of radial action as a function of E and L
+*/
 class ActionFinderSpherical: public BaseActionFinder {
 public:
-    ActionFinderSpherical(const potential::BasePotential& potential) :
-        pot(potential) {};
+    ActionFinderSpherical(const potential::BasePotential& potential, const unsigned int gridSize=50);
     virtual ~ActionFinderSpherical() {};
-    virtual Actions actions(const coord::PosVelCyl& point) const {
-        return sphericalActions(pot, point); }
-    virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const {
-        return sphericalActionAngles(pot, point, freq); }
+    virtual Actions actions(const coord::PosVelCyl& point) const;
+    virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const;
 private:
-    const potential::BasePotential& pot;    ///< the generic spherical potential in which actions are computed
+    const potential::BasePotential& potential;  ///< reference to the spherical potential
+    const potential::InterpLcirc interpLcirc;   ///< interpolator for Lcirc(E)
+    math::LinearInterpolator2d interpJr;        ///< 2d interpolator for Jr(E,L)
 };
 
 }  // namespace actions

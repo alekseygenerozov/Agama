@@ -371,6 +371,21 @@ double R_circ(const BasePotential& potential, double energy);
 /** Compute cylindrical radius of an orbit in equatorial plane for a given z-component of angular momentum */
 double R_from_Lz(const BasePotential& potential, double L_z);
 
+/** Interpolator for L_circ(E) */
+class InterpLcirc: public math::IFunction {
+public:
+    explicit InterpLcirc(const BasePotential& potential);
+    ~InterpLcirc();
+    /// return L_circ(E)
+    virtual void evalDeriv(const double E, double* value=0, double* deriv=0, double* deriv2=0) const;
+    virtual unsigned int numDerivs() const { return 1; }
+private:
+    InterpLcirc(const InterpLcirc& src);        // disallow copy
+    InterpLcirc& operator=(const InterpLcirc&); // and assignment
+    const void* interp;  ///< interpolator implementation
+    double Ein, Eout;    ///< boundaries of energy interval
+};
+
 /** Compute epicycle frequencies for a circular orbit in the equatorial plane with radius R.
     \param[in]  potential is the instance of potential (must have axial symmetry)
     \param[in]  R     is the cylindrical radius 

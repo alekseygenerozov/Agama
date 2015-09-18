@@ -1,5 +1,6 @@
 #include "potential_base.h"
 #include "math_core.h"
+#include "math_spline.h"
 #include <cmath>
 #include <stdexcept>
 
@@ -331,6 +332,62 @@ void epicycleFreqs(const BasePotential& potential, const double R,
     kappa = sqrt(hess.dR2 + 3*grad.dR/R);
     nu    = sqrt(hess.dz2);
     Omega = sqrt(grad.dR/R);
+}
+
+InterpLcirc::InterpLcirc(const BasePotential& potential)
+{
+    // find out characteristic energy values
+    Ein = potential.value(coord::PosCar(0, 0, 0));
+    if(!math::isFinite(Ein))  // limitation of the present implementation
+        throw std::runtime_error("InterpLcirc: can only work with potentials "
+            "that tend to a finite limit as r->0");
+    Eout = potential.value(coord::PosCar(INFINITY, 0, 0));
+    if(Eout==Eout && Eout!=0)
+        throw std::runtime_error("InterpLcirc: can only work with potentials "
+            "that tend to zero as r->infinity");
+    else Eout = 0;
+    const unsigned int gridSize = 100;
+    std::vector<double> gridE(gridSize), gridL(gridSize);
+    for(unsigned int i=0; i<gridSize; i++) {
+        double frac = i==0 ? 1e-3 : i==1 ? 2e-3 :   // refinement at the ends of interval
+            i==gridSize-2 ? 1-2e-3 : i==gridSize-1 ? 1-1e-3 : (i-1)*1.0/(gridSize-3);
+        gridE[i] = Ein + (Eout-Ein) * frac;
+        gridL[i] = L_circ(potential, gridE[i]);
+        // scaling transformation
+        gridE[i] = log(1/Ein-1/gridE[i]);
+        gridL[i] = log(gridL[i]);
+    }
+    double derivIn = NAN;  // in principle could compute a reasonable value for extrapolation to r->0
+    double derivOut= 0.5;  // extrapolation to large r assumes a Keplerian potential
+    // fill a 1d interpolator for Lcirc(E)
+    interp = new math::CubicSpline(gridE, gridL, derivIn, derivOut);
+}
+
+InterpLcirc::~InterpLcirc()
+{
+    delete static_cast<const math::CubicSpline*>(interp);
+}
+
+void InterpLcirc::evalDeriv(const double E, double* val, double* der, double* der2) const
+{
+    if(E==Ein) {
+        if(val)  *val=0;
+        if(der)  *der=NAN;
+        if(der2) *der2=NAN;
+    }
+    if(E<Ein || E>=Eout)
+        throw std::invalid_argument("InterpLcirc: energy outside allowed range");
+    double scaledE = log(1/Ein-1/E);
+    double scaledEder = 1/E/(E/Ein-1);  // d(scaledE)/dE
+    double splVal, splDer;
+    static_cast<const math::CubicSpline*>(interp)->evalDeriv(scaledE, &splVal, der!=0?&splDer:0);
+    double Lcirc = exp(splVal);
+    if(val)
+        *val = Lcirc;
+    if(der)
+        *der = splDer * scaledEder * Lcirc;
+    if(der2)
+        *der2= NAN;
 }
 
 }  // namespace potential

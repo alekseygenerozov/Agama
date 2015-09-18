@@ -91,7 +91,7 @@ public:
     double E;
     double Lz2;
     enum { FIND_RMIN, FIND_RMAX, FIND_JR } mode;
-    explicit OrbitSizeFunction(const potential::BasePotential& p, double _E, double _Lz) :
+    OrbitSizeFunction(const potential::BasePotential& p, double _E, double _Lz) :
         potential(p), E(_E), Lz2(_Lz*_Lz), mode(FIND_RMIN) {};
     virtual unsigned int numDerivs() const { return 2; }
     /** This function is used in the root-finder for Rmin/Rmax, and in computing the radial action.
@@ -138,11 +138,80 @@ public:
     }
 };
 
+/** Helper function for finding the roots of (effective) potential in R direction,
+    for a power-law asymptotic form potential at small radii */
+class OrbitSizeFunctionSmallE: public math::IFunction {
+public:
+    double EminusPhi0, twominusgamma, coefA, Lz2;  // parameters of power-law potential
+    enum { FIND_RMINMAX, FIND_JR } mode;
+    OrbitSizeFunctionSmallE(double _EminusPhi0, double _twominusgamma, double _coefA, double _Lz) :
+        EminusPhi0(_EminusPhi0), twominusgamma(_twominusgamma), coefA(_coefA), Lz2(_Lz*_Lz), 
+        mode(FIND_RMINMAX) {};
+    virtual unsigned int numDerivs() const { return 1; }
+    virtual void evalDeriv(const double R, double* val=0, double* deriv=0, double* =0) const
+    {
+        double AR2minusgamma = coefA*pow(R, twominusgamma);
+        double EminusPhi = EminusPhi0 - AR2minusgamma;
+        if(mode == FIND_RMINMAX) {    // f(R) = (1/2) v_R^2 * R^2
+            if(val)
+                *val = EminusPhi*R*R - Lz2/2;
+            if(deriv) 
+                *deriv = R*(2*EminusPhi0 - (2+twominusgamma)*AR2minusgamma);
+        } else if(mode == FIND_JR) {  // f(R) = v_R
+            *val = sqrt(fmax(0, 2*(EminusPhi) - (Lz2>0 ? Lz2/(R*R) : 0) ) );
+        } else
+            assert("Invalid operation mode in OrbitSizeFunctionSmallE"==0);
+    }
+};
+    
+/// accurate treatment of limiting case E --> Phi(0), assuming a power-law behaviour of potential at small r
+static void findPlanarOrbitExtentSmallE(const potential::BasePotential& poten, double Phi0, double E, double Lz, 
+    double& Rmin, double& Rmax, double* Jr)
+{
+    // determine asymptotic power-law behaviour of Phi(r) at small r: Phi = Phi(0) + A r^(2-gamma)
+    // by computing the value of potential at three points: r0=0, r1, and r2=r1/2
+    double Phi1 = Phi0*(1-1e-8);
+    OrbitSizeFunction fnc1(poten, Phi1, 0);
+    fnc1.mode  = OrbitSizeFunction::FIND_RMAX;
+    double R1 = math::findRoot(fnc1, 0, INFINITY, ACCURACY_RMINMAX);
+    double R2 = R1/2;
+    double Phi2 = poten.value(coord::PosCyl(R2,0,0));
+    double twominusgamma = log( (Phi1-Phi0)/(Phi2-Phi0) ) / log(2.);
+    if(twominusgamma>2) twominusgamma=2;  // very unlikely
+    if(twominusgamma<0) twominusgamma=0;  // shouldn't ever occur
+    double coefA = (Phi1-Phi0) / pow(R1, twominusgamma);
+
+    // now compute everything under the assumption of power-law Phi(r)
+    double Rinit = pow(Lz*Lz/coefA/twominusgamma, 1/(2+twominusgamma));
+    OrbitSizeFunctionSmallE fnc(E-Phi0, twominusgamma, coefA, Lz);
+    if(fnc(Rinit)<0)
+        throw std::runtime_error("Error in findPlanarOrbitExtentSmallE: E and Lz have incompatible values");
+    double Rupper = pow((E-Phi0)/coefA, 1/twominusgamma);
+    if(Lz==0) {
+        Rmin=0;
+        Rmax=Rupper;
+    } else {
+        Rmin = math::findRoot(fnc, 0., Rinit, ACCURACY_RMINMAX);
+        Rmax = math::findRoot(fnc, Rinit, Rupper, ACCURACY_RMINMAX);
+    }
+    if(!math::isFinite(Rmin+Rmax))
+        throw std::runtime_error("Error in locating Rmin/max in findPlanarOrbitExtentSmallE");
+    if(Jr!=NULL) {  // compute radial action
+        fnc.mode = OrbitSizeFunctionSmallE::FIND_JR;
+        *Jr = math::integrateGL(fnc, Rmin, Rmax, 10) / M_PI;
+    }
+}
+
 void findPlanarOrbitExtent(const potential::BasePotential& poten, double E, double Lz, 
     double& Rmin, double& Rmax, double* Jr)
 {
     if(!isAxisymmetric(poten))
         throw std::invalid_argument("findPlanarOrbitExtent only works for axisymmetric potentials");
+    double Phi0 = poten.value(coord::PosCyl(0,0,0));
+    if(math::isFinite(Phi0) && E-Phi0 < fabs(Phi0)*1e-8) {   // accurate treatment of very low-energy values
+        findPlanarOrbitExtentSmallE(poten, Phi0, E, Lz, Rmin, Rmax, Jr);
+        return;
+    }
     // the function to use in root-finder for locating the roots of v_R^2=0
     OrbitSizeFunction fnc(poten, E, Lz);
     // first guess for the radius that should lie between Rmin and Rmax
@@ -153,9 +222,13 @@ void findPlanarOrbitExtent(const potential::BasePotential& poten, double E, doub
     math::PointNeighborhood nh(fnc, Rinit);
     double dR_to_zero = nh.dxToNearestRoot();
     int nIter = 0;
-    while(nh.f0<0 && nIter<10) {  // safety measure to avoid roundoff errors
+    while(nh.f0<0 && nIter<4) {       // safety measure to avoid roundoff errors
         if(Rinit+dR_to_zero == Rinit)  // delta-step too small
             Rinit *= (1 + 1e-15*math::sign(dR_to_zero));
+        else if(Rinit+dR_to_zero<0)    // delta-step negative and too large
+            Rinit /= 2;
+        else if(Rinit<dR_to_zero)      // delta-step positive and too large
+            Rinit *= 2;
         else
             Rinit += dR_to_zero;
         nh = math::PointNeighborhood(fnc, Rinit);
@@ -386,7 +459,7 @@ double estimateInterfocalDistanceShellOrbit(
 // ----------- Interpolation of interfocal distance in E,Lz plane ------------ //
 InterfocalDistanceFinder::InterfocalDistanceFinder(
     const potential::BasePotential& _potential, const unsigned int gridSizeE) :
-    potential(_potential)
+    potential(_potential), interpLcirc(_potential)
 {
     if(!isAxisymmetric(potential))
         throw std::invalid_argument("Potential is not axisymmetric, "
@@ -394,12 +467,10 @@ InterfocalDistanceFinder::InterfocalDistanceFinder(
     
     if(gridSizeE<10 || gridSizeE>500)
         throw std::invalid_argument("InterfocalDistanceFinder: incorrect grid size");
-    
+
     // find out characteristic energy values
     double Ein  = potential.value(coord::PosCar(0, 0, 0));
-    double Eout = potential.value(coord::PosCar(INFINITY, 0, 0));
-    if(!math::isFinite(Eout))  // not all potentials may give sensible results for r=infinity
-        Eout = 0;  // default assumption
+    double Eout = 0;  // default assumption for Phi(r=infinity)
     if(!math::isFinite(Ein) || Ein>=Eout)
         throw std::runtime_error("InterfocalDistanceFinder: weird behaviour of potential");
 
@@ -408,15 +479,6 @@ InterfocalDistanceFinder::InterfocalDistanceFinder(
     std::vector<double> gridE(gridSizeE);
     for(unsigned int i=0; i<gridSizeE; i++) 
         gridE[i] = Ein + i*(Eout-Ein)/gridSizeE;
-
-    // fill a 1d interpolator for Lcirc(E)
-    Lscale = potential::L_circ(potential, gridE[gridSizeE/2]);
-    std::vector<double> gridLcirc(gridSizeE);
-    for(unsigned int i=0; i<gridSizeE; i++) {
-        double Lc = potential::L_circ(potential, gridE[i]);
-        gridLcirc[i] = Lc / (Lc + Lscale);
-    }
-    xLcirc = math::CubicSpline(gridE, gridLcirc);
 
     // create a uniform grid in Lz/Lcirc(E)
     const unsigned int gridSizeLzrel = gridSizeE<80 ? gridSizeE/4 : 20;
@@ -427,8 +489,7 @@ InterfocalDistanceFinder::InterfocalDistanceFinder(
     // fill a 2d grid in (E, Lz/Lcirc(E) )
     math::Matrix<double> grid2d(gridE.size(), gridLzrel.size());
     for(unsigned int iE=0; iE<gridE.size(); iE++) {
-        const double x  = xLcirc(gridE[iE]);
-        const double Lc = Lscale * x / (1-x);
+        const double Lc = interpLcirc(gridE[iE]);
         for(unsigned int iL=0; iL<gridLzrel.size(); iL++) {
             double Lz = gridLzrel[iL] * Lc;
             grid2d(iE, iL) = estimateInterfocalDistanceShellOrbit(potential, gridE[iE], Lz);
@@ -444,8 +505,7 @@ double InterfocalDistanceFinder::value(const coord::PosVelCyl& point) const
     double E  = totalEnergy(potential, point);
     E = fmin(fmax(E, interp.xmin()), interp.xmax());
     double Lz = fabs(point.R*point.vphi);
-    double x  = xLcirc(E);
-    double Lc = Lscale * x / (1-x);
+    double Lc = interpLcirc(E);
     double Lzrel = fmin(fmax(Lz/Lc, interp.ymin()), interp.ymax());
     return interp.value(E, Lzrel);
 }

@@ -86,8 +86,7 @@ public:
 
 private:
     const potential::BasePotential& potential;  ///< reference to the potential
-    math::CubicSpline xLcirc;                   ///< interpolator for x(E) = Lcirc(E) / (Lcirc(E)+Lscale)
-    double Lscale;                              ///< scaling factor for Lcirc = Lscale * x / (1-x)
+    const potential::InterpLcirc interpLcirc;   ///< interpolator for Lcirc(E)
     /// 2d interpolator for interfocal distance on the grid in E, Lz/Lcirc(E) plane
     math::LinearInterpolator2d interp;
 };

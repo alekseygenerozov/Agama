@@ -29,7 +29,7 @@ public:
         \param[out] numEval (optional) if not NULL, store the actual number of DF evaluations.
         \returns    total mass
     */
-    virtual double totalMass(const double reqRelError=1e-3, const int maxNumEval=100000,
+    virtual double totalMass(const double reqRelError=1e-4, const int maxNumEval=100000,
         double* error=0, int* numEval=0) const;
 
     /** Value of distribution function for the given set of actions
