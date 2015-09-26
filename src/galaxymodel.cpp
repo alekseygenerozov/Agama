@@ -2,10 +2,13 @@
 #include "math_core.h"
 #include "actions_torus.h"
 #include "math_sample.h"
+#include "math_specfunc.h"
 #include <cmath>
 #include <stdexcept>
 
 namespace galaxymodel{
+
+//------- HELPER ROUTINES -------//
 
 /** convert from scaled velocity variables to the actual velocity.
     \param[in]  vars are the scaled variables: |v|/vmag, cos(theta), phi,
@@ -59,6 +62,15 @@ static coord::PosVelCyl unscalePosVel(const double vars[],
     return coord::PosVelCyl(pos, vel);
 }
 
+/** convert scaled z-coordinate into the actual z;
+    if necessary, also provide the jacobian of transformation */
+static double unscaleZ(double zscaled, double *jac=NULL) {
+    if(jac!=NULL)
+        *jac = pow_2(1/(1-zscaled)) + pow_2(1/zscaled);
+    return 1/(1-zscaled) - 1/zscaled;   // jacobian of coordinate transformation
+}
+
+//------- HELPER CLASSES FOR MULTIDIMENSIONAL INTEGRATION OF DF -------//
 
 /** Base helper class for integrating the distribution function 
     over 3d velocity or 6d position/velocity space.
@@ -84,13 +96,13 @@ public:
             outputValues(posvel, 0, values);
             return;
         }
-        
+
         // 2. determine the actions
         actions::Actions acts = model.actFinder.actions(posvel);
 
         // 3. compute the value of distribution function times the jacobian
         double dfval = model.distrFunc.value(acts) * jac;
-        
+
         // 4. output the value(s) to the integration routine
         outputValues(posvel, dfval, values);
     }
@@ -126,7 +138,7 @@ public:
     virtual coord::PosVelCyl unscaleVars(const double vars[], double* jac=0) const { 
         return coord::PosVelCyl(point, unscaleVelocity(vars, v_esc, jac));
     }
-    
+
 protected:
     /// dimension of the input array (3 scaled velocity components)
     virtual unsigned int numVars()   const { return 3; }
@@ -139,7 +151,7 @@ protected:
         double values[]) const {
         values[0] = dfval;
     }
-    
+
     const coord::PosCyl point;  ///< fixed position
     const double v_esc ;        ///< escape velocity at this position
 };
@@ -166,13 +178,14 @@ protected:
     }
 };
 
+
 /** helper class for integrating the distribution function and its first 
     and second moments over velocity at a fixed position */
 class DFIntegrandAtPointFirstAndSecondMoment: public DFIntegrandAtPointFirstMoment {
 public:
     DFIntegrandAtPointFirstAndSecondMoment(const GalaxyModel& _model, const coord::PosCyl& _point) :
         DFIntegrandAtPointFirstMoment(_model, _point) {}
-        
+
 protected:
     virtual unsigned int numValues() const { return 10; }
 
@@ -191,21 +204,45 @@ protected:
     }
 };
 
-/** helper class for integrating the distribution function over the entire 6d phase space */
-class DFIntegrand6dim: public DFIntegrandNdim {
+
+/** helper class for computing the projected distribution function at a given point in x,y,vz space  */
+class DFIntegrandProjected: public DFIntegrandNdim, public math::IFunctionNoDeriv {
 public:
-    DFIntegrand6dim(const GalaxyModel& _model) :
-        DFIntegrandNdim(_model) {}
-    
-    /// input variables define 6 components of position and velocity, suitably scaled
-    virtual coord::PosVelCyl unscaleVars(const double vars[], double* jac=0) const { 
-        return unscalePosVel(vars, model.potential, jac);
+    DFIntegrandProjected(const GalaxyModel& _model, double _R, double _vz, double _vz_error) :
+        DFIntegrandNdim(_model), R(_R), vz(_vz), vz_error(_vz_error) {}
+
+    /// return v^2-vz^2 (used in setting the integration limits by root-finding)
+    virtual double value(double zscaled) const {
+        return -vz*vz + (zscaled==0 || zscaled==1 ? 0 : 
+            -2*model.potential.value(coord::PosCyl(R, unscaleZ(zscaled), 0)));
     }
-    
+
+    /// input variables define the missing components of position and velocity
+    /// to be integrated over, suitably scaled: z, vx, vy
+    virtual coord::PosVelCyl unscaleVars(const double vars[], double* jac=0) const {
+        double z   = unscaleZ(vars[0], jac);
+        double vz1 = vz;
+        if(vz_error!=0)  // add velocity error sampled from Gaussian c.d.f.
+            vz1 += M_SQRT2 * vz_error * math::erfinv(2*vars[3]-1);
+        double v2 = (vars[0]==0 || vars[0]==1 ? 0 : 
+            - 2*model.potential.value(coord::PosCyl(R, z, 0)) - vz1*vz1);   // -2 Phi(r) - vz^2
+        if(v2<=0) {    // we're outside the allowed range of z
+            if(jac!=NULL)
+                *jac = 0;
+            return coord::PosVelCyl(R, 0, 0, 0, vz, 0);
+        }
+        double v = sqrt(v2) * vars[1];
+        if(jac!=NULL)
+            *jac *= 2*M_PI * v2 * vars[1];    // jacobian of velocity transformation
+        return coord::PosVelCyl(R, z, 0,
+            v * cos(2*M_PI*vars[2]), vz1, v * sin(2*M_PI*vars[2]));
+    }
+
 protected:
-    virtual unsigned int numVars()   const { return 6; }
+    double R, vz, vz_error;
+    virtual unsigned int numVars()   const { return vz_error==0 ? 3 : 4; }
     virtual unsigned int numValues() const { return 1; }
-    
+
     /// output array contains one element - the value of DF
     virtual void outputValues(const coord::PosVelCyl& , const double dfval, 
         double values[]) const {
@@ -213,6 +250,63 @@ protected:
     }
 };
 
+
+/** helper class for computing the moments of distribution function
+    (surface density and line-of-sight velocity dispersion) at a given point in x,y plane  */
+class DFIntegrandProjectedMoments: public DFIntegrandNdim {
+public:
+    DFIntegrandProjectedMoments(const GalaxyModel& _model, double _R) :
+        DFIntegrandNdim(_model), R(_R) {}
+
+    /// input variables define the z-coordinate and all three velocity components, suitably scaled
+    virtual coord::PosVelCyl unscaleVars(const double vars[], double* jac=0) const {
+        coord::PosCyl pos(R, unscaleZ(vars[0], jac), 0);
+        const double velmag = escapeVel(pos, model.potential);
+        double jacVel;
+        const coord::VelCyl vel = unscaleVelocity(vars+1, velmag, &jacVel);
+        if(jac!=NULL)
+            *jac = velmag==0 ? 0 : *jac * jacVel;
+        return coord::PosVelCyl(pos, vel);
+    }
+
+protected:
+    double R;
+    virtual unsigned int numVars()   const { return 4; }
+    virtual unsigned int numValues() const { return 2; }
+
+    /// output array contains two elements - the value of DF and its second moment with line-of-sight velocity
+    virtual void outputValues(const coord::PosVelCyl& pv, const double dfval, 
+        double values[]) const {
+        values[0] = dfval;
+        values[1] = dfval * pow_2(pv.vz);
+    }
+};
+
+
+/** helper class for integrating the distribution function over the entire 6d phase space */
+class DFIntegrand6dim: public DFIntegrandNdim {
+public:
+    DFIntegrand6dim(const GalaxyModel& _model) :
+        DFIntegrandNdim(_model) {}
+
+    /// input variables define 6 components of position and velocity, suitably scaled
+    virtual coord::PosVelCyl unscaleVars(const double vars[], double* jac=0) const { 
+        return unscalePosVel(vars, model.potential, jac);
+    }
+
+protected:
+    virtual unsigned int numVars()   const { return 6; }
+    virtual unsigned int numValues() const { return 1; }
+
+    /// output array contains one element - the value of DF
+    virtual void outputValues(const coord::PosVelCyl& , const double dfval, 
+        double values[]) const {
+        values[0] = dfval;
+    }
+};
+
+
+//------- DRIVER ROUTINES -------//
 
 void computeMoments(const GalaxyModel& model,
     const coord::PosCyl& point, const double reqRelError, const int maxNumEval,
@@ -277,6 +371,41 @@ void computeMoments(const GalaxyModel& model,
 }
 
 
+double computeProjectedDF(const GalaxyModel& model,
+    const double R, const double vz, const double vz_error,
+    const double reqRelError, const int maxNumEval, double* error, int* numEval)
+{
+    double xlower[4] = {0, 0, 0, 0};  // integration region in scaled variables
+    double xupper[4] = {1, 1, 1, 1};
+    DFIntegrandProjected fnc(model, R, vz, vz_error);
+    if(vz_error==0) {  // in this case we may put tighter limits on the integration interval in z
+        xlower[0] = math::findRoot(fnc, 0, 0.5, 1e-8);  // set the lower and upper limits for integration
+        xupper[0] = math::findRoot(fnc, 0.5, 1, 1e-8);  // to the region where v^2-vz^2>0
+    }
+    double result;
+    math::integrateNdim(fnc, xlower, xupper, reqRelError, maxNumEval, &result, error, numEval);
+    return result;
+}
+
+
+void computeProjectedMoments(const GalaxyModel& model, const double R,
+    const double reqRelError, const int maxNumEval,
+    double& surfaceDensity, double& losvdisp, double* surfaceDensityErr, double* losvdispErr, int* numEval)
+{
+    double xlower[4] = {0, 0, 0, 0};  // integration region in scaled variables
+    double xupper[4] = {1, 1, 1, 1};
+    DFIntegrandProjectedMoments fnc(model, R);
+    double result[2], error[2];
+    math::integrateNdim(fnc, xlower, xupper, reqRelError, maxNumEval, result, error, numEval);
+    surfaceDensity = result[0];
+    losvdisp = result[1] / result[0];
+    if(surfaceDensityErr)
+        *surfaceDensityErr = error[0];
+    if(losvdispErr)
+        *losvdispErr = sqrt(pow_2(error[0]/result[0]*result[1]) + pow_2(error[1]));
+}
+
+
 void generateActionSamples(const GalaxyModel& model, const unsigned int nSamp,
     particles::PointMassArrayCar &points, std::vector<actions::Actions>* actsOutput)
 {
@@ -287,14 +416,14 @@ void generateActionSamples(const GalaxyModel& model, const unsigned int nSamp,
     unsigned int nAng = std::min<unsigned int>(nSamp/100+1, 16);   // number of sample angles per torus
     unsigned int nAct = nSamp / nAng + 1;
     std::vector<actions::Actions> actions;
-    
+
     // do the sampling in actions space
     double totalMass, totalMassErr;
     df::sampleActions(model.distrFunc, nAct, actions, &totalMass, &totalMassErr);
     nAct = actions.size();   // could be different from requested?
     //double totalMass = distrFunc.totalMass();
     double pointMass = totalMass / (nAct*nAng);
-    
+
     // next sample angles from each torus
     points.data.clear();
     if(actsOutput!=NULL)

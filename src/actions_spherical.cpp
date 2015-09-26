@@ -86,7 +86,7 @@ Actions ActionFinderSpherical::actions(const coord::PosVelCyl& point) const
     double Lc = std::max<double>(L, interpLcirc(E));
     acts.Jphi = Lz(point);
     acts.Jz   = L - fabs(acts.Jphi);
-    acts.Jr   = interpJr.value(E, L/Lc) * (Lc-L);
+    acts.Jr   = Lc>0 ? interpJr.value(E, L/Lc) * (Lc-L) : 0;
     if(!math::isFinite(acts.Jr))
         throw std::runtime_error("ActionFinderSpherical: bad value encountered for Jr");
     return acts;

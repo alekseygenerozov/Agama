@@ -28,13 +28,13 @@ public:
     potential(pot), actFinder(af), distrFunc(df) {}
 };
 
-/** Computes density, first-order, and second-order moments of velocity 
+/** Compute density, first-order, and second-order moments of velocity 
     in polar cyclindrical coordinates; if some of them are not needed,
     pass NULL as the corresponding argument, and it will not be computed.
     \param[in]  model  is the galaxy model (potential + DF + action finder);
     \param[in]  point  is the position at which the quantities should be computed;
     \param[in]  reqRelError is the required relative error in the integral;
-    \param[in]  maxNumEval is the maximum number of evaluations in integral;
+    \param[in]  maxNumEval  is the maximum number of evaluations in integral;
     \param[out] density  will contain the integral of DF over all velocities;
     \param[out] velocityFirstMoment  will contain the mean streaming velocity;
     \param[out] velocitySecondMoment will contain the tensor of mean squared velocity components;
@@ -46,6 +46,43 @@ void computeMoments(const GalaxyModel& model,
     const coord::PosCyl& point, const double reqRelError, const int maxNumEval,
     double* density, coord::VelCyl* velocityFirstMoment, coord::Vel2Cyl* velocitySecondMoment,
     double* densityErr, coord::VelCyl* velocityFirstMomentErr, coord::Vel2Cyl* velocitySecondMomentErr);
+
+
+/** Compute the value of 'projected distribution function' at the given point
+    specified by two coordinates in the sky plane and line-of-sight velocity.
+    \param[in]  model  is the galaxy model;
+    \param[in]  R is the cylindrical radius;
+    \param[in]  vz is the line-of-sight velocity;
+    \param[in]  vz_error is the assumed velocity error (assumed Gaussian):
+    if nonzero, then the DF is additionally convolved with the error function;
+    \param[in]  reqRelError is the required relative error in the integral;
+    \param[in]  maxNumEval  is the maximum number of evaluations in integral;
+    \param[out] error  if not NULL, will contain the error estimate;
+    \param[out] numEval if not NULL, will contain the actual number of evaluations;
+    \return  the value of projected DF.
+*/
+double computeProjectedDF(const GalaxyModel& model,
+    const double R, const double vz, const double vz_error=0,
+    const double reqRelError=1e-4, const int maxNumEval=1e3,
+    double* error=0, int* numEval=0);
+
+
+/** Compute the projected moments of distribution function:
+    surface density and line-of-sight velocity dispersion at a given projected radius.
+    \param[in]  model  is the galaxy model;
+    \param[in]  R is the cylindrical radius;
+    \param[in]  reqRelError is the required relative error in the integral;
+    \param[in]  maxNumEval  is the maximum number of evaluations in integral;
+    \param[out] surfaceDensity will contain the computed surface density;
+    \param[out] losvdisp will contain the line-of-sight velocity dispersion (dimension: v^2);
+    \param[out] surfaceDensityErr if not NULL, will contain the error estimate for density;
+    \param[out] losvdispErr if not NULL, will contain the error estimate for velocity dispersion;
+    \param[out] numEval if not NULL, will contain the actual number of evaluations.
+*/
+void computeProjectedMoments(const GalaxyModel& model, const double R,
+    const double reqRelError, const int maxNumEval,
+    double& surfaceDensity, double& losvdisp,
+    double* surfaceDensityErr=0, double* losvdispError=0, int* numEval=0);
 
 
 /** Generate N-body samples of the distribution function 

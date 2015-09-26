@@ -69,6 +69,30 @@ void gegenbauerArray(const int nmax, double lambda, double x, double* result_arr
     gsl_sf_gegenpoly_array(nmax, lambda, x, result_array);
 }
 
+double erfinv(const double x)
+{
+    if(x < -1 || x > 1)
+        return NAN;
+    if(x == 0)
+        return 0;
+    double z;   // first approximation
+    if(fabs(x)<=0.7) {
+        double x2 = x*x;
+        z  = x * (((-0.140543331 * x2 + 0.914624893) * x2 - 1.645349621) * x2 + 0.886226899) /
+            (1 + (((0.012229801 * x2 - 0.329097515) * x2 + 1.442710462) * x2 - 2.118377725) * x2);
+    }
+    else {
+        double y = sqrt(-log((1-fabs(x))/2));
+        z = (((1.641345311 * y + 3.429567803) * y - 1.62490649) * y - 1.970840454) / 
+            (1 + (1.6370678 * y + 3.5438892) * y);
+        if(x<0) z = -z;
+    }
+    // improve by Halley iteration
+    double f = erf(z) - x, fp = 2/M_SQRTPI * exp(-z*z), fpp = -2*z*fp;
+    z -= f / (fp - f*fpp/2/fp);
+    return z;
+}
+
 double hypergeom2F1(const double a, const double b, const double c, const double x)
 {
     if (-1.<=x and x<1.)

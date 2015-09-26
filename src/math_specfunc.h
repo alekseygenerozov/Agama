@@ -28,7 +28,10 @@ double gegenbauer(const int n, double lambda, double x);
 
 /** Array of Gegenbauer (ultraspherical) polynomials for n=0,1,...,nmax */
 void gegenbauerArray(const int nmax, double lambda, double x, double* result_array);
-    
+
+/** Inverse error function (defined for -1<x<1) */
+double erfinv(const double x);
+
 /** Gauss's hypergeometric function 2F1(a, b; c; x) */
 double hypergeom2F1(const double a, const double b, const double c, const double x);
 

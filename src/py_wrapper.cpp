@@ -195,6 +195,7 @@ enum OUTPUT_VALUE {
     OUTPUT_VALUE_SINGLE              = 1,  ///< scalar value
     OUTPUT_VALUE_TRIPLET             = 3,  ///< a triplet of numbers
     OUTPUT_VALUE_SEXTET              = 6,  ///< a sextet of numbers
+    OUTPUT_VALUE_SINGLE_AND_SINGLE   = 11, ///< a single number and another single number
     OUTPUT_VALUE_SINGLE_AND_TRIPLET  = 13, ///< a single number and a triplet
     OUTPUT_VALUE_SINGLE_AND_SEXTET   = 16, ///< a single number and a sextet
     OUTPUT_VALUE_TRIPLET_AND_TRIPLET = 33, ///< a triplet and another triplet -- two separate arrays
@@ -206,9 +207,20 @@ enum OUTPUT_VALUE {
 template<int numArgs>
 static size_t inputLength();
 
-/// parse a list of numArgs floating-point arguments for a Python function, and store them in inputArray[]
+/// parse a list of numArgs floating-point arguments for a Python function, 
+/// and store them in inputArray[]; return 1 on success, 0 on failure 
 template<int numArgs>
 int parseTuple(PyObject* args, double inputArray[]);
+
+/// check that the input array is of right dimensions, and return its length
+template<int numArgs>
+int parseArray(PyArrayObject* arr)
+{
+    if(PyArray_NDIM(arr) == 2 && PyArray_DIM(arr, 1) == numArgs)
+        return PyArray_DIM(arr, 0);
+    else
+        return 0;
+}
 
 /// error message for an input array of incorrect size
 template<int numArgs>
@@ -240,6 +252,10 @@ template<> inline size_t inputLength<INPUT_VALUE_SINGLE>()  {return 1;}
 template<> inline size_t inputLength<INPUT_VALUE_TRIPLET>() {return 3;}
 template<> inline size_t inputLength<INPUT_VALUE_SEXTET>()  {return 6;}
 
+template<> int parseTuple<INPUT_VALUE_SINGLE>(PyObject* args, double input[]) {
+    input[0] = PyFloat_AsDouble(args);
+    return PyErr_Occurred() ? 0 : 1;
+}
 template<> int parseTuple<INPUT_VALUE_TRIPLET>(PyObject* args, double input[]) {
     return PyArg_ParseTuple(args, "ddd", &input[0], &input[1], &input[2]);
 }
@@ -248,13 +264,28 @@ template<> int parseTuple<INPUT_VALUE_SEXTET>(PyObject* args, double input[]) {
         &input[0], &input[1], &input[2], &input[3], &input[4], &input[5]);
 }
 
-template<> const char* errStrInvalidArrayDim<INPUT_VALUE_TRIPLET>() {
-    return "Input does not contain valid Nx3 array";
-}
-template<> const char* errStrInvalidArrayDim<INPUT_VALUE_SEXTET>() {
-    return "Input does not contain valid Nx6 array";
+template<>
+int parseArray<INPUT_VALUE_SINGLE>(PyArrayObject* arr)
+{
+    if(PyArray_NDIM(arr) == 1)
+        return PyArray_DIM(arr, 0);
+    else
+        return 0;
 }
 
+template<> const char* errStrInvalidArrayDim<INPUT_VALUE_SINGLE>() {
+    return "Input does not contain a valid one-dimensional array";
+}
+template<> const char* errStrInvalidArrayDim<INPUT_VALUE_TRIPLET>() {
+    return "Input does not contain a valid Nx3 array";
+}
+template<> const char* errStrInvalidArrayDim<INPUT_VALUE_SEXTET>() {
+    return "Input does not contain a valid Nx6 array";
+}
+
+template<> const char* errStrInvalidInput<INPUT_VALUE_SINGLE>() {
+    return "Input does not contain valid data (either a single number or a one-dimensional array)";
+}
 template<> const char* errStrInvalidInput<INPUT_VALUE_TRIPLET>() {
     return "Input does not contain valid data (either 3 numbers for a single point or a Nx3 array)";
 }
@@ -267,6 +298,7 @@ template<> const char* errStrInvalidInput<INPUT_VALUE_SEXTET>() {
 template<> inline size_t outputLength<OUTPUT_VALUE_SINGLE>()  {return 1;}
 template<> inline size_t outputLength<OUTPUT_VALUE_TRIPLET>() {return 3;}
 template<> inline size_t outputLength<OUTPUT_VALUE_SEXTET>()  {return 6;}
+template<> inline size_t outputLength<OUTPUT_VALUE_SINGLE_AND_SINGLE>()   {return 2;}
 template<> inline size_t outputLength<OUTPUT_VALUE_SINGLE_AND_TRIPLET>()  {return 4;}
 template<> inline size_t outputLength<OUTPUT_VALUE_SINGLE_AND_SEXTET>()   {return 7;}
 template<> inline size_t outputLength<OUTPUT_VALUE_TRIPLET_AND_TRIPLET>() {return 6;}
@@ -282,6 +314,9 @@ template<> PyObject* formatTuple<OUTPUT_VALUE_TRIPLET>(const double result[]) {
 template<> PyObject* formatTuple<OUTPUT_VALUE_SEXTET>(const double result[]) {
     return Py_BuildValue("dddddd",
         result[0], result[1], result[2], result[3], result[4], result[5]);
+}
+template<> PyObject* formatTuple<OUTPUT_VALUE_SINGLE_AND_SINGLE>(const double result[]) {
+    return Py_BuildValue("(dd)", result[0], result[1]);
 }
 template<> PyObject* formatTuple<OUTPUT_VALUE_SINGLE_AND_TRIPLET>(const double result[]) {
     return Py_BuildValue("d(ddd)", result[0], result[1], result[2], result[3]);
@@ -314,6 +349,12 @@ template<> PyObject* allocOutputArr<OUTPUT_VALUE_TRIPLET>(int size) {
 template<> PyObject* allocOutputArr<OUTPUT_VALUE_SEXTET>(int size) {
     npy_intp dims[] = {size, 6};
     return PyArray_SimpleNew(2, dims, NPY_DOUBLE);
+}
+template<> PyObject* allocOutputArr<OUTPUT_VALUE_SINGLE_AND_SINGLE>(int size) {
+    npy_intp dims[] = {size};
+    PyObject* arr1 = PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    PyObject* arr2 = PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    return Py_BuildValue("NN", arr1, arr2);
 }
 template<> PyObject* allocOutputArr<OUTPUT_VALUE_SINGLE_AND_TRIPLET>(int size) {
     npy_intp dims1[] = {size};
@@ -368,6 +409,14 @@ template<> void formatOutputArr<OUTPUT_VALUE_SEXTET>(
 {
     for(int d=0; d<6; d++)
         ((double*)PyArray_DATA((PyArrayObject*)resultObj))[index*6+d] = result[d];
+}
+template<> void formatOutputArr<OUTPUT_VALUE_SINGLE_AND_SINGLE>(
+    const double result[], const int index, PyObject* resultObj) 
+{
+    PyArrayObject* arr1 = (PyArrayObject*) PyTuple_GET_ITEM(resultObj, 0);
+    PyArrayObject* arr2 = (PyArrayObject*) PyTuple_GET_ITEM(resultObj, 1);
+    ((double*)PyArray_DATA(arr1))[index] = result[0];
+    ((double*)PyArray_DATA(arr2))[index] = result[1];
 }
 template<> void formatOutputArr<OUTPUT_VALUE_SINGLE_AND_TRIPLET>(
     const double result[], const int index, PyObject* resultObj) 
@@ -471,9 +520,9 @@ static PyObject* callAnyFunctionOnArray(void* params, PyObject* args, anyFunctio
                 Py_DECREF(arr);
                 return formatTuple<numOutput>(result);
             }
-            if(PyArray_NDIM(arr) == 2 && PyArray_DIM(arr, 1) == numArgs)
-                numpt = PyArray_DIM(arr, 0);
-            else {
+            // check the shape of input array
+            numpt = parseArray<numArgs>(arr);
+            if(numpt == 0) {
                 PyErr_SetString(PyExc_ValueError, errStrInvalidArrayDim<numArgs>());
                 Py_DECREF(arr);
                 return NULL;
@@ -772,7 +821,7 @@ static PyObject* Potential_potential(PyObject* self, PyObject* args) {
     return callAnyFunctionOnArray<INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE>
         (self, args, fncPotential);
 }
-static PyObject* Potential_value(PyObject* self, PyObject* args, PyObject* /*namedargs*/) {
+static PyObject* Potential_value(PyObject* self, PyObject* args, PyObject* /*namedArgs*/) {
     return Potential_potential(self, args);
 }
 
@@ -950,7 +999,7 @@ static const char* docstringActionFinder =
     "Arguments: a sextet of floats (x,y,z,vx,vy,vz) or array of such sextets\n"
     "Returns: float or array of floats (for each point: Jr, Jz, Jphi)";
 
-static int ActionFinder_init(PyObject* self, PyObject* args, PyObject* namedargs)
+static int ActionFinder_init(PyObject* self, PyObject* args, PyObject* /*namedArgs*/)
 {
     PyObject* objPot=NULL;
     if(!PyArg_ParseTuple(args, "O", &objPot)) {
@@ -1112,7 +1161,7 @@ static int DistributionFunction_init(PyObject* self, PyObject* args, PyObject* n
     {
         PyErr_SetString(PyExc_ValueError,
             "Should provide a list of key=value arguments and no positional arguments");
-        return NULL;
+        return -1;
     }
     try{
         utils::KeyValueMap params;
@@ -1181,6 +1230,406 @@ static PyTypeObject DistributionFunctionType = {
 };
 
 ///@}
+/// \name  ----- GalaxyModel class -----
+///@{
+
+/// Python type corresponding to ActionFinder class
+typedef struct {
+    PyObject_HEAD
+    PotentialObject* pot;                // Python object for potential
+    DistributionFunctionObject* df;      // Python object for distribution function
+    ActionFinderObject* af_ext;          // Python object for action finder (if provided)
+    const actions::BaseActionFinder* af; // C++ object for action finder (created internally if af_ext is not provided)
+} GalaxyModelObject;
+
+static PyObject* GalaxyModel_new(PyTypeObject *type, PyObject*, PyObject*)
+{
+    GalaxyModelObject *self = (GalaxyModelObject*)type->tp_alloc(type, 0);
+    if(self) {
+        self->pot=NULL;
+        self->df =NULL;
+        self->af =NULL;
+        self->af_ext=NULL;
+    }
+    return (PyObject*)self;
+}
+
+static void GalaxyModel_dealloc(GalaxyModelObject* self)
+{
+    Py_XDECREF(self->pot);
+    Py_XDECREF(self->df);
+    if(self->af_ext)   // action finder was provided externally; decrease its refcounter
+        Py_DECREF(self->af_ext);
+    else     // action finder was created internally in the constructor; must delete it manually
+        delete self->af;
+    self->ob_type->tp_free((PyObject*)self);
+}
+
+static const char* docstringGalaxyModel =
+    "GalaxyModel is a class that takes together a Potential, "
+    "a DistributionFunction, and an ActionFinder objects, "
+    "and provides methods to compute moments and projections of the distribution function "
+    "at a given point in the ordinary phase space (coordinate/velocity), as well as "
+    "methods for drawing samples from the distribution function in the given potential.\n"
+    "The constructor takes the following arguments:\n"
+    "  pot - a Potential object;\n"
+    "  df  - a DistributionFunction object;\n"
+    "  af (optional) - an ActionFinder object; if not provided then the action finder is created internally.\n";
+
+static int GalaxyModel_init(PyObject* self, PyObject* args, PyObject* namedArgs)
+{
+    static const char* keywords[] = {"pot", "df", "af", NULL};
+    PyObject *pot_obj = NULL, *df_obj = NULL, *af_obj = NULL;
+    if(!PyArg_ParseTupleAndKeywords(args, namedArgs, "OO|O", const_cast<char**>(keywords),
+        &pot_obj, &df_obj, &af_obj))
+    {
+        PyErr_SetString(PyExc_ValueError, "GalaxyModel constructor takes two or three arguments: pot, df, [af]");
+        return -1;
+    }
+    if(pot_obj==NULL || !PyObject_TypeCheck(pot_obj, &PotentialType) ||
+       ((PotentialObject*)pot_obj)->pot==NULL )
+    {
+        PyErr_SetString(PyExc_TypeError,
+            "Argument 'pot' must be a valid instance of Potential class");
+        return -1;
+    }
+    if(df_obj==NULL || !PyObject_TypeCheck(df_obj, &DistributionFunctionType) ||
+       ((DistributionFunctionObject*)df_obj)->df==NULL )
+    {
+        PyErr_SetString(PyExc_TypeError,
+            "Argument 'df' must be a valid instance of DistributionFunction class");
+        return -1;
+    }
+    // af_obj might be NULL; if not NULL then check its validity
+    if(af_obj!=NULL && (!PyObject_TypeCheck(af_obj, &ActionFinderType) ||
+       ((ActionFinderObject*)af_obj)->af==NULL || ((ActionFinderObject*)af_obj)->pot!=pot_obj))
+    {
+        PyErr_SetString(PyExc_TypeError,
+            "Argument 'af' must be a valid instance of ActionFinder class "
+            "corresponding to the given potential");
+        return -1;
+    }
+    const actions::BaseActionFinder* af = NULL;
+    if(af_obj==NULL) {  // no action finder provided - create one internally
+        try{
+            af = createActionFinder(((PotentialObject*)pot_obj)->pot);
+        }
+        catch(std::exception& e) {
+            PyErr_SetString(PyExc_ValueError, 
+                (std::string("Error in constructing action finder: ")+e.what()).c_str());
+            return -1;
+        }
+    }
+    // ensure valid cleanup if the constructor was called more than once
+    Py_XDECREF(((GalaxyModelObject*)self)->pot);
+    Py_XDECREF(((GalaxyModelObject*)self)->df);
+    if(((GalaxyModelObject*)self)->af_ext!=NULL)
+        Py_DECREF(((GalaxyModelObject*)self)->af_ext);
+    else
+        delete ((GalaxyModelObject*)self)->af;
+    // replace the member variables with freshly created ones
+    ((GalaxyModelObject*)self)->pot = (PotentialObject*)pot_obj;
+    Py_INCREF(pot_obj);
+    ((GalaxyModelObject*)self)->df = (DistributionFunctionObject*)df_obj;
+    Py_INCREF(df_obj);
+    ((GalaxyModelObject*)self)->af_ext = (ActionFinderObject*)af_obj;
+    if(af_obj==NULL)
+        ((GalaxyModelObject*)self)->af = af;
+    else {
+        ((GalaxyModelObject*)self)->af = ((ActionFinderObject*)af_obj)->af;
+        Py_INCREF(af_obj);
+    }
+    return 0;
+}
+
+/// generate samples in position/velocity space
+static PyObject* GalaxyModel_sample_posvel(GalaxyModelObject* self, PyObject* args)
+{
+    int numPoints=0;
+    if(!PyArg_ParseTuple(args, "i", &numPoints) || numPoints<=0)
+    {
+        PyErr_SetString(PyExc_ValueError, "sample() takes one integer argument - the number of points");
+        return NULL;
+    }
+    try{
+        // do the sampling
+        galaxymodel::GalaxyModel galmod(*self->pot->pot, *self->af, *self->df->df);
+        particles::PointMassArrayCar points;
+        galaxymodel::generatePosVelSamples(galmod, numPoints, points);
+
+        // convert output to NumPy array
+        numPoints = points.size();
+        npy_intp dims[] = {numPoints, 6};
+        PyArrayObject* posvel_arr = (PyArrayObject*)PyArray_SimpleNew(2, dims, NPY_DOUBLE);
+        PyArrayObject* mass_arr   = (PyArrayObject*)PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+        for(int i=0; i<numPoints; i++) {
+            unconvertPosVel(points.point(i), ((double*)PyArray_DATA(posvel_arr))+i*6);
+            ((double*)PyArray_DATA(mass_arr))[i] = points.mass(i) / conv->massUnit;
+        }
+        return Py_BuildValue("NN", posvel_arr, mass_arr);
+    }
+    catch(std::exception& e) {
+        PyErr_SetString(PyExc_ValueError, 
+            (std::string("Error in sample(): ")+e.what()).c_str());
+        return NULL;
+    }
+}
+
+struct GalaxyModelParams {
+    const galaxymodel::GalaxyModel model;
+    bool needDens;
+    bool needVel;
+    bool needVel2;
+    double accuracy;
+    int maxNumEval;
+    double vz_error;
+    GalaxyModelParams(
+        const potential::BasePotential& pot,
+        const actions::BaseActionFinder& af,
+        const df::BaseDistributionFunction& df) :
+        model(pot, af, df) {};
+};
+
+static void fncGalaxyModelMoments(void* obj, const double input[], double *result) {
+    const coord::PosCar point = convertPos(input);
+    GalaxyModelParams* params = static_cast<GalaxyModelParams*>(obj);
+    double dens;
+    coord::VelCyl vel;
+    coord::Vel2Cyl vel2;
+    computeMoments(params->model, coord::toPosCyl(point), params->accuracy, params->maxNumEval,
+        params->needDens ? &dens : NULL,
+        params->needVel  ? &vel  : NULL,
+        params->needVel2 ? &vel2 : NULL, NULL, NULL, NULL);
+    unsigned int offset=0;
+    if(params->needDens) {
+        result[offset] = dens * pow_3(conv->lengthUnit) / conv->massUnit;  // dimension of density is M L^-3
+        offset += 1;
+    }
+    if(params->needVel) {
+        result[offset  ] = vel.vR   / conv->velocityUnit;
+        result[offset+1] = vel.vz   / conv->velocityUnit;
+        result[offset+2] = vel.vphi / conv->velocityUnit;
+        offset += 3;
+    }
+    if(params->needVel2) {
+        result[offset  ] = vel2.vR2    / pow_2(conv->velocityUnit);
+        result[offset+1] = vel2.vz2    / pow_2(conv->velocityUnit);
+        result[offset+2] = vel2.vphi2  / pow_2(conv->velocityUnit);
+        result[offset+3] = vel2.vRvz   / pow_2(conv->velocityUnit);
+        result[offset+4] = vel2.vRvphi / pow_2(conv->velocityUnit);
+        result[offset+5] = vel2.vzvphi / pow_2(conv->velocityUnit);
+    }
+}
+
+/// compute moments of DF at a given 3d point
+static PyObject* GalaxyModel_moments(GalaxyModelObject* self, PyObject* args, PyObject* namedArgs)
+{
+    static const char* keywords[] = {"point","dens", "vel", "vel2", NULL};
+    PyObject *points_obj = NULL, *dens_flag = NULL, *vel_flag = NULL, *vel2_flag = NULL;
+    if(!PyArg_ParseTupleAndKeywords(
+        args, namedArgs, "O|OOO", const_cast<char**>(keywords),
+        &points_obj, &dens_flag, &vel_flag, &vel2_flag))
+    {
+        PyErr_SetString(PyExc_ValueError, "Invalid arguments passed to moments()");
+        return NULL;
+    }
+    try{
+        GalaxyModelParams params(*self->pot->pot, *self->af, *self->df->df);
+        params.accuracy = 1e-3;
+        params.maxNumEval = 1e4;
+        params.needDens = dens_flag==NULL || PyObject_IsTrue(dens_flag);
+        params.needVel  = vel_flag !=NULL && PyObject_IsTrue(vel_flag);
+        params.needVel2 = vel2_flag==NULL || PyObject_IsTrue(vel2_flag);
+        if(params.needDens) {
+            if(params.needVel) {
+                if(params.needVel2)
+                    return callAnyFunctionOnArray
+                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE_AND_TRIPLET_AND_SEXTET>
+                    (&params, points_obj, fncGalaxyModelMoments);
+                else
+                    return callAnyFunctionOnArray
+                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE_AND_TRIPLET>
+                    (&params, points_obj, fncGalaxyModelMoments);
+            } else {
+                if(params.needVel2)
+                    return callAnyFunctionOnArray
+                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE_AND_SEXTET>
+                    (&params, points_obj, fncGalaxyModelMoments);
+                else
+                    return callAnyFunctionOnArray
+                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE>
+                    (&params, points_obj, fncGalaxyModelMoments);
+            }
+        } else {
+            if(params.needVel) {
+                if(params.needVel2)
+                    return callAnyFunctionOnArray
+                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_TRIPLET_AND_SEXTET>
+                    (&params, points_obj, fncGalaxyModelMoments);
+                else
+                    return callAnyFunctionOnArray
+                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_TRIPLET>
+                    (&params, points_obj, fncGalaxyModelMoments);
+            } else {
+                if(params.needVel2)
+                    return callAnyFunctionOnArray
+                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SEXTET>
+                    (&params, points_obj, fncGalaxyModelMoments);
+                else {
+                    PyErr_SetString(PyExc_ValueError, "Nothing to compute!");
+                    return NULL;
+                }
+            }
+        }
+    }
+    catch(std::exception& e) {
+        PyErr_SetString(PyExc_ValueError,
+            (std::string("Error in moments(): ")+e.what()).c_str());
+        return NULL;
+    }
+}
+
+static void fncGalaxyModelProjectedMoments(void* obj, const double input[], double *result) {
+    GalaxyModelParams* params = static_cast<GalaxyModelParams*>(obj);
+    try{
+        double surfaceDensity, losvdisp;
+        computeProjectedMoments(params->model, input[0] * conv->lengthUnit,
+            params->accuracy, params->maxNumEval, surfaceDensity, losvdisp);
+        result[0] = surfaceDensity * pow_2(conv->lengthUnit) / conv->massUnit;
+        result[1] = losvdisp / pow_2(conv->velocityUnit);
+    }
+    catch(std::exception& ) {
+        result[0] = NAN;
+        result[1] = NAN;
+    }
+}
+
+/// compute projected moments of distribution function
+static PyObject* GalaxyModel_projected_moments(GalaxyModelObject* self, PyObject* args)
+{
+    PyObject *points_obj = NULL;
+    if(!PyArg_ParseTuple(args, "O", &points_obj))
+    {
+        PyErr_SetString(PyExc_ValueError, "Invalid arguments passed to projected_moments()");
+        return NULL;
+    }
+    try{
+        GalaxyModelParams params(*self->pot->pot, *self->af, *self->df->df);
+        params.accuracy = 1e-3;
+        params.maxNumEval = 1e4;
+        return callAnyFunctionOnArray<INPUT_VALUE_SINGLE, OUTPUT_VALUE_SINGLE_AND_SINGLE>
+            (&params, points_obj, fncGalaxyModelProjectedMoments);
+    }
+    catch(std::exception& e) {
+        PyErr_SetString(PyExc_ValueError,
+            (std::string("Error in projected_moments(): ")+e.what()).c_str());
+        return NULL;
+    }
+}
+
+static double err=0.;
+static int numCalls=0;
+static void fncGalaxyModelProjectedDF(void* obj, const double input[], double *result) {
+    const double R = sqrt(pow_2(input[0]) + pow_2(input[1])) * conv->lengthUnit;
+    const double vz = input[2] * conv->velocityUnit;
+    // dimension of distribution function is M L^-3 V^-3
+    const double dim = pow_3(conv->velocityUnit * conv->lengthUnit) / conv->massUnit;
+    GalaxyModelParams* params = static_cast<GalaxyModelParams*>(obj);
+    try{
+        double error;
+        int numEval;
+        result[0] = computeProjectedDF(params->model, R, vz, params->vz_error,
+            params->accuracy, params->maxNumEval, &error, &numEval) * dim;
+        err +=error/result[0]*dim;
+        numCalls += numEval;
+        //printf("R=%g vz=%g => df=%g * (1+-%g) in %i calls\n", 
+        //       R/conv->lengthUnit, input[2], result[0], error/result[0]*dim, numEval);
+    }
+    catch(std::exception& ) {
+        result[0] = NAN;
+    }
+}
+
+/// compute projected distribution function
+static PyObject* GalaxyModel_projected_df(GalaxyModelObject* self, PyObject* args, PyObject* namedArgs)
+{
+    static const char* keywords[] = {"point","vz_error", NULL};
+    PyObject *points_obj = NULL;
+    double vz_error = 0;
+    if(!PyArg_ParseTupleAndKeywords(args, namedArgs, "O|d", const_cast<char**>(keywords),
+        &points_obj, &vz_error))
+    {
+        PyErr_SetString(PyExc_ValueError, "Invalid arguments passed to projected_df()");
+        return NULL;
+    }
+    try{
+        GalaxyModelParams params(*self->pot->pot, *self->af, *self->df->df);
+        params.accuracy = 1e-3;
+        params.maxNumEval = 1e4;
+        params.vz_error = vz_error * conv->velocityUnit;
+        err=0;
+        numCalls=0;
+        PyObject* result = callAnyFunctionOnArray<INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE>
+            (&params, points_obj, fncGalaxyModelProjectedDF);
+        //printf("Sum rel err=%g, numCalls=%i\n",err,numCalls);
+        return result;
+    }
+    catch(std::exception& e) {
+        PyErr_SetString(PyExc_ValueError,
+            (std::string("Error in projected_df(): ")+e.what()).c_str());
+        return NULL;
+    }
+}
+
+static PyMethodDef GalaxyModel_methods[] = {
+    { "sample", (PyCFunction)GalaxyModel_sample_posvel, METH_VARARGS,
+      "Sample distribution function in the given potential by N points\n"
+      "Arguments:\n"
+      "  Number of points to sample.\n"
+      "Returns:\n"
+      "  A tuple of two arrays: position/velocity (2d array of size Nx6) and mass (1d array of length N)." },
+    { "moments", (PyCFunction)GalaxyModel_moments, METH_VARARGS | METH_KEYWORDS,
+      "Compute moments of distribution function in the given potential\n"
+      "Arguments:\n"
+      "  point -- a single point or an array of points specifying the position "
+      "in cartesian coordinates at which the moments need to be computed "
+      "(a triplet of numbers or an Nx3 array);\n"
+      "  dens (boolean, default True)  -- flag telling whether the density (0th moment) needs to be computed;\n"
+      "  vel  (boolean, default False) -- same for streaming velocity (1st moment);\n"
+      "  vel2 (boolean, default True)  -- same for 2nd moment of velocity.\n"
+      "Returns:\n"
+      "  For each input point, return the requested moments (one value for density, "
+      "a triplet for velocity, and 6 components of the 2nd moment tensor)." },
+    { "projected_moments", (PyCFunction)GalaxyModel_projected_moments, METH_VARARGS,
+      "Compute projected moments of distribution function in the given potential\n"
+      "Arguments:\n"
+      "  A single value or an array of values of cylindrical radius at which to compute moments.\n"
+      "Returns:\n"
+      "  A tuple of two floats or arrays: surface density and line-of-sight velocity dispersion at each input radius.\n" },
+    { "projected_df", (PyCFunction)GalaxyModel_projected_df, METH_VARARGS | METH_KEYWORDS,
+      "Compute projected distribution function (integrated over z-coordinate and x- and y-velocities)\n"
+      "Named arguments:\n"
+      "  point -- a single point or an array of points specifying the x,y- components of position "
+      "in cartesian coordinates and z-component of velocity "
+      "(a triplet of numbers or an Nx3 array);\n"
+      "  vz_error -- optional error on z-component of velocity "
+      "(DF will be convolved with a Gaussian if this error is non-zero)\n"
+      "Returns:\n"
+      "  The value of projected DF (integrated over the missing components of position and velocity) at each point." },
+    { NULL, NULL, 0, NULL }
+};
+
+static PyTypeObject GalaxyModelType = {
+    PyObject_HEAD_INIT(NULL)
+    0, "py_wrapper.GalaxyModel",
+    sizeof(GalaxyModelObject), 0, (destructor)GalaxyModel_dealloc,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    Py_TPFLAGS_DEFAULT, docstringGalaxyModel,
+    0, 0, 0, 0, 0, 0, GalaxyModel_methods, 0, 0, 0, 0, 0, 0, 0,
+    GalaxyModel_init, 0, GalaxyModel_new
+};
+
+///@}
 /// \name  --------- SplineApprox class -----------
 ///@{
 
@@ -1221,14 +1670,14 @@ static const char* docstringSplineApprox =
     "the () operator with the first argument being a single x-point or an array "
     "of points, and optional second argument being the derivative index (0, 1, or 2).";
 
-static int SplineApprox_init(PyObject* self, PyObject* args, PyObject* namedargs)
+static int SplineApprox_init(PyObject* self, PyObject* args, PyObject* namedArgs)
 {
     static const char* keywords[] = {"x","y","knots","smooth",NULL};
     PyObject* objx=NULL;
     PyObject* objy=NULL;
     PyObject* objk=NULL;
     double smoothfactor=0;
-    if(!PyArg_ParseTupleAndKeywords(args, namedargs, "OOO|d", const_cast<char **>(keywords),
+    if(!PyArg_ParseTupleAndKeywords(args, namedArgs, "OOO|d", const_cast<char **>(keywords),
         &objx, &objy, &objk, &smoothfactor)) {
         PyErr_SetString(PyExc_ValueError, "Incorrect parameters passed to the SplineApprox constructor: "
             "must provide two arrays of equal length (input x and y points), "
@@ -1335,239 +1784,6 @@ static PyTypeObject SplineApproxType = {
 
 
 ///@}
-/// \name  ----- GalaxyModel routines -----
-///@{
-
-/// common validation of input arguments for several GalaxyModel routines
-bool checkParamsGalaxyModel(PyObject *pot_obj, PyObject *df_obj, PyObject *af_obj)
-{
-    if(pot_obj==NULL || !PyObject_TypeCheck(pot_obj, &PotentialType) ||
-       ((PotentialObject*)pot_obj)->pot==NULL )
-    {
-        PyErr_SetString(PyExc_TypeError,
-            "Argument 'pot' must be a valid instance of Potential class");
-        return false;
-    }
-    if(df_obj==NULL || !PyObject_TypeCheck(df_obj, &DistributionFunctionType) ||
-       ((DistributionFunctionObject*)df_obj)->df==NULL )
-    {
-        PyErr_SetString(PyExc_TypeError,
-            "Argument 'df' must be a valid instance of DistributionFunction class");
-        return false;
-    }
-    // af_obj might be NULL; if not NULL then check its validity
-    if(af_obj!=NULL && (!PyObject_TypeCheck(af_obj, &ActionFinderType) ||
-       ((ActionFinderObject*)af_obj)->af==NULL || ((ActionFinderObject*)af_obj)->pot!=pot_obj))
-    {
-        PyErr_SetString(PyExc_TypeError,
-            "Argument 'af' must be a valid instance of ActionFinder class "
-            "corresponding to the given potential");
-        return false;
-    }
-    return true;
-}
-
-static const char* docstringSample =
-    "Sample distribution function in the given potential by N points\n"
-    "Named arguments:\n"
-    "  pot -- an instance of Potential class;\n"
-    "  df  -- an instance of DistributionFunction class;\n"
-    "  af (optional) -- an instance of ActionFinder object (created internally if not provided);\n"
-    "  N   -- number of points to sample.\n"
-    "Returns:\n"
-    "  A tuple of two arrays: position/velocity (2d array of size Nx6) and mass (1d array of length N).";
-
-/// generate samples in position/velocity space
-static PyObject* sample_posvel(PyObject* /*self*/, PyObject* args, PyObject* namedArgs)
-{
-    // parse and check input arguments
-    static const char* keywords[] = {"pot", "df", "af", "N", NULL};
-    PyObject *pot_obj = NULL, *df_obj = NULL, *af_obj = NULL;
-    int numPoints=0;
-    if(!PyArg_ParseTupleAndKeywords(
-        args, namedArgs, "|OOOi", const_cast<char**>(keywords),
-        &pot_obj, &df_obj, &af_obj, &numPoints) || numPoints<=0)
-    {
-        PyErr_SetString(PyExc_ValueError, "Invalid arguments passed to sample()");
-        return NULL;
-    }
-    if(!checkParamsGalaxyModel(pot_obj, df_obj, af_obj))
-        return NULL;
-    const potential::BasePotential* pot = ((PotentialObject*)pot_obj)->pot;
-    const actions::BaseActionFinder* af = NULL;  // will be created if needed
-    try{
-        if(af_obj!=NULL)  // ActionFinder provided by user
-            af = ((ActionFinderObject*)af_obj)->af;
-        else   // ActionFinder not provided - create internally
-            af = createActionFinder(pot);
-        galaxymodel::GalaxyModel galmod(*pot, *af, *((DistributionFunctionObject*)df_obj)->df);
-        particles::PointMassArrayCar points;
-        // do the sampling
-        galaxymodel::generatePosVelSamples(galmod, numPoints, points);
-        if(af_obj==NULL)  // we have created an internal instance of action finder
-            delete af;
-
-        // convert output to NumPy array
-        numPoints = points.size();
-        npy_intp dims[] = {numPoints, 6};
-        PyArrayObject* posvel_arr = (PyArrayObject*)PyArray_SimpleNew(2, dims, NPY_DOUBLE);
-        PyArrayObject* mass_arr   = (PyArrayObject*)PyArray_SimpleNew(1, dims, NPY_DOUBLE);
-        for(int i=0; i<numPoints; i++) {
-            unconvertPosVel(points.point(i), ((double*)PyArray_DATA(posvel_arr))+i*6);
-            ((double*)PyArray_DATA(mass_arr))[i] = points.mass(i) / conv->massUnit;
-        }
-        return Py_BuildValue("NN", posvel_arr, mass_arr);
-    }
-    catch(std::exception& e) {
-        if(af_obj==NULL)
-            delete af;
-        PyErr_SetString(PyExc_ValueError, 
-            (std::string("Error in sample: ")+e.what()).c_str());
-        return NULL;
-    }
-}
-
-struct GalaxyModelMomentParams {
-    const galaxymodel::GalaxyModel* model;
-    bool needDens;
-    bool needVel;
-    bool needVel2;
-    double accuracy;
-    int maxNumEval;
-};
-
-static void fncGalaxyModelMoments(void* obj, const double input[], double *result) {
-    const coord::PosCar point = convertPos(input);
-    GalaxyModelMomentParams* params = static_cast<GalaxyModelMomentParams*>(obj);
-    double dens;
-    coord::VelCyl vel;
-    coord::Vel2Cyl vel2;
-    computeMoments(*params->model, coord::toPosCyl(point), params->accuracy, params->maxNumEval,
-        params->needDens ? &dens : NULL,
-        params->needVel  ? &vel  : NULL,
-        params->needVel2 ? &vel2 : NULL, NULL, NULL, NULL);
-    unsigned int offset=0;
-    if(params->needDens) {
-        result[offset] = dens * pow_3(conv->lengthUnit) / conv->massUnit;  // dimension of density is M L^-3
-        offset += 1;
-    }
-    if(params->needVel) {
-        result[offset  ] = vel.vR   / conv->velocityUnit;
-        result[offset+1] = vel.vz   / conv->velocityUnit;
-        result[offset+2] = vel.vphi / conv->velocityUnit;
-        offset += 3;
-    }
-    if(params->needVel2) {
-        result[offset  ] = vel2.vR2    / pow_2(conv->velocityUnit);
-        result[offset+1] = vel2.vz2    / pow_2(conv->velocityUnit);
-        result[offset+2] = vel2.vphi2  / pow_2(conv->velocityUnit);
-        result[offset+3] = vel2.vRvz   / pow_2(conv->velocityUnit);
-        result[offset+4] = vel2.vRvphi / pow_2(conv->velocityUnit);
-        result[offset+5] = vel2.vzvphi / pow_2(conv->velocityUnit);
-    }
-}
-
-static const char* docstringMoments =
-    "Compute moments of distribution function in the given potential\n"
-    "Named arguments:\n"
-    "  pot -- an instance of Potential class;\n"
-    "  df  -- an instance of DistributionFunction class;\n"
-    "  af (optional) -- an instance of ActionFinder object (created internally if not provided);\n"
-    "  point -- a single point or an array of points specifying the position "
-    "in cartesian coordinates at which the moments need to be computed "
-    "(a triplet of numbers or an Nx3 array);\n"
-    "  dens (boolean, default True)  -- flag telling whether the density (0th moment) needs to be computed;\n"
-    "  vel  (boolean, default False) -- same for streaming velocity (1st moment);\n"
-    "  vel2 (boolean, default True)  -- same for 2nd moment of velocity.\n"
-    "Returns:\n"
-    "  For each input point, return the requested moments (one value for density, "
-    "a triplet for velocity, and 6 components of the 2nd moment tensor).";
-
-/// generate samples in position/velocity space
-static PyObject* moments(PyObject* /*self*/, PyObject* args, PyObject* namedArgs)
-{
-    // parse and check input arguments
-    static const char* keywords[] = {"pot", "df", "af", "point", "dens", "vel", "vel2", NULL};
-    PyObject *pot_obj = NULL, *df_obj = NULL, *af_obj = NULL, *points_obj = NULL,
-        *dens_flag = NULL, *vel_flag = NULL, *vel2_flag = NULL;
-    if(!PyArg_ParseTupleAndKeywords(
-        args, namedArgs, "|OOOOOOO", const_cast<char**>(keywords),
-        &pot_obj, &df_obj, &af_obj, &points_obj, &dens_flag, &vel_flag, &vel2_flag))
-    {
-        PyErr_SetString(PyExc_ValueError, "Invalid arguments passed to sample()");
-        return NULL;
-    }
-    if(!checkParamsGalaxyModel(pot_obj, df_obj, af_obj))
-        return NULL;
-    const potential::BasePotential* pot = ((PotentialObject*)pot_obj)->pot;
-    const actions::BaseActionFinder* af = NULL;  // will be created if needed
-    try{
-        if(af_obj!=NULL)  // ActionFinder provided by user
-            af = ((ActionFinderObject*)af_obj)->af;
-        else   // ActionFinder not provided - create internally
-            af = createActionFinder(pot);
-        galaxymodel::GalaxyModel model(*pot, *af, *((DistributionFunctionObject*)df_obj)->df);
-        GalaxyModelMomentParams params;
-        params.model = &model;
-        params.accuracy = 1e-3;
-        params.maxNumEval = 1e5;
-        params.needDens = dens_flag==NULL || PyObject_IsTrue(dens_flag);
-        params.needVel  = vel_flag !=NULL && PyObject_IsTrue(vel_flag);
-        params.needVel2 = vel2_flag==NULL || PyObject_IsTrue(vel2_flag);
-        PyObject* result = NULL;
-        if(params.needDens) {
-            if(params.needVel) {
-                if(params.needVel2)
-                    result = callAnyFunctionOnArray
-                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE_AND_TRIPLET_AND_SEXTET>
-                    (&params, points_obj, fncGalaxyModelMoments);
-                else
-                    result = callAnyFunctionOnArray
-                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE_AND_TRIPLET>
-                    (&params, points_obj, fncGalaxyModelMoments);
-            } else {
-                if(params.needVel2)
-                    result = callAnyFunctionOnArray
-                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE_AND_SEXTET>
-                    (&params, points_obj, fncGalaxyModelMoments);
-                else
-                    result = callAnyFunctionOnArray
-                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE>
-                    (&params, points_obj, fncGalaxyModelMoments);
-            }
-        } else {
-            if(params.needVel) {
-                if(params.needVel2)
-                    result = callAnyFunctionOnArray
-                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_TRIPLET_AND_SEXTET>
-                    (&params, points_obj, fncGalaxyModelMoments);
-                else
-                    result = callAnyFunctionOnArray
-                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_TRIPLET>
-                    (&params, points_obj, fncGalaxyModelMoments);
-            } else {
-                if(params.needVel2)
-                    result = callAnyFunctionOnArray
-                    <INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SEXTET>
-                    (&params, points_obj, fncGalaxyModelMoments);
-                else
-                    PyErr_SetString(PyExc_ValueError, "Nothing to compute!");
-            }
-        }
-        if(af_obj==NULL)
-            delete af;
-        return result;
-    }
-    catch(std::exception& e) {
-        if(af_obj==NULL)
-            delete af;
-        PyErr_SetString(PyExc_ValueError,
-            (std::string("Error in moments: ")+e.what()).c_str());
-        return NULL;
-    }
-}
-
-///@}
 /// \name  ----- Orbit integration -----
 ///@{
 
@@ -1649,8 +1865,6 @@ static PyMethodDef py_wrapper_methods[] = {
     {"set_units", (PyCFunction)set_units, METH_VARARGS | METH_KEYWORDS, docstringSetUnits},
     {"reset_units", reset_units, METH_NOARGS, docstringResetUnits},
     {"orbit", (PyCFunction)integrate_orbit, METH_VARARGS | METH_KEYWORDS, docstringOrbit},
-    {"sample", (PyCFunction)sample_posvel, METH_VARARGS | METH_KEYWORDS, docstringSample},
-    {"moments", (PyCFunction)moments, METH_VARARGS | METH_KEYWORDS, docstringMoments},
     {"actions", (PyCFunction)find_actions, METH_VARARGS | METH_KEYWORDS, docstringActions},
     {NULL}
 };
@@ -1674,6 +1888,10 @@ initpy_wrapper(void)
     if (PyType_Ready(&DistributionFunctionType) < 0) return;
     Py_INCREF(&DistributionFunctionType);
     PyModule_AddObject(mod, "DistributionFunction", (PyObject *)&DistributionFunctionType);
+
+    if (PyType_Ready(&GalaxyModelType) < 0) return;
+    Py_INCREF(&GalaxyModelType);
+    PyModule_AddObject(mod, "GalaxyModel", (PyObject *)&GalaxyModelType);
 
     if (PyType_Ready(&SplineApproxType) < 0) return;
     Py_INCREF(&SplineApproxType);

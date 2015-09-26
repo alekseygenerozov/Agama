@@ -15,191 +15,445 @@ and the triangle-plot showing the covariation of parameters.
 This example uses the data from the "Spherical/triaxial" working group
 of Gaia Challenge III.
 '''
-import sys, py_wrapper, numpy
+import sys, py_wrapper, numpy, scipy, matplotlib, os, re
+matplotlib.use('Agg')
+from matplotlib import pyplot
 import emcee, triangle
 from scipy.optimize import minimize
-from matplotlib import pyplot
+from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy.integrate import quad
 
-def unscale_params(args):
+###################$ GLOBAL CONSTANTS $###############
+
+nsteps_deterministic  = 500   # number of steps per pass in deterministic minimizer
+nsteps_mcmc           = 100   # number of MC steps per pass
+nwalkers_mcmc         = 32    # number of independent MC walkers
+initial_disp_mcmc     = 0.01  # initial dispersion of parameters carried by walkers around their best-fit values
+full_phase_space_info = True  # whether to use full phase-space information (3 positions and 3 velocities)
+                              # or only the projected data (cylindrical radius and line-of-sight velocity)
+
+#################### DEFINITION OF MODEL PARAMETERS #######################
+
+class ModelParams:
     '''
-    Convert from parameter space to DF and potential params: 
-    note that we apply some non-trivial scaling to make the life easier for the minimizer.
+    Class that represents the parameters space (used by the model-search routines)
+    and converts from this space to the actual parameters of distribution function and potential,
+    applying some non-trivial scaling to make the life easier for the minimizer.
     Parameters are, in order of appearance:
-      -- DF params --
-    alpha (DF slope at small J)
-    beta  (DF slope at large J)
-    log(J0)  (boundary between small and large J)
-    ar/at  (ration between coefficients in the linear combination of actions - radial vs any of the other two, for the small J region)
-    br/bt  (ration between coefficients in the linear combination of actions - radial vs any of the other two, for the large J region)
       -- potential params --
-    log(M1)  (enclosed mass within a fixed radius R1)
-    log(Rscale)  (scale radius for the two-power-law density profile)
-    |gamma|  (inner slope of the density profile; take abs value to avoid problems when the best-fit value is near zero)
+    lg(rho_0)  (density normalization at Rscale, in units of Msun/Kpc^3)
+    lg(Rscale) (scale radius for the two-power-law density profile, in units of Kpc)
+    |gamma|    (inner slope of the density profile; take abs value to avoid problems when the best-fit value is near zero)
+    beta       (outer slope of the density profile)
+      -- DF params --
+    |alpha|    (DF slope at small J; take abs value to avoid problems when the best-fit value is near zero)
+    beta       (DF slope at large J)
+    ar         (coefficient for the radial action in the linear combination of actions
+               for the small J region; the sum of coefficients for all three actions is taken to be unity)
+    br         (same for the large J region)
+    lg(J0)     (boundary between small and large J, in units of Kpc*km/s)
     '''
-    M1     = numpy.exp(args[5])
-    Rscale = numpy.exp(args[6])
-    gamma  = abs(args[7])
-    R1     = 0.5 # fixed radius of 0.5 kpc
-    Mtotal = M1 * (1 + Rscale/R1)**(3-gamma)
-    RhoScale = Mtotal * (3-gamma) / (4*3.1416*Rscale**3)
-    return dict(
-        # DF params
-        type  = 'DoublePowerLaw',
-        alpha = abs(args[0]),
-        beta  = args[1],
-        j0    = numpy.exp(args[2]),  # will always stay positive
-        ar    = 3./(2+args[3])*args[3],
-        az    = 3./(2+args[3]),
-        aphi  = 3./(2+args[3]),  # ensure that sum of ar*Jr+az*Jz+aphi*Jphi doesn't depend on args[3]
-        br    = 3./(2+args[4])*args[4],
-        bz    = 3./(2+args[4]),
-        bphi  = 3./(2+args[4]),
-        jcore = 0.,
-        norm  = 1.), dict( \
-        # potential params
-        type  = 'TwoPowerLawSpheroid',
-        mass  = Mtotal,
-        gamma = gamma,
-        beta  = 3,
-        densityNorm = RhoScale,
-        scaleRadius = Rscale)
+    def __init__(self, filename):
+        '''
+        Initialize starting values of scaled parameters and and define upper/lower limits on them;
+        also obtain the true values by analyzing the input file name
+        '''
+        self.init_values = numpy.array( [numpy.log10(5e8),  numpy.log10(2.0), .5, 4.0, 1.5, 6.0, 0.4, 0.4, numpy.log10(10.)])
+        self.min_values  = numpy.array( [numpy.log10(1e6),  numpy.log10(0.1), 0., 2.5, 0.0, 3.2, 0.1, 0.1, numpy.log10(0.1)])
+        self.max_values  = numpy.array( [numpy.log10(1e10), numpy.log10(100), 2., 5.0, 2.8, 12., 0.9, 0.9, numpy.log10(1e3)])
+        self.parse_true_values(filename)
+        self.labels      = (r'$\log(\rho_0)$', r'$\log(R_{scale})$', r'$\gamma$', r'$\beta$', \
+            r'$\alpha_{DF}$', r'$\beta_{DF}$', r'$a_r$', r'$b_r$', r'$\log(J_0)$')
+        self.num_pot_params = 4  # potential params come first in the list
+        self.num_df_params  = 5  # DF params come last in the list
+        self.vz_error = 0
 
-def df_likelihood(dfparams, actions):
-    '''
-    Compute log-likelihood of DF with given params against an array of actions
-    '''
-    dpl = py_wrapper.DistributionFunction(**dfparams)
-    norm = dpl.total_mass()
-    sumlog = numpy.sum( numpy.log(dpl(actions)/norm) )
-    if numpy.isnan(sumlog): sumlog = -numpy.inf
-    return sumlog, norm
-
-def model_likelihood(params, particles):
-    '''
-    Compute the likelihood of model (df+potential specified by scaled params)
-    against the data (array of Nx6 position/velocity coordinates of tracer particles).
-    This is the function to be maximized; if parameters are nonsense it returns -infinity
-    '''
-    dfparams, potparams = unscale_params(params)
-    print "J0=%6.5g, alpha=%6.5g, ar=%6.5g, br=%6.5g, beta=%6.5g; mass=%6.5g, gamma=%4g, Rscale=%6.5g: " \
-        % (dfparams['j0'], dfparams['alpha'], dfparams['ar'], dfparams['br'], dfparams['beta'], \
-        potparams['mass'], potparams['gamma'], potparams['scaleRadius']),
-    # check that the parameters are within allowed range
-    if  dfparams['j0']<1e-1 or dfparams['j0']>1e4 or \
-        dfparams['alpha']<0 or dfparams['alpha']>=3 or \
-        dfparams['beta']<=3 or dfparams['beta']>10 or \
-        dfparams['ar']<=0 or dfparams['ar']>=3.0 or \
-        dfparams['br']<=0 or dfparams['br']>=3.0 or \
-        potparams['gamma']<0 or potparams['gamma']>=2 or \
-        potparams['mass']>1e14 or potparams['mass']<1e4 or \
-        potparams['scaleRadius']>1e2 or potparams['scaleRadius']<1e-2:
-        print 'Out of range'
-        return -numpy.inf
-    try:
-        pot = py_wrapper.Potential(**potparams)
-        af  = py_wrapper.ActionFinder(pot)
-        actions = af(particles[:,:6])
-        loglikelihood, norm = df_likelihood(dfparams, actions)
-        print "LogL=%8g" % loglikelihood
-        return loglikelihood
-    except ValueError as err:
-        print "Exception ", err
-        return -numpy.inf
-
-def deterministic_search_fnc(params, particles):
-    '''
-    function to minimize using the deterministic algorithm
-    '''
-    ll = -model_likelihood(params, particles)
-    if numpy.isinf(ll) or numpy.isnan(ll): ll=100*len(particles)
-    return ll
-
-def deterministic_search(initparams, args, user_fnc=None):
-    '''
-    do a deterministic search to find the best-fit parameters of potential and distribution function.
-    perform several iterations of search, to avoid getting stuck in a local minimum,
-    until the log-likelihood ceases to improve
-    '''
-    prevloglike = -1e5
-    while True:
-        print 'Starting deterministic search'
-        result = minimize(deterministic_search_fnc, initparams, args=args, method='Nelder-Mead',
-            options=dict(maxiter=500, maxfev=500, disp=True))
-        print 'result=', result.x, 'LogL=', result.fun, result.message
-        initparams = result.x
-        if not user_fnc is None:
-            try:
-                user_fnc(initparams)
-            except:
-                print "Exception in user function:", sys.exc_info()
-        initloglike= -result.fun
-        if initloglike - prevloglike < 1.0:
-            return initparams,initloglike
+    def parse_true_values(self,filename):
+        m = re.match(r'gs(\d+)_bs(\d+)_rcrs([a-z\d]+)_rarc([a-z\d]+)_([a-z]+)_(\d+)mpc3', filename)
+        n = re.match(r'data_([ch])_rh(\d+)_rs(\d+)_gs(\d+)', filename)
+        if m:
+            self.true_values = numpy.array( [ \
+                numpy.log10(float(m.group(6))*1e6), numpy.log10(1.0), 1.0 if m.group(5)=='cusp' else 0.0, 3.0, \
+                numpy.nan, numpy.nan, numpy.nan, numpy.nan, numpy.nan] )
+            self.true_tracer_params = dict(scaleRadius=float(m.group(3))*0.01, \
+                gamma=float(m.group(1))*0.01, beta=float(m.group(2))*0.1)
+        elif n:
+            if n.group(1)=='c':
+                self.true_values = numpy.array( [ \
+                    numpy.log10(3.021516e7), numpy.log10(float(n.group(2))), 0.0, 4.0, \
+                    numpy.nan, numpy.nan, numpy.nan, numpy.nan, numpy.nan ] )
+            else:
+                self.true_values = numpy.array( [ \
+                    numpy.log10(2.387329e7), numpy.log10(float(n.group(2))), 1.0, 4.0, \
+                    numpy.nan, numpy.nan, numpy.nan, numpy.nan, numpy.nan ] )
+            self.true_tracer_params = dict(scaleRadius=1.75 if n.group(3)=='175' else 0.5, \
+                 gamma=float(n.group(4))*0.1, beta=5)
         else:
-            print 'Improved log-likelihood by', initloglike - prevloglike
-        prevloglike = initloglike
+            print "Can't determine true parameters!"
+            self.true_values = self.init_values
+            self.true_tracer_params    = dict(scaleRadius=numpy.nan, gamma=numpy.nan, beta=numpy.nan)
+        if 'err' in filename:
+            self.vz_error = 2
+            print "Assumed error of 2km/s in velocity"
+        self.true_potential_params = dict(type='TwoPowerLawSpheroid', \
+            densityNorm=10**self.true_values[0], scaleRadius=10**self.true_values[1], \
+            gamma=self.true_values[2], beta=self.true_values[3])
 
-def monte_carlo_search(initwalkers, args, user_fnc=None):
+    def unscale(self, params):
+        return \
+            dict(     # potential params
+                type  = 'TwoPowerLawSpheroid',
+                densityNorm = 10**params[0],
+                scaleRadius = 10**params[1],
+                gamma = abs(params[2]),
+                beta  = params[3] ), \
+            dict(     # DF params
+                type  = 'DoublePowerLaw',
+                alpha = abs(params[4]),
+                beta  = params[5],
+                ar    = params[6],
+                az    = (1-params[6])/2,
+                aphi  = (1-params[6])/2,
+                br    = params[7],
+                bz    = (1-params[7])/2,
+                bphi  = (1-params[7])/2,
+                j0    = 10**params[8],  # will always stay positive
+                jcore = 0.,
+                norm  = 1. )
+
+    def prior(self,params):
+        '''
+        Return prior log-probability of the scaled parameters,
+        or -infinity if they are outside the allowed range
+        '''
+        return 0 if numpy.all( params >= self.min_values ) and numpy.all( params <= self.max_values ) else -numpy.inf
+
+
+######################## SPHERICAL MODEL DEPROJECTION #########################
+def bin_indices(length):
     '''
-    Explore the parameter space around the best-fit values using the MCMC method
-    initwalkers is the Nwalkers * Nparams array of initial parameters
+    Devise a scheme for binning the particles in projected radius,
+    so that the inner- and outermost bins contain 10-15 particles,
+    and the intermediate ones - Nptbin particles.
     '''
-    nsteps  = 100  # number of MC steps per pass
-    nwalkers, nparams = initwalkers.shape
-    sampler = emcee.EnsembleSampler(nwalkers, nparams, model_likelihood, args=args, threads=2)
-    prevmaxloglike = None
-    while True:  # run several passes until convergence
-        print 'Starting MCMC'
-        sampler.run_mcmc(initwalkers, nsteps)
-        initwalkers = sampler.chain[:,-1,:]    # restart the next pass from the latest values in the Markov chain
-        print "Acceptance fraction: ", numpy.mean(sampler.acceptance_fraction)  # should be in the range 0.2-0.5
-        print "Autocorrelation time: ", sampler.acor  # should be considerably shorter than the total number of steps
-        if not user_fnc is None:
-            try:
-                user_fnc(sampler.chain, sampler.lnprobability)
-            except:
-                print "Exception in user function:", sys.exc_info()
-        # check for convergence
-        maxloglike = numpy.max(sampler.lnprobability)
-        avgloglike = numpy.average(sampler.lnprobability[:,-nsteps:])  # avg.log-likelihood during the pass
-        avgparams  = [numpy.average(sampler.chain[:,-nsteps:,i]) for i in range(nparams)]
-        if not prevmaxloglike is None:
-            if maxloglike-prevmaxloglike < 1.0 and \
-                abs(avgloglike-prevavgloglike) < 1.0 : pass
-            print "Max(prev) log-likelihood= %7g (%7g), avg(prev) log-likelihood= %7g (%7g)" \
-                % (maxloglike, prevmaxloglike, avgloglike, prevavgloglike)
+    Nptbin = numpy.maximum(length**0.5 * 2, 20)
+    return numpy.hstack((0, 10, 25, \
+        numpy.linspace(50, length-50, (length-100)/Nptbin).astype(int), \
+        length-25, length-11, length-1))
+
+class SphericalModel:
+    '''
+    Construct a spherically symmetric model using the information about
+    projected particle positions and line-of-sight velocities
+    '''
+    def __init__(self, particles):
+        # sort particles in projected radius
+        particles_sorted = particles[ numpy.argsort((particles[:,0]**2 + particles[:,1]**2) ** 0.5) ]
+
+        # create binning in projected radii
+        Radii   = (particles_sorted[:,0]**2 + particles_sorted[:,1]**2) ** 0.5
+        indices = bin_indices(len(Radii))
+
+        # compute the cumulative mass profile from input particles (M(R) - mass inside projected radius)
+        # assuming equal-mass particles and total mass = 1
+        cumulMass = numpy.linspace(1./len(Radii), 1., len(Radii))
+
+        # create a smoothing spline for log(M/(Mtotal-M)) as a function of log(R), 
+        # using points from the interval indices[1]..indices[-2], and spline knots at Radii[indices]
+        self.spl_mass = py_wrapper.SplineApprox( \
+            numpy.log(Radii[indices[1]:indices[-2]]), \
+            numpy.log(cumulMass[indices[1]:indices[-2]] / (1 - cumulMass[indices[1]:indices[-2]])), \
+            numpy.log(Radii[indices[1:-1]]), smooth=2.0 )
+
+        # compute 3d density at the same radial grid
+        rho_grid   = numpy.log([self.rho_integr(R) for R in Radii[indices]])
+        good_elems = numpy.where(numpy.isfinite(rho_grid))[0]
+        if(len(good_elems)<len(rho_grid)):
+            print "Invalid density encountered at r=", \
+                Radii[indices[numpy.where(numpy.logical_not(numpy.isfinite(rho_grid)))]]
+
+        # initialize an interpolating spline for 3d density (log-log scaled)
+        self.spl_rho = scipy.interpolate.InterpolatedUnivariateSpline( \
+            numpy.log(Radii[indices[good_elems]]), rho_grid[good_elems])
+
+        # store the derivatives of the spline at endpoints (for extrapolation)
+        self.logrmin = numpy.log(Radii[indices[ 0]])
+        self.derrmin = self.spl_rho(self.logrmin,1)
+        self.logrmax = numpy.log(Radii[indices[-1]])
+        self.derrmax = self.spl_rho(self.logrmax,1)
+        print 'Density slope: inner=',self.derrmin,', outer=',self.derrmax
+        if self.derrmin>0: self.derrmin=0
+        if self.derrmax>-3: self.derrmax=-3
+
+        # cumulative kinetic energy (up to a constant factor) $\int_0^R \Sigma(R') \sigma_{los}^2(R') 2\pi R' dR'$
+        cumulEkin  = numpy.cumsum(particles_sorted[:,5]**2) / len(Radii)
+        self.total_Ekin = cumulEkin[-1]
+        self.spl_Ekin = py_wrapper.SplineApprox( \
+            numpy.log(Radii[indices[0]:indices[-1]]), \
+            numpy.log(cumulEkin[indices[0]:indices[-1]] / \
+            (self.total_Ekin - cumulEkin[indices[0]:indices[-1]])), \
+            numpy.log(Radii[indices]), smooth=2.0 )
+
+    def cumul_mass(self, R):
+        ''' Return M(<R) '''
+        return 1 / (1 + numpy.exp(-self.spl_mass(numpy.log(R))))
+
+    def surface_density(self, R):
+        ''' Return surface density: Sigma(R) = 1 / (2 pi R)  d[ M(<R) ] / dR '''
+        lnR = numpy.log(R)
+        val = numpy.exp(self.spl_mass(lnR))
+        return self.spl_mass(lnR, 1) * val / ( 2*3.1416 * R**2 * (1+val)**2 )
+
+    def sigma_los(self, R):
+        ''' Return line-of-sight velocity dispersion:
+            sigma_los^2(R) = 1 / (2 pi R Sigma(R))  d[ cumulEkin(R) ] / dR '''
+        lnR = numpy.log(R)
+        val = numpy.exp(self.spl_Ekin(lnR))
+        return ( self.total_Ekin * self.spl_Ekin(lnR, 1) * val / \
+            ( 2*3.1416 * R**2 * (1 + val)**2 * self.surface_density(R) ) )**0.5
+
+    def integrand(self, t, r, spl):
+        ''' integrand in the density or pressure deprojection formula, depending on the spline passed as argument '''
+        R = (r**2+(t/(1-t))**2) ** 0.5
+        lnR = numpy.log(R)
+        val = numpy.exp(spl(lnR))
+        der = spl(lnR, 1)
+        der2= spl(lnR, 2)
+        dSdR= val / ( 2*3.1416 * R**3 * (1+val)**2 ) * (der2 - 2*der + der**2*(1-val)/(1+val) )
+        return -1/3.1416 * dSdR / (1-t) / (r**2*(1-t)**2 + t**2)**0.5
+
+    def rho_integr(self, r):
+        ''' Return 3d density rho(r) computed by integration of the deprojection equation '''
+        return scipy.integrate.quad(self.integrand, 0, 1, (r, self.spl_mass), epsrel=1e-3)[0]
+
+    def rho(self, r):
+        ''' Return 3d density rho(r) approximated by a spline '''
+        logr   = numpy.log(r)
+        result = self.spl_rho(numpy.maximum(self.logrmin, numpy.minimum(self.logrmax, logr))) \
+            + self.derrmin * numpy.minimum(logr-self.logrmin, 0) \
+            + self.derrmax * numpy.maximum(logr-self.logrmax, 0)
+        return numpy.exp(result)
+
+    def sigma_iso_integr(self, r):
+        return (scipy.integrate.quad(self.integrand, 0, 1, (r, self.spl_Ekin), epsrel=1e-3)[0] * \
+            self.total_Ekin / self.rho_integr(r) )**0.5
+
+######################## MODEL-SEARCHER ####################################
+
+def deterministic_search_fnc(params, obj):
+    '''
+    function to minimize using the deterministic algorithm (needs to be declared outside the class)
+    '''
+    loglike = obj.model_likelihood(params)
+    if not numpy.isfinite(loglike):
+        loglike = -100*len(obj.particles)   # replace infinity with a very large negative number
+    return -loglike
+
+def monte_carlo_search_fnc(params, obj):
+    '''
+    function to maximize using the monte carlo algorithm (needs to be declared outside the class)
+    '''
+    return obj.model_likelihood(params)
+
+class ModelSearcher:
+    '''
+    Class that encompasses the computation of likelihood for the given parameters,
+    and implements model-searching algorithms (deterministic and MCMC)
+    '''
+    def __init__(self, filename):
+        self.filename  = filename
+        self.model     = ModelParams(filename)
+        self.particles = numpy.loadtxt(filename)[:,:6]
+        try:
+            self.values = numpy.loadtxt(self.filename+".best")
+            if self.values.ndim==1:
+                self.values = self.values[:-1]
+            else:
+                self.values = self.values[:,:-1]
+            print "Loaded from saved file: (nwalkers,nparams)=",self.values.shape
+        except:
+            self.values = None
+            return
+
+    def model_likelihood(self, params):
+        '''
+        Compute the likelihood of model (df+potential specified by scaled params)
+        against the data (array of Nx6 position/velocity coordinates of tracer particles).
+        This is the function to be maximized; if parameters are outside the allowed range, it returns -infinity
+        '''
+        prior = self.model.prior(params)
+        potparams, dfparams = self.model.unscale(params)
+        logfile = open(self.filename+".log", "a")
+        print >>logfile, \
+            "dens=%10.4g, Rscale=%6.4g, gamma=%8.4g, beta=%6.4g; " \
+            "alpha=%8.4g, beta=%6.4g, ar=%8.4g, br=%7.4g, J0=%7.4g: " \
+            % (potparams['densityNorm'], potparams['scaleRadius'], potparams['gamma'], potparams['beta'], \
+            dfparams['alpha'], dfparams['beta'], dfparams['ar'], dfparams['br'], dfparams['j0']),
+        if prior == -numpy.inf:
+            print >>logfile, "Out of range"
+            return prior
+        try:
+            # Compute log-likelihood of DF with given params against an array of actions
+            pot     = py_wrapper.Potential(**potparams)
+            df      = py_wrapper.DistributionFunction(**dfparams)
+            norm    = df.total_mass()     # total mass of tracers given by their DF
+            if full_phase_space_info:
+                af      = py_wrapper.ActionFinder(pot)
+                actions = af(self.particles)  # actions of tracer particles
+                df_val  = df(actions) / norm  # values of DF for these actions
+            else:   # have only x,y,vz values
+                df_val = py_wrapper.GalaxyModel(pot, df).projected_df( \
+                    numpy.hstack((self.particles[:,0:2], self.particles[:,5].reshape(-1,1))), \
+                    vz_error=self.model.vz_error) / norm
+
+            loglike = numpy.sum( numpy.log( df_val ) )
+            if numpy.isnan(loglike): loglike = -numpy.inf
+            loglike += prior
+            print >>logfile, "LogL=%.8g" % loglike
+            return loglike
+        except ValueError as err:
+            print >>logfile, "Exception ", err
+            return -numpy.inf
+
+
+    def deterministic_search(self, user_fnc=None):
+        '''
+        do a deterministic search to find the best-fit parameters of potential and distribution function.
+        perform several iterations of search, to avoid getting stuck in a local minimum,
+        until the log-likelihood ceases to improve
+        '''
+        if self.values is None:                   # just started
+            self.values = self.model.init_values  # get the first guess from the model-scaling object
+        elif self.values.ndim == 2:               # entire ensemble of values (after MCMC)
+            self.values = self.values[0,:]        # leave only one set of values from the ensemble
+        prevloglike = -deterministic_search_fnc(self.values, self)  # initial likelihood
+
+        while True:
+            print 'Starting deterministic search'
+            result = scipy.optimize.minimize(deterministic_search_fnc, \
+                self.values, args=(self,), method='Nelder-Mead', \
+                options=dict(maxfev=nsteps_deterministic, disp=True))
+            print 'result=', result.x, 'LogL=', result.fun,
+            self.values = result.x
+            loglike= -result.fun
+            # store the latest best-fit parameters and their likelihood
+            numpy.savetxt(self.filename+'.best', numpy.hstack((self.values, loglike)).reshape(1,-1), fmt='%.8g')
+            if loglike - prevloglike < 1.0:
+                print 'Converged'
+                return
+            else:
+                print 'Improved log-likelihood by', loglike - prevloglike
+            prevloglike = loglike
+
+    def monte_carlo_search(self, user_fnc=None):
+        '''
+        Explore the parameter space around the best-fit values using the MCMC method
+        initwalkers is the Nwalkers * Nparams array of initial parameters
+        '''
+        if self.values is None:   # first attempt a deterministic search
+            self.deterministic_search()
+        if self.values.ndim == 1:
+            # initial coverage of parameter space (dispersion around the current best-fit values)
+            nparams = len(self.values)
+            ensemble = numpy.empty((nwalkers_mcmc, len(self.values)))
+            for i in range(nwalkers_mcmc):
+                while True:   # ensure that we initialize walkers with feasible values
+                    walker = self.values + (numpy.random.randn(nparams)*initial_disp_mcmc if i>0 else 0)
+                    prob   = monte_carlo_search_fnc(walker, self)
+                    if numpy.isfinite(prob):
+                        ensemble[i,:] = walker
+                        break
+                    print '*',
+            self.values = ensemble
+        else:
+            # check that all walkers have finite likelihood
+            prob = numpy.zeros((self.values.shape[0],1))
+            for i in range(self.values.shape[0]):
+                prob[i,0] = monte_carlo_search_fnc(self.values[i,:], self)
+                if not numpy.isfinite(prob[i,0]):
+                    print 'Invalid parameters for',i,'-th walker (likelihood is bogus)'
+            if not user_fnc is None:
+                user_fnc(self.values.reshape(self.values.shape[0],1,self.values.shape[1]), prob)
+
+        nwalkers, nparams = self.values.shape
+        sampler = emcee.EnsembleSampler(nwalkers, nparams, monte_carlo_search_fnc, args=(self,), threads=2)
+        prevmaxloglike = None
+        while True:  # run several passes until convergence
+            print 'Starting MCMC'
+            sampler.run_mcmc(self.values, nsteps_mcmc)
+            # restart the next pass from the latest values in the Markov chain
+            self.values = sampler.chain[:,-1,:]
+
+            # store the latest best-fit parameters and their likelihood, and the entire chain
+            numpy.savetxt(self.filename+'.best', \
+                numpy.hstack((self.values, sampler.lnprobability[:,-1].reshape(-1,1))), fmt='%.8g')
+            numpy.savetxt(self.filename+".chain", \
+                numpy.hstack((sampler.chain.reshape(-1,nparams), sampler.lnprobability.reshape(-1,1))), fmt='%.8g')
+
+            print "Acceptance fraction: ", numpy.mean(sampler.acceptance_fraction)  # should be in the range 0.2-0.5
+            print "Autocorrelation time: ", sampler.acor  # should be considerably shorter than the total number of steps
+            maxloglike = numpy.max(sampler.lnprobability[:,-nsteps_mcmc:])
+            avgloglike = numpy.average(sampler.lnprobability[:,-nsteps_mcmc:])  # avg.log-likelihood during the pass
+            avgparams  = [numpy.average(sampler.chain[:,-nsteps_mcmc:,i]) for i in range(nparams)]
+            print "Max log-likelihood= %.8g, avg log-likelihood= %.8g" % (maxloglike, avgloglike)
             for i in range(nparams):
-                print "Parameter %d avg(prev)= %7g (%7g)" % (i, avgparams[i], prevavgparams[i])
-        prevmaxloglike = maxloglike
-        prevavgloglike = avgloglike
-        prevavgparams  = avgparams
+                sorted_values = numpy.sort(sampler.chain[:,-nsteps_mcmc:,i], axis=None)
+                print "Parameter %20s  avg= %8.5g;  one-sigma range = (%8.5f, %8.5f), true value = %8.5f" \
+                    % (self.model.labels[i], avgparams[i], \
+                    sorted_values[int(len(sorted_values)*0.16)], sorted_values[int(len(sorted_values)*0.84)], \
+                    self.model.true_values[i])
+            if not user_fnc is None:
+                user_fnc(sampler.chain, sampler.lnprobability)
+
+            # check for convergence
+            if not prevmaxloglike is None:
+                if maxloglike-prevmaxloglike < 1.0 and abs(avgloglike-prevavgloglike) < 1.0:
+                    print "Converged"
+                    return
+            prevmaxloglike = maxloglike
+            prevavgloglike = avgloglike
+            prevavgparams  = avgparams
 
 
 ###################################  DATA ANALYSIS  ########################################
 
-def compute_df_moments(dfparams, potparams):
+def compute_df_moments(potparams, dfparams, rmin, rmax):
     '''
     Compute moments of distribution function (density and velocity dispersion);
     DF and potential are specified by scaled parameters (params)
     Return: a tuple of four arrays: radii, density, radial velocity dispersion and tangential v.d.
     '''
-    radii = numpy.logspace(-2., 2., 25).reshape(-1,1)
+    radii = numpy.logspace(numpy.log10(rmin), numpy.log10(rmax), 25).reshape(-1,1)
     xyz   = numpy.hstack((radii, numpy.zeros_like(radii), numpy.zeros_like(radii)))
-    pot = py_wrapper.Potential(**potparams)
-    df  = py_wrapper.DistributionFunction(**dfparams)
-    dens, mom = py_wrapper.moments(df=df, pot=pot, point=xyz, dens=True, vel=False, vel2=True)
-    return radii, dens, mom[:,0]**0.5, mom[:,1]**0.5
+    pot   = py_wrapper.Potential(**potparams)
+    df    = py_wrapper.DistributionFunction(**dfparams)
+    norm  = df.total_mass()
+    dens, mom = py_wrapper.GalaxyModel(pot, df).moments(xyz, dens=True, vel=False, vel2=True)
+    return radii.reshape(-1), dens/norm, mom[:,0]**0.5, mom[:,1]**0.5
 
-def compute_dm_density(potparams):
+def compute_df_moments_projected(potparams, dfparams, rmin, rmax):
+    '''
+    Compute projected moments of distribution function (surface density and l.o.s. velocity dispersion);
+    DF and potential are specified by scaled parameters (params)
+    Return: a tuple of three arrays: radii, density, velocity dispersion
+    '''
+    radii = numpy.logspace(numpy.log10(rmin), numpy.log10(rmax), 25)
+    pot   = py_wrapper.Potential(**potparams)
+    df    = py_wrapper.DistributionFunction(**dfparams)
+    norm  = df.total_mass()
+    dens, veldisp = py_wrapper.GalaxyModel(pot, df).projected_moments(radii)
+    return radii, dens/norm, veldisp**0.5
+
+def compute_dm_density(potparams, rmin, rmax):
     '''
     Compute density profile corresponding to the potential specified by potparams
     Return: a tuple of two arrays: radii, density
     '''
     pot   = py_wrapper.Potential(**potparams)
-    radii = numpy.logspace(-2., 1.).reshape(-1,1)
+    radii = numpy.logspace(numpy.log10(rmin), numpy.log10(rmax)).reshape(-1,1)
     xyz   = numpy.hstack((radii, numpy.zeros_like(radii), numpy.zeros_like(radii)))
     dens  = pot.density(xyz)
-    return radii,dens
+    return radii.reshape(-1), dens
 
 def compute_orig_moments(points):
     '''
@@ -214,8 +468,9 @@ def compute_orig_moments(points):
     velradsq = ((points[:,0]*points[:,3] + points[:,1]*points[:,4] + points[:,2]*points[:,5]) / radii) ** 2
     veltansq = (velsq - velradsq) * 0.5  # per each of the two tangential directions
     sorted_radii = numpy.sort(radii)
-    # select bin boundaries so that each bin contains 50 data points, or 25 points at the edges of radial interval
-    hist_boundaries = numpy.hstack((sorted_radii[0:50:25], sorted_radii[50:-25:50], sorted_radii[-1]))
+    # select bin boundaries so that each bin contains Nptbin data points, or less points at the edges of radial interval
+    indices = bin_indices(len(radii))
+    hist_boundaries = sorted_radii[indices]
     sumnum,_ = numpy.histogram(radii, bins=hist_boundaries, weights=numpy.ones_like(radii))
     sumvelradsq,_ = numpy.histogram(radii, bins=hist_boundaries, weights=velradsq)
     sumveltansq,_ = numpy.histogram(radii, bins=hist_boundaries, weights=veltansq)
@@ -225,97 +480,176 @@ def compute_orig_moments(points):
     sigmat = (sumveltansq/sumnum)**0.5
     return hist_boundaries, density, sigmar, sigmat
 
-########################  PLOTTING  ###########################
+def compute_orig_moments_projected(points):
+    '''
+    Compute the moments (surface density and line-of-sight velocity dispersion)
+    of the original data points (tracer particles), binned in projected radius.
+    Return: tuple of three arrays: radii, density, l.o.s. velocity dispersion,
+    where the array of radii is one element longer than the other three arrays, and denotes the bin boundaries,
+    and the other arrays contain the values in each bin.
+    '''
+    Radii = (points[:,0]**2 + points[:,1]**2) ** 0.5
+    velsq = points[:,5]**2
+    sorted_radii = numpy.sort(Radii)
+    # select bin boundaries so that each bin contains Nptbin data points, or less points at the edges of radial interval
+    indices = bin_indices(len(Radii))
+    hist_boundaries = sorted_radii[indices]
+    sumnum,_ = numpy.histogram(Radii, bins=hist_boundaries, weights=numpy.ones_like(Radii))
+    sumvelsq,_ = numpy.histogram(Radii, bins=hist_boundaries, weights=velsq)
+    binarea= 3.1416 * (hist_boundaries[1:]**2 - hist_boundaries[:-1]**2)
+    density= sumnum/len(points[:,0]) / binarea
+    sigma  = (sumvelsq/sumnum)**0.5
+    return hist_boundaries, density, sigma
 
-# plot DM density profile for an ensemble of parameters, together with the 'true' profile
-def plot_dm_density(params, trueparams):
-    for i in range(len(params[:,0])):
-        radii,dens = compute_dm_density(unscale_params(params[i,:])[1])
-        pyplot.plot(radii, dens, color='k', alpha=0.4)
-    radii,dens = get_dm_density(trueparams)
-    pyplot.plot(radii, dens, color='r', lw=2)
-    pyplot.xscale('log')
-    pyplot.yscale('log')
-    pyplot.show()
+##############  USER FUNCTION FOR PLOTTING INTERMEDIATE RESULTS  ###############
 
-def plot_tracer_density_veldisp(params, particles):
-    for i in range(len(params[:,0])):
-        if i>=4: break
-        radii,dens,sigmar,sigmat = compute_df_moments(*unscale_params(params[i,:]))
-        print dens
-        pyplot.plot(radii, sigmar, color='r', alpha=0.4)
-        pyplot.plot(radii, sigmat, color='b', alpha=0.4)
+class UserFnc:
+    def __init__(self, model, particles, filename):
+        self.model = model
+        self.filename = filename
+        self.ibins, self.idens, self.isigmar, self.isigmat = \
+            compute_orig_moments(particles)   # get intrinsic profiles for the original data points
+        self.pbins, self.pdens, self.psigma = \
+            compute_orig_moments_projected(particles)  # get projected profiles for the original points
+        self.deprojected = SphericalModel(particles)
 
-    bins,dens,sigmar,sigmat = compute_orig_moments(particles)
-    # emulate steps plot
-    pyplot.plot(numpy.hstack(zip(bins[:-1], bins[1:])), numpy.hstack(zip(sigmar, sigmar)), \
-        color='r', lw=2, label=r'$\sigma_r$')
-    pyplot.plot(numpy.hstack(zip(bins[:-1], bins[1:])), numpy.hstack(zip(sigmat, sigmat)), \
-        color='b', lw=2, label=r'$\sigma_t$')
-    pyplot.xscale('log')
-    pyplot.yscale('linear')
-    pyplot.legend(loc='upper right')
-    pyplot.show()
+    def __call__(self, chain, loglike):
+        self.plot_time_evol(chain, loglike)   # evolution of MCMC chain parameters and likelihood
+        self.plot_profiles (chain[:,-1,:])    # density and velocity dispersion profiles
+        # distribution of posterior parameters and their correlations, for the potential only
+        self.plot_distribution(chain[:, -nsteps_mcmc:, :self.model.num_pot_params], "_pot", \
+            self.model.labels[:self.model.num_pot_params], self.model.true_values[:self.model.num_pot_params])
+        # distribution of posterior parameters and their correlations, for all parameters
+        self.plot_distribution(chain[:, -nsteps_mcmc:, :], "_all", self.model.labels, self.model.true_values)
 
-def plot_time_evol(chain, loglike):
-    """
-    Show the time evolution of parameters carried by the ensemble of walkers (time=number of MC steps)
-    """
-    ndim = chain.shape[2]
-    fig,axes = pyplot.subplots(ndim+1, 1, sharex=True)
-    for i in range(ndim):
-        axes[i].plot(chain[:,:,i].T, color='k', alpha=0.4)
-    # last panel shows the evolution of log-likelihood for the ensemble of walkers
-    axes[-1].plot(loglike.T, color='k', alpha=0.4)
-    maxloglike = numpy.max(loglike)
-    axes[-1].set_ylim(maxloglike-3*ndim, maxloglike)   # restrict the range of log-likelihood arount its maximum
-    fig.tight_layout(h_pad=0.)
-    pyplot.show()
+    def plot_profiles(self, params):
+        '''
+        plot radial profiles of velocity dispersion of tracer particles, their density,
+        and DM density (corresponding to the potential),
+        for an ensemble of parameters, together with the 'true' profile.
+        '''
+        rmin     = self.ibins[0]*0.5
+        rmax     = self.ibins[-1]*2   # radial range to plot (where the data points lie)
+        tdnorm   = 1e6   # multiplicator for tracer density (to bring it close to the range of DM density for plotting)
+        tgamma   = self.model.true_tracer_params['gamma']
+        trscale  = self.model.true_tracer_params['scaleRadius']
+        fig,axes = pyplot.subplots(1, 2, figsize=(16,10))
 
-    """
-    # show the posterior distribution of parameters
-    nstat   = nsteps/2   # number of last MC steps to show
-    samples = sampler.chain[:, -nstat:, :]. reshape((-1, ndim))
-    triangle.corner(samples, \
-        labels=[r'$\alpha$', r'$\beta$', r'ln($J_0$)', r'$a_r/a_{z,\phi}$', r'$b_r/b_{z,\phi}$', \
-        r'ln(M(<0.5 kpc)', r'ln($R_{scale}$)', r'$\gamma$'], \
-        quantiles=[0.16, 0.5, 0.84], truths=truevalues)
-    pyplot.show()
-    """
+        if not params is None:
+            for i in range(len(params[:,0])):
+                potparams, dfparams = self.model.unscale(params[i,:])
+                radii,dens = compute_dm_density(potparams, rmin, rmax)
+                axes[1].plot(radii, dens, color='k', alpha=0.5)    # DM density profile
+                radii,dens,sigmar,sigmat = compute_df_moments(potparams, dfparams, rmin, rmax)
+                axes[0].plot(radii, sigmar, color='r', alpha=0.5)  # velocity dispersions
+                axes[0].plot(radii, sigmat, color='b', alpha=0.5)
+                axes[1].plot(radii, dens * tdnorm, color='k', alpha=0.5)    # tracer density
 
-################  INTERMEDIATE RESULTS  ###############
-def user_fnc_mcmc(chain, loglike):
-    # store the latest location of all walkers (together with their likelihood)
-    numpy.savetxt('bestfit.dat', numpy.hstack((chain[:,-1,:], loglike[:,-1].reshape(-1,1))))
-    plot_time_evol(chain, loglike)
-    plot_tracer_density_veldisp(chain[:,-1,:], particles)
+        radii,dens = compute_dm_density(self.model.true_potential_params, rmin, rmax)
+        axes[1].plot(radii, dens, color='r', lw=3, linestyle='--', label='DM density')
+
+        # binned vel.disp. and density profile from input particles; emulating steps plot
+        axes[0].plot(numpy.hstack(zip(self.ibins[:-1], self.ibins[1:])), numpy.hstack(zip(self.isigmar, self.isigmar)), \
+            color='r', lw=1, label=r'$\sigma_r$')
+        axes[0].plot(numpy.hstack(zip(self.ibins[:-1], self.ibins[1:])), numpy.hstack(zip(self.isigmat, self.isigmat)), \
+            color='b', lw=1, label=r'$\sigma_t$')
+        axes[1].plot(numpy.hstack(zip(self.ibins[:-1], self.ibins[1:])), numpy.hstack(zip(self.idens, self.idens)) * tdnorm, \
+            color='g', lw=1, label=r'Tracer density, binned')
+
+        # analytic density profile
+        axes[1].plot(radii, tdnorm * (3-tgamma) / (4*3.1416*trscale**3) * \
+            (radii/trscale)**(-tgamma) * (1 + (radii/trscale)**2) ** ((tgamma-5)/2), \
+            color='g', lw=3, linestyle='--', label=r'Tracer density, analytic')
+        # deprojected density profile
+        axes[1].plot(radii, self.deprojected.rho(radii)*tdnorm, \
+            linestyle='--', lw=3, color='cyan', label='Tracer density, deprojected')
+
+        axes[0].set_xscale('log')
+        axes[0].set_yscale('linear')
+        axes[0].legend(loc='upper right')
+        axes[0].set_xlim(rmin, rmax)
+        axes[0].set_xlabel('$r$')
+        axes[0].set_ylabel(r'$\sigma_{r,t}$')
+        axes[1].set_xscale('log')
+        axes[1].set_yscale('log')
+        axes[1].legend(loc='lower left')
+        axes[1].set_xlim(rmin, rmax)
+        axes[1].set_xlabel('$r$')
+        axes[1].set_ylabel(r'$\rho$')
+        fig.tight_layout()
+        pyplot.savefig(self.filename+"_profiles.png")
+
+        # projected quantities
+        rmin     = self.pbins[0]*0.5
+        rmax     = self.pbins[-1]*2   # radial range to plot (where the data points lie)
+        fig,axes = pyplot.subplots(1, 2, figsize=(16,10))
+
+        if not params is None:
+            for i in range(len(params[:,0])):
+                potparams, dfparams = self.model.unscale(params[i,:])
+                radii,dens,losvdisp = compute_df_moments_projected(potparams, dfparams, rmin, rmax)
+                axes[0].plot(radii, losvdisp, color='k', alpha=0.5)       # l.o.s. velocity dispersion
+                axes[1].plot(radii, dens * tdnorm, color='k', alpha=0.5)  # surface density
+        else:
+            radii = numpy.logspace(numpy.log10(rmin), numpy.log10(rmax), 25)
+
+        # binned l.o.s.vel.disp. and surface density profile from input particles; emulating steps plot
+        axes[0].plot(numpy.hstack(zip(self.pbins[:-1], self.pbins[1:])), numpy.hstack(zip(self.psigma, self.psigma)), \
+            color='g', lw=1, label=r'$\sigma_{los}$,binned')
+        axes[1].plot(numpy.hstack(zip(self.pbins[:-1], self.pbins[1:])), numpy.hstack(zip(self.pdens, self.pdens)) * tdnorm, \
+            color='g', lw=1, label=r'Surface density,binned')
+
+        # projected density and losvd profile from the smoothed model
+        axes[0].plot(radii, self.deprojected.sigma_los(radii), \
+            linestyle=':', lw=3, color='r', label=r'$\sigma_{los}$,smoothed')
+        axes[1].plot(radii, self.deprojected.surface_density(radii)*tdnorm, \
+            linestyle=':', lw=3, color='r', label=r'Surface density,smoothed')
+
+        axes[0].set_xscale('log')
+        axes[0].set_yscale('linear')
+        axes[0].legend(loc='upper right')
+        axes[0].set_xlim(rmin, rmax)
+        axes[0].set_xlabel('$r$')
+        axes[0].set_ylabel(r'$\sigma_{los}$')
+        axes[1].set_xscale('log')
+        axes[1].set_yscale('log')
+        axes[1].legend(loc='lower left')
+        axes[1].set_xlim(radii[0]*0.5, radii[-1]*2)
+        axes[1].set_xlabel('$r$')
+        axes[1].set_ylabel(r'$\Sigma$')
+        fig.tight_layout()
+        pyplot.savefig(self.filename+"_projected.png")
+
+    def plot_time_evol(self, chain, loglike):
+        '''
+        Show the time evolution of parameters carried by the ensemble of walkers (time=number of MC steps)
+        '''
+        ndim = chain.shape[2]
+        fig,axes = pyplot.subplots(ndim+1, 1, sharex=True, figsize=(20,15))
+        for i in range(ndim):
+            axes[i].plot(chain[:,:,i].T, color='k', alpha=0.5)
+            axes[i].plot(numpy.ones_like(chain[0,:,i]) * self.model.true_values[i], color='r', linestyle='--', lw=2)
+            axes[i].set_ylabel(self.model.labels[i])
+        # last panel shows the evolution of log-likelihood for the ensemble of walkers
+        axes[-1].plot(loglike.T, color='k', alpha=0.5)
+        axes[-1].set_ylabel('log(L)')
+        maxloglike = numpy.max(loglike)
+        axes[-1].set_ylim(maxloglike-3*ndim, maxloglike)   # restrict the range of log-likelihood arount its maximum
+        fig.tight_layout(h_pad=0.)
+        pyplot.savefig(self.filename+"_chain.png")
+
+    def plot_distribution(self, chain, suffix, labels, truevalues):
+        '''
+        Show the posterior distribution of parameters
+        '''
+        triangle.corner(chain.reshape((-1, chain.shape[2])), quantiles=[0.16, 0.5, 0.84], labels=labels, truths=truevalues)
+        pyplot.savefig(self.filename+"_posterior"+suffix+".png")
+
 
 ################  MAIN PROGRAM  ##################
 
 py_wrapper.set_units(mass=1, length=1, velocity=1)
-#particles = numpy.loadtxt("../temp/gs100_bs050_rcrs025_rarcinf_cusp_0064mpc3_df_1000_0.dat")
-particles = numpy.loadtxt("../temp/gs100_bs050_rcrs100_rarcinf_core_0400mpc3_df_1000_0.dat")
-true_potential_params = dict(type='TwoPowerLawSpheroid', gamma=0, beta=3, densityNorm=400e6, scaleRadius=1)
-true_tracer_density_params = dict(scaleRadius=1., gamma=1., beta=5.)
-
-try:
-    params = numpy.loadtxt('bestfit.dat')
-    if params.ndim==2:  # ensemble of realizations
-        params = params[:,:-1]  # last column is log-likelihood, discard it
-    else:  # single line
-        params = params[:-1]  # last item is log-likelihood
-except:  # load failed, start afresh
-    # initial guess for parameters (scaled)
-    params = numpy.array([2.0, 4.0, 1.0, 1.0, numpy.log(10.), numpy.log(1e9), numpy.log(2.), 0.5])
-
-    # first locate the purported best-fit parameters using deterministic algorithm
-    params,loglike = deterministic_search(params, (particles,))
-    numpy.savetxt('bestfit.dat', numpy.hstack((params,loglike)).reshape(1,-1))
-
-if params.ndim==1:
-    # initial coverage of parameter space (dispersion around the current best-fit values)
-    nwalkers   = 32
-    params = numpy.array([params + (numpy.random.randn(len(params))*0.1 if i>0 else 0) for i in range(nwalkers)])
-
-# explore the landscape of parameters around their best-fit values using MCMC
-monte_carlo_search(params, (particles,), user_fnc_mcmc)
+basefilename = os.getcwd().split('/')[-1]  # get the directory name which is the same as the first part of the filename
+model_searcher = ModelSearcher(basefilename+"_1000_1_err.dat")
+user_fnc = UserFnc(model_searcher.model, model_searcher.particles, model_searcher.filename)
+model_searcher.monte_carlo_search(user_fnc)
