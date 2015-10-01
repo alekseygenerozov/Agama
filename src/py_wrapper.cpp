@@ -1206,7 +1206,7 @@ static PyObject* DistributionFunction_totalMass(PyObject* self)
 {
     if(((DistributionFunctionObject*)self)->df==NULL)
         return NULL;
-    double val = ((DistributionFunctionObject*)self)->df->totalMass();
+    double val = ((DistributionFunctionObject*)self)->df->totalMass(1e-5,1e7);
     return Py_BuildValue("d", val / conv->massUnit);
 }
 
@@ -1436,7 +1436,7 @@ static PyObject* GalaxyModel_moments(GalaxyModelObject* self, PyObject* args, Py
     try{
         GalaxyModelParams params(*self->pot->pot, *self->af, *self->df->df);
         params.accuracy = 1e-3;
-        params.maxNumEval = 1e4;
+        params.maxNumEval = 1e5;
         params.needDens = dens_flag==NULL || PyObject_IsTrue(dens_flag);
         params.needVel  = vel_flag !=NULL && PyObject_IsTrue(vel_flag);
         params.needVel2 = vel2_flag==NULL || PyObject_IsTrue(vel2_flag);
@@ -1516,7 +1516,7 @@ static PyObject* GalaxyModel_projected_moments(GalaxyModelObject* self, PyObject
     try{
         GalaxyModelParams params(*self->pot->pot, *self->af, *self->df->df);
         params.accuracy = 1e-3;
-        params.maxNumEval = 1e4;
+        params.maxNumEval = 1e5;
         return callAnyFunctionOnArray<INPUT_VALUE_SINGLE, OUTPUT_VALUE_SINGLE_AND_SINGLE>
             (&params, points_obj, fncGalaxyModelProjectedMoments);
     }
@@ -1532,8 +1532,8 @@ static int numCalls=0;
 static void fncGalaxyModelProjectedDF(void* obj, const double input[], double *result) {
     const double R = sqrt(pow_2(input[0]) + pow_2(input[1])) * conv->lengthUnit;
     const double vz = input[2] * conv->velocityUnit;
-    // dimension of distribution function is M L^-3 V^-3
-    const double dim = pow_3(conv->velocityUnit * conv->lengthUnit) / conv->massUnit;
+    // dimension of projected distribution function is M L^-2 V^-1
+    const double dim = conv->velocityUnit * pow_2(conv->lengthUnit) / conv->massUnit;
     GalaxyModelParams* params = static_cast<GalaxyModelParams*>(obj);
     try{
         double error;
@@ -1564,14 +1564,14 @@ static PyObject* GalaxyModel_projected_df(GalaxyModelObject* self, PyObject* arg
     }
     try{
         GalaxyModelParams params(*self->pot->pot, *self->af, *self->df->df);
-        params.accuracy = 1e-3;
-        params.maxNumEval = 1e4;
+        params.accuracy = 1e-4;
+        params.maxNumEval = 1e5;
         params.vz_error = vz_error * conv->velocityUnit;
         err=0;
         numCalls=0;
         PyObject* result = callAnyFunctionOnArray<INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE>
             (&params, points_obj, fncGalaxyModelProjectedDF);
-        //printf("Sum rel err=%g, numCalls=%i\n",err,numCalls);
+        printf("Sum rel err=%g, numCalls=%i\n",err,numCalls);
         return result;
     }
     catch(std::exception& e) {
@@ -1700,7 +1700,7 @@ static int SplineApprox_init(PyObject* self, PyObject* args, PyObject* namedArgs
     int numknots = 0;
     if(PyArray_NDIM(arrk) == 1)
         numknots = PyArray_DIM(arrk, 0);
-    if(numpt <= 0 || numknots <= 4|| PyArray_NDIM(arry) != 1 || PyArray_DIM(arry, 0) != numpt) {
+    if(numpt <= 0 || numknots < 4|| PyArray_NDIM(arry) != 1 || PyArray_DIM(arry, 0) != numpt) {
         Py_DECREF(arrx);
         Py_DECREF(arry);
         Py_DECREF(arrk);

@@ -15,22 +15,28 @@ and the triangle-plot showing the covariation of parameters.
 This example uses the data from the "Spherical/triaxial" working group
 of Gaia Challenge III.
 '''
-import sys, py_wrapper, numpy, scipy, matplotlib, os, re
+import sys, os, re, py_wrapper, numpy, scipy, matplotlib
 matplotlib.use('Agg')
 from matplotlib import pyplot
-import emcee, triangle
 from scipy.optimize import minimize
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.integrate import quad
+import emcee, triangle
 
 ###################$ GLOBAL CONSTANTS $###############
 
 nsteps_deterministic  = 500   # number of steps per pass in deterministic minimizer
-nsteps_mcmc           = 100   # number of MC steps per pass
+nsteps_mcmc           = 200   # number of MC steps per pass
 nwalkers_mcmc         = 32    # number of independent MC walkers
+nthreads_mcmc         = 4     # number of parallel threads in MCMCMCMCMC
 initial_disp_mcmc     = 0.01  # initial dispersion of parameters carried by walkers around their best-fit values
-full_phase_space_info = True  # whether to use full phase-space information (3 positions and 3 velocities)
+full_phase_space_info = False # whether to use full phase-space information (3 positions and 3 velocities)
                               # or only the projected data (cylindrical radius and line-of-sight velocity)
+use_resampling        = True  # whether to create resampled array of input particles by filling in the missing components,
+                              # or marginalize over them using deterministic integration
+num_samples           = 1000  # each input data point is represented by this number of samples
+                              # which fill in the missing values of coordinate and velocity components
+vel_error             = 0.0   # assumed observational error on velocity components (add noise to velocity if it is non-zero)
 
 #################### DEFINITION OF MODEL PARAMETERS #######################
 
@@ -66,7 +72,6 @@ class ModelParams:
             r'$\alpha_{DF}$', r'$\beta_{DF}$', r'$a_r$', r'$b_r$', r'$\log(J_0)$')
         self.num_pot_params = 4  # potential params come first in the list
         self.num_df_params  = 5  # DF params come last in the list
-        self.vz_error = 0
 
     def parse_true_values(self,filename):
         m = re.match(r'gs(\d+)_bs(\d+)_rcrs([a-z\d]+)_rarc([a-z\d]+)_([a-z]+)_(\d+)mpc3', filename)
@@ -93,8 +98,10 @@ class ModelParams:
             self.true_values = self.init_values
             self.true_tracer_params    = dict(scaleRadius=numpy.nan, gamma=numpy.nan, beta=numpy.nan)
         if 'err' in filename:
-            self.vz_error = 2
-            print "Assumed error of 2km/s in velocity"
+            vel_error = 2
+            print "Assumed error of",vel_error,"km/s in velocity"
+        else:
+            vel_error = 0
         self.true_potential_params = dict(type='TwoPowerLawSpheroid', \
             densityNorm=10**self.true_values[0], scaleRadius=10**self.true_values[1], \
             gamma=self.true_values[2], beta=self.true_values[3])
@@ -130,6 +137,7 @@ class ModelParams:
 
 
 ######################## SPHERICAL MODEL DEPROJECTION #########################
+
 def bin_indices(length):
     '''
     Devise a scheme for binning the particles in projected radius,
@@ -235,8 +243,72 @@ class SphericalModel:
         return numpy.exp(result)
 
     def sigma_iso_integr(self, r):
+        ''' Return isotropic velocity dispersion computed by integration of the deprojection equation '''
         return (scipy.integrate.quad(self.integrand, 0, 1, (r, self.spl_Ekin), epsrel=1e-3)[0] * \
             self.total_Ekin / self.rho_integr(r) )**0.5
+
+
+##################### RESAMPLING OF ORIGINAL DATA TO FILL MISSING VALUES #################
+
+def sample_z_position(R, sph_model):
+    '''
+    Sample the missing z-component of particle coordinates
+    from the density distribution given by the spherical model.
+    input argument 'R' contains the array of projected radii,
+    and the output will contain the z-values assigned to them,
+    and the weights of individual samples.
+    '''
+    print 'Assigning missing z-component of position'
+    rho_max = sph_model.rho(R)*1.1
+    R0      = numpy.maximum(2., R)
+    result  = numpy.zeros_like(R)
+    weights = sph_model.surface_density(R)
+    indices = numpy.where(result==0)[0]   # index array initially containing all input points
+    while len(indices)>0:   # rejection sampling
+        t = numpy.random.uniform(-1, 1, size=len(indices))
+        z = R0[indices] * t/(1-t*t)**0.5
+        rho = sph_model.rho( (R[indices]**2 + z**2)**0.5 )
+        rho_bar = rho / (1-t*t)**1.5 / rho_max[indices]
+        overflows = numpy.where(rho_bar>1)[0]
+        if(len(overflows)>0):
+            print 'Overflows:', len(overflows)
+            #numpy.hstack((R[overflows].reshape(-1.1), t[overflows].reshape(-1.1), rho_bar[overflows].reshape(-1.1)))
+        assigned = numpy.where(numpy.random.uniform(size=len(indices)) < rho_bar)[0]
+        result [indices[assigned]]  = z[assigned]
+        weights[indices[assigned]] /= rho[assigned]
+        indices = numpy.where(result==0)[0]  # find out the unassigned elements
+    return result,weights
+
+def sample_particle_realizations(particles):
+    '''
+    Split each input particle into num_samp samples, perturbing its velocity or
+    assigning values for missing components of position/velocity.
+    '''
+    # duplicate the elements of the original particle array (each particle is expanded into num_samp identical samples)
+    samples  = numpy.repeat(particles, num_samples, axis=0)
+    nsamples = samples.shape[0]
+    weights  = numpy.ones_like(nsamples)
+
+    print 'Resample',particles.shape[0],'input particles into',nsamples,'internal samples'
+    # compute maximum magnitude of l.o.s. velocity used in assigning missing velocity components for resampled particles
+    vmax = numpy.amax(abs(particles[:,5]))
+    zmax = numpy.sort(abs(particles[:,2]))[int(particles.shape[0]*0.98)]
+
+    sph_model = SphericalModel(particles)
+    numpy.random.seed(0)  # make it repeatable from run to run
+    samples[:,2], weights = sample_z_position((samples[:,0]**2+samples[:,1]**2)**0.5, sph_model)
+    vtrans_mag = vmax * numpy.random.uniform(0, 1, size=nsamples)**0.5
+    vtrans_ang = numpy.random.uniform(0, 6.2832, size=nsamples)
+    samples[:,3] = vtrans_mag * numpy.cos(vtrans_ang)
+    samples[:,4] = vtrans_mag * numpy.sin(vtrans_ang)
+    weights *= 3.1416*vmax**2 / num_samples   # volume of {z,vx,vy}-space per sample
+
+    if vel_error != 0:    # add noise to the velocity components
+        samples  += numpy.random.standard_normal(samples.shape) * \
+            numpy.tile(numpy.array([0, 0, 0, vel_error, vel_error, vel_error]), nsamples).reshape(-1,6)
+
+    return samples, weights
+
 
 ######################## MODEL-SEARCHER ####################################
 
@@ -264,6 +336,9 @@ class ModelSearcher:
         self.filename  = filename
         self.model     = ModelParams(filename)
         self.particles = numpy.loadtxt(filename)[:,:6]
+        if not full_phase_space_info and use_resampling:
+            self.samples, self.weights = sample_particle_realizations(self.particles)
+            #numpy.savetxt('samples.txt', numpy.hstack((self.samples, self.weights.reshape(-1,1))), fmt='%.7g')
         try:
             self.values = numpy.loadtxt(self.filename+".best")
             if self.values.ndim==1:
@@ -301,10 +376,25 @@ class ModelSearcher:
                 af      = py_wrapper.ActionFinder(pot)
                 actions = af(self.particles)  # actions of tracer particles
                 df_val  = df(actions) / norm  # values of DF for these actions
-            else:   # have only x,y,vz values
+            elif use_resampling:  # have full phase space info for resampled input particles (missing components are filled in)
+                af      = py_wrapper.ActionFinder(pot)
+                actions = af(self.samples)    # actions of resampled tracer particles
+                # compute values of DF for these actions, multiplied by sample weights
+                df_val  = df(actions) / norm * self.weights
+                # compute the weighted sum of likelihoods of all samples for a single particle,
+                # replacing the improbable samples (with NaN as likelihood) with zeroes
+                df_val  = numpy.sum(numpy.nan_to_num(df_val.reshape(-1, num_samples)), axis=1)
+                '''
+                df_vprj = py_wrapper.GalaxyModel(pot, df).projected_df( \
+                    numpy.hstack((self.particles[:,0:2], self.particles[:,5].reshape(-1,1))), \
+                    vz_error=vel_error) / norm
+                numpy.savetxt("df.txt", numpy.hstack((self.particles[:,0:2], self.particles[:,5].reshape(-1,1), \
+                    df_val.reshape(-1,1), df_vprj.reshape(-1,1))), fmt="%.7g")
+                '''
+            else:   # have only x,y,vz values, marginalize over missing components
                 df_val = py_wrapper.GalaxyModel(pot, df).projected_df( \
                     numpy.hstack((self.particles[:,0:2], self.particles[:,5].reshape(-1,1))), \
-                    vz_error=self.model.vz_error) / norm
+                    vz_error=vel_error) / norm
 
             loglike = numpy.sum( numpy.log( df_val ) )
             if numpy.isnan(loglike): loglike = -numpy.inf
@@ -372,11 +462,18 @@ class ModelSearcher:
                 prob[i,0] = monte_carlo_search_fnc(self.values[i,:], self)
                 if not numpy.isfinite(prob[i,0]):
                     print 'Invalid parameters for',i,'-th walker (likelihood is bogus)'
+                else: print prob[i,0]
+            try:
+                oldchain = numpy.loadtxt(self.filename+".chain")
+                prob     = oldchain[:, -1].reshape(self.values.shape[0], -1)
+                oldchain = oldchain[:,:-1].reshape(self.values.shape[0], -1, self.values.shape[1])
+            except:
+                oldchain = self.values.reshape(self.values.shape[0],1,self.values.shape[1])
             if not user_fnc is None:
-                user_fnc(self.values.reshape(self.values.shape[0],1,self.values.shape[1]), prob)
+                user_fnc(oldchain, prob)
 
         nwalkers, nparams = self.values.shape
-        sampler = emcee.EnsembleSampler(nwalkers, nparams, monte_carlo_search_fnc, args=(self,), threads=2)
+        sampler = emcee.EnsembleSampler(nwalkers, nparams, monte_carlo_search_fnc, args=(self,), threads=nthreads_mcmc)
         prevmaxloglike = None
         while True:  # run several passes until convergence
             print 'Starting MCMC'
@@ -514,13 +611,15 @@ class UserFnc:
         self.deprojected = SphericalModel(particles)
 
     def __call__(self, chain, loglike):
-        self.plot_time_evol(chain, loglike)   # evolution of MCMC chain parameters and likelihood
-        self.plot_profiles (chain[:,-1,:])    # density and velocity dispersion profiles
+        # evolution of MCMC chain parameters and likelihood
+        self.plot_time_evol(chain, loglike)
         # distribution of posterior parameters and their correlations, for the potential only
         self.plot_distribution(chain[:, -nsteps_mcmc:, :self.model.num_pot_params], "_pot", \
             self.model.labels[:self.model.num_pot_params], self.model.true_values[:self.model.num_pot_params])
         # distribution of posterior parameters and their correlations, for all parameters
         self.plot_distribution(chain[:, -nsteps_mcmc:, :], "_all", self.model.labels, self.model.true_values)
+        # density and velocity dispersion profiles (3d and projected)
+        self.plot_profiles (chain[:,-1,:])
 
     def plot_profiles(self, params):
         '''
@@ -650,6 +749,6 @@ class UserFnc:
 
 py_wrapper.set_units(mass=1, length=1, velocity=1)
 basefilename = os.getcwd().split('/')[-1]  # get the directory name which is the same as the first part of the filename
-model_searcher = ModelSearcher(basefilename+"_1000_1_err.dat")
+model_searcher = ModelSearcher(basefilename+"_1000_0.dat")
 user_fnc = UserFnc(model_searcher.model, model_searcher.particles, model_searcher.filename)
 model_searcher.monte_carlo_search(user_fnc)

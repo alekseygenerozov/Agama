@@ -9,9 +9,11 @@
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <cmath>
 #include "torus/Torus.h"
 #include "potential_factory.h"
-#include "debug_utils.h"
+#include "math_core.h"
+#include "orbit.h"
 
 /// Auxiliary class for using any of BasePotential-derived potentials with Torus code
 class TorusPotentialWrapper: public Torus::Potential{
@@ -44,42 +46,52 @@ private:
     const potential::BasePotential& poten;
 };
 
-void test(bool useNewAngleMapping, Torus::Potential *Phi, 
-    coord::PosVelCyl& outPoint, actions::Frequencies& outFreqs)
+void test(bool useNewAngleMapping, const potential::BasePotential& poten, const Torus::Actions &J)
 {
-    Torus::Actions J;
-    Torus::Angles theta;
-    J[0]     = 0.01; // actions in whatever units
-    J[1]     = 2.;
-    J[2]     = -3.;
-    theta[0] = 1.; // angles in radians
-    theta[1] = 2.;
-    theta[2] = 3.;
+    TorusPotentialWrapper Phi(poten);
     Torus::Torus T(useNewAngleMapping);
-    T.AutoFit(J,Phi,0.001,700,300,15,5,24,200,24,0);
-    Torus::PSPT P     = T.Map3D(theta);  // returns (R,z,phi, vR,vz,vphi) given (Tr, Tt, Tphi)
-    outPoint          = coord::PosVelCyl(P[0], P[1], P[2], P[3], P[4], P[5]);
-    outFreqs.Omegar   = T.omega(0);
-    outFreqs.Omegaz   = T.omega(1);
-    outFreqs.Omegaphi = T.omega(2);
+    T.AutoFit(J,&Phi,0.001,700,300,15,5,24,200,24,0);
+
+    // orbit integration part
+    Torus::Angles theta;
+    theta[0] = theta[1] = theta[2] = 0;
+    Torus::PSPT P = T.Map3D(theta);
+    double totaltime = 100 * 2*M_PI / T.omega(0);
+    int numsteps     = 5000;
+    double timestep  = totaltime / numsteps;
+    std::vector<coord::PosVelCyl> traj;
+    orbit::integrate(poten, coord::PosVelCyl(P[0], P[1], P[2], P[3], P[4], P[5]), totaltime, timestep, traj, 1e-8);
+
+    // torus part
+    std::ofstream strm(useNewAngleMapping ? "traj_new.txt" : "traj_old.txt");
+    math::Averager avg;
+    double phi = 0;
+    for(unsigned int s=0; s<traj.size(); s++) {
+        double t = s*timestep;
+        for(int d=0; d<3; d++)
+            theta[d] = T.omega(d) * t;
+        P = T.Map3D(theta);
+        phi = math::unwrapAngle(P[2], phi);
+        strm<< t << '\t' << traj[s].R << '\t' << traj[s].z << '\t' << traj[s].phi
+            << '\t' << P[0] << '\t' << P[1] << '\t' << phi << '\n';
+        avg.add(totalEnergy(poten, coord::PosVelCyl(P[0], P[1], P[2], P[3], P[4], P[5])));
+    }
+    std::cout << std::setprecision(9) << "E = " << avg.mean() << "+-" << sqrt(avg.disp()) <<
+        "; freqs = " << T.omega(0) << ", " << T.omega(1) << ", " << T.omega(2) << std::endl;
 }
 
-int main() {
+int main(int argc, char** argv) {
     const potential::BasePotential* poten = 
-        potential::readGalaxyPotential("../temp/GSM_potential.pot", units::galactic_Myr);
-    TorusPotentialWrapper Phi(*poten);
-    coord::PosVelCyl oldP, newP;
-    actions::Frequencies oldF, newF;
-    test(false, &Phi, oldP, oldF);   // old method
-    std::cout << "Old method gives "<<oldP<<
-        "and frequencies Or: "<<oldF.Omegar<<"  Oz: "<<oldF.Omegaz<<"  Ophi: "<<oldF.Omegaphi<<std::endl;
-    test(true,  &Phi, newP, newF);   // new angle determination method
-    std::cout << "New method gives "<<newP<<
-        "and frequencies Or: "<<newF.Omegar<<"  Oz: "<<newF.Omegaz<<"  Ophi: "<<newF.Omegaphi<<std::endl;
-    if(coord::equalPosVel(oldP, newP, 0.05) && 
-        math::fcmp(oldF.Omegar, newF.Omegar, 1e-4)==0 &&
-        math::fcmp(oldF.Omegar, newF.Omegar, 1e-4)==0 &&
-        math::fcmp(oldF.Omegar, newF.Omegar, 1e-4)==0)
-        std::cout << "ALL TESTS PASSED\n";
+        potential::readGalaxyPotential("../temp/GalPot.pot", units::galactic_Myr);
+    Torus::Actions J;
+    J[0] = 1; // actions in whatever units
+    J[1] = 1;
+    J[2] = 2;
+    if(argc>=3) {
+        J[0] = atof(argv[1]); J[1] = atof(argv[2]); J[2] = atof(argv[3]);
+    }
+    test(false, *poten, J);
+    test(true,  *poten, J);
+    //std::cout << "ALL TESTS PASSED\n";
     return 0;
 }
