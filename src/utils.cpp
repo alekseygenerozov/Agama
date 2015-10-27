@@ -118,7 +118,7 @@ float convertToFloat(const char* val) {
 double convertToDouble(const char* val) {
     return strtod(val, NULL);
 }
-template<typename ValueType> std::string convertToString(ValueType val, unsigned int width=6) {
+template<typename ValueType> std::string convertToString(ValueType val, unsigned int width) {
     char buf[100];
     int len=snprintf(buf, 100, "%*g", width, val);
     int offset=0;

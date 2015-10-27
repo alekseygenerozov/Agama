@@ -15,9 +15,13 @@ const double UNREASONABLY_LARGE_VALUE = 1e10;
 ///@{
 
 /** test if a number is neither infinity nor NaN */
-inline bool isFinite(double x) { 
+inline bool isFinite(double x) {
+#if 0
     const volatile double y = x - x;  // 'volatile' prevents it from being optimized away
     return y == y;  // false for +-INFINITY or NAN
+#else
+    return x==x && 1/x!=0;  // this method works more reliably with aggressively optimizing compilers
+#endif
 }
 
 /** test if a number is not too big or too small (admittedly a subjective definition...) */

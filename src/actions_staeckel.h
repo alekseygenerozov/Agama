@@ -114,7 +114,7 @@ public:
         For numerical convenience, tau is replaced by x=tau+gamma. */
     virtual void evalDeriv(const double tauplusgamma, 
         double* value=0, double* deriv=0, double* deriv2=0) const;
-    virtual unsigned int numDerivs() const { return 1; }
+    virtual unsigned int numDerivs() const { return 2; }
 };
 
 /** compute true (E, Lz) and approximate (Ilambda, Inu) integrals of motion in an arbitrary 

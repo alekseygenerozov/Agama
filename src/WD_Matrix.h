@@ -59,7 +59,7 @@ public:
     Matrix       operator/            (const T) const;
 
     T*           operator[]           (const int n1) { return a+n1*N2; }
-    T* const     operator[]           (const int n1) const { return a+n1*N2; }
+    T const*     operator[]           (const int n1) const { return a+n1*N2; }
     T            operator()           (const int n1, const int n2) const
                                           { return a[n1*N2+n2];}
 

@@ -174,6 +174,8 @@ static void findPlanarOrbitExtentSmallE(const potential::BasePotential& poten, d
     OrbitSizeFunction fnc1(poten, Phi1, 0);
     fnc1.mode  = OrbitSizeFunction::FIND_RMAX;
     double R1 = math::findRoot(fnc1, 0, INFINITY, ACCURACY_RMINMAX);
+    // don't blindly trust the root-finder, because it may suffer from roundoff errors
+    Phi1 = poten.value(coord::PosCyl(R1,0,0));
     double R2 = R1/2;
     double Phi2 = poten.value(coord::PosCyl(R2,0,0));
     double twominusgamma = log( (Phi1-Phi0)/(Phi2-Phi0) ) / log(2.);
@@ -489,13 +491,13 @@ InterfocalDistanceFinder::InterfocalDistanceFinder(
     // fill a 2d grid in (E, Lz/Lcirc(E) )
     math::Matrix<double> grid2d(gridE.size(), gridLzrel.size());
     for(unsigned int iE=0; iE<gridE.size(); iE++) {
-        const double Lc = interpLcirc(gridE[iE]);
+        const double Lc = L_circ(potential, gridE[iE]); //interpLcirc(gridE[iE]);
         for(unsigned int iL=0; iL<gridLzrel.size(); iL++) {
             double Lz = gridLzrel[iL] * Lc;
             grid2d(iE, iL) = estimateInterfocalDistanceShellOrbit(potential, gridE[iE], Lz);
         }
     }
-    
+
     // create a 2d interpolator
     interp = math::LinearInterpolator2d(gridE, gridLzrel, grid2d);
 }

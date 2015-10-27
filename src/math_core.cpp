@@ -140,7 +140,7 @@ void getNormalRandomNumbers(double& num1, double& num2) {
 
 PointNeighborhood::PointNeighborhood(const IFunction& fnc, double x0)
 {
-    double delta = fmax(fabs(x0) * GSL_SQRT_DBL_EPSILON, 16*GSL_DBL_EPSILON);
+    double delta = fmax(fabs(x0) * GSL_ROOT3_DBL_EPSILON, 16*GSL_DBL_EPSILON);
     // we assume that the function can be computed at all points, but the derivatives not necessarily can
     double fplusd = NAN, fderplusd = NAN, fminusd = NAN;
     f0 = fder = fder2=NAN;

@@ -38,9 +38,9 @@ AxisymFunctionStaeckel findIntegralsOfMotionOblatePerfectEllipsoid
             (E - pow_2(Lz) / 2 / (pprol.lambda - coordsys.delta) + Glambda) -
             pow_2( pprol.lambdadot * (pprol.lambda - fabs(pprol.nu)) ) / 
             (8 * (pprol.lambda - coordsys.delta) * pprol.lambda) );
-    if(!math::isFinite(E+I3+Lz))
+    /*if(!math::isFinite(E+I3+Lz))
         throw std::invalid_argument("Error in Axisymmetric Staeckel action finder: "
-            "cannot compute integrals of motion");
+            "cannot compute integrals of motion");*/
     return AxisymFunctionStaeckel(pprol, E, Lz, I3, poten);
 }
 
@@ -52,14 +52,14 @@ void AxisymFunctionStaeckel::evalDeriv(const double tau,
 {
     assert(tau>=0);
     double G, dG, d2G;
-    fncG.evalDeriv(tau, &G, der? &dG : NULL, der2? &d2G : NULL);
+    fncG.evalDeriv(tau, &G, der || der2? &dG : NULL, der2? &d2G : NULL);
     const double tauminusdelta = tau - point.coordsys.delta;
     if(val)
         *val = ( (E + G) * tau - I3 ) * tauminusdelta - Lz*Lz/2 * tau;
     if(der)
-        *der = (E+G)*(tau+tauminusdelta) + dG*tau*tauminusdelta - I3 - Lz*Lz/2;
+        *der = (E + G) * (tau + tauminusdelta) + dG * tau * tauminusdelta - I3 - Lz*Lz/2;
     if(der2)
-        *der2 = 2*(E+G) + 2*dG*(tau+tauminusdelta) + d2G*tau*tauminusdelta;
+        *der2 = 2 * (E + G) + 2 * dG * (tau + tauminusdelta) + d2G * tau * tauminusdelta;
 }
 
 // -------- SPECIALIZED functions for the Axisymmetric Fudge action finder --------
@@ -105,9 +105,9 @@ AxisymFunctionFudge findIntegralsOfMotionAxisymFudge
             (8 * (coordsys.delta - absnu) * absnu );
     const double Inu = absnu * (E - En) + (pprol.lambda - absnu) * Phi + addInu;
 
-    if(!math::isFinite(E+Ilambda+Inu+Lz))
+    /*if(!math::isFinite(E+Ilambda+Inu+Lz))
         throw std::invalid_argument("Error in Axisymmetric Fudge action finder: "
-            "cannot compute integrals of motion");
+            "cannot compute integrals of motion");*/
     return AxisymFunctionFudge(pprol, E, Lz, Ilambda, Inu, poten);
 }
 
@@ -120,8 +120,6 @@ void AxisymFunctionFudge::evalDeriv(const double tau,
     double* val, double* der, double* der2) const
 {
     assert(tau>=0);
-    if(der2)
-        *der2 = NAN;    // shouldn't be used
     double lambda, nu, I, mult;
     if(tau >= point.coordsys.delta) {  // evaluating J_lambda
         lambda= tau;
@@ -135,23 +133,39 @@ void AxisymFunctionFudge::evalDeriv(const double tau,
         I     = Inu;
     }
     // compute the potential in coordinates transformed from prol.sph. to cylindrical
-    coord::PosDerivT <coord::ProlSph, coord::Cyl> coordDeriv;
+    coord::PosDerivT  <coord::ProlSph, coord::Cyl> coordDeriv;
+    coord::PosDeriv2T <coord::ProlSph, coord::Cyl> coordDeriv2;
     const coord::PosProlSph posProl(lambda, nu, point.phi, point.coordsys);
-    const coord::PosCyl posCyl = der? 
-        coord::toPosDeriv<coord::ProlSph, coord::Cyl>(posProl, &coordDeriv) :
+    const coord::PosCyl posCyl = der || der2? 
+        coord::toPosDeriv<coord::ProlSph, coord::Cyl>(posProl, &coordDeriv, der2? &coordDeriv2 : NULL) :
         coord::toPosCyl(posProl);
     double Phi;
     coord::GradCyl gradCyl;
-    poten.eval(posCyl, &Phi, der? &gradCyl : NULL);
+    coord::HessCyl hessCyl;
+    poten.eval(posCyl, &Phi, der || der2? &gradCyl : NULL, der2? &hessCyl : NULL);
     const double tauminusdelta = tau - point.coordsys.delta;
     if(val)
         *val = ( E * tauminusdelta - pow_2(Lz)/2 ) * tau
              - (I + Phi * mult) * tauminusdelta;
-    if(der) {
+    if(der || der2) {
         coord::GradProlSph gradProl = coord::toGrad<coord::Cyl, coord::ProlSph> (gradCyl, coordDeriv);
         double dPhidtau = (tau >= point.coordsys.delta) ? gradProl.dlambda : gradProl.dnu;
-        *der = E * (tau+tauminusdelta) - pow_2(Lz)/2 - I 
-             - (mult+tauminusdelta) * Phi - tauminusdelta * mult * dPhidtau;
+        if(der)
+            *der = E * (tau+tauminusdelta) - pow_2(Lz)/2 - I 
+                 - (mult+tauminusdelta) * Phi - tauminusdelta * mult * dPhidtau;
+        if(der2) {
+            double d2Phidtau2 = (tau >= point.coordsys.delta) ?
+                // d2Phi/dlambda^2
+                hessCyl.dR2 * pow_2(coordDeriv.dRdlambda) + hessCyl.dz2 * pow_2(coordDeriv.dzdlambda) + 
+                2*hessCyl.dRdz * coordDeriv.dRdlambda*coordDeriv.dzdlambda +
+                gradCyl.dR * coordDeriv2.d2Rdlambda2 + gradCyl.dz * coordDeriv2.d2zdlambda2
+            :   // d2Phi/dnu^2
+                hessCyl.dR2 * pow_2(coordDeriv.dRdnu) + hessCyl.dz2 * pow_2(coordDeriv.dzdnu) + 
+                2*hessCyl.dRdz * coordDeriv.dRdnu*coordDeriv.dzdnu +
+                gradCyl.dR * coordDeriv2.d2Rdnu2 + gradCyl.dz * coordDeriv2.d2zdnu2;
+            *der2 = 2 * (E - Phi - (mult+tauminusdelta) * dPhidtau)
+                  - tauminusdelta * mult * d2Phidtau2;
+        }
     }
 }
 
@@ -194,6 +208,30 @@ public:
             result=0;  // ad hoc fix to avoid problems at the boundaries of integration interval
         return result;
     }
+    
+    /** limiting case of the integration interval collapsing to a single point tau,
+        i.e. f(tau)~=0, f'(tau)~=0, and f''(tau)<0 (downward-curving parabola).
+        In this case, if f(tau) is in the numerator, the integral is assumed to be zero,
+        while if the integrand contains f(tau)^(-1/2), then the limiting value of the integral
+        is computed from the second derivative of f(tau) at the (single) point.
+    */
+    double limitingIntegralValue(const double tau) const {
+        if(n==nplus1)
+            return 0;
+        assert(tau>=0);
+        const coord::ProlSph& CS = fnc.point.coordsys;
+        const double tauminusdelta = tau - CS.delta;
+        double fncder2;
+        fnc.evalDeriv(tau, NULL, NULL, &fncder2);  // ignore f(tau) and f'(tau), only take f''(tau)
+        double result = 2*M_PI * sqrt(-tau/fncder2) * fabs(tauminusdelta);
+        if(a==aminus1)
+            result /= tauminusdelta;
+        else if(a==aminus2)
+            result /= pow_2(tauminusdelta);
+        if(c==cminus1)
+            result /= tau;
+        return result;
+    }
 };
 
 /** A simple function that facilitates locating the root of auxiliary function 
@@ -232,8 +270,8 @@ public:
 */
 AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
 {
-    if(fnc.E>=0)
-        throw std::invalid_argument("Error in Axisymmetric Staeckel/Fudge action finder: E>=0");
+    /*if(fnc.E>=0)
+        throw std::invalid_argument("Error in Axisymmetric Staeckel/Fudge action finder: E>=0");*/
     AxisymIntLimits lim;
     const double delta=fnc.point.coordsys.delta;
 
@@ -332,17 +370,23 @@ AxisymIntDerivatives computeIntDerivatives(
     // derivatives w.r.t. E
     integrand.a = AxisymIntegrand::aminus1;
     integrand.c = AxisymIntegrand::czero;
-    double dJrdE = math::integrateGL(transf_l, 0, 1, INTEGR_ORDER) / (4*M_PI);
+    double dJrdE = (lim.lambda_min==lim.lambda_max ? 
+        integrand.limitingIntegralValue(lim.lambda_min) :
+        math::integrateGL(transf_l, 0, 1, INTEGR_ORDER) ) / (4*M_PI);
     double dJzdE = math::integrateGL(transf_n, 0, 1, INTEGR_ORDER) / (2*M_PI);
     // derivatives w.r.t. I3
     integrand.a = AxisymIntegrand::aminus1;
     integrand.c = AxisymIntegrand::cminus1;
-    double dJrdI3 = -math::integrateGL(transf_l, 0, 1, INTEGR_ORDER) / (4*M_PI);
+    double dJrdI3 = - (lim.lambda_min==lim.lambda_max ? 
+        integrand.limitingIntegralValue(lim.lambda_min) :
+        math::integrateGL(transf_l, 0, 1, INTEGR_ORDER) ) / (4*M_PI);
     double dJzdI3 = -math::integrateGL(transf_n, 0, 1, INTEGR_ORDER) / (2*M_PI);
     // derivatives w.r.t. Lz
     integrand.a = AxisymIntegrand::aminus2;
     integrand.c = AxisymIntegrand::czero;
-    double dJrdLz = -fnc.Lz * math::integrateGL(transf_l, 0, 1, INTEGR_ORDER) / (4*M_PI);
+    double dJrdLz = -fnc.Lz * (lim.lambda_min==lim.lambda_max ? 
+        integrand.limitingIntegralValue(lim.lambda_min) :
+        math::integrateGL(transf_l, 0, 1, INTEGR_ORDER) ) / (4*M_PI);
     double dJzdLz = -fnc.Lz * math::integrateGL(transf_n, 0, 1, INTEGR_ORDER) / (2*M_PI);
 
     AxisymIntDerivatives der;
@@ -457,6 +501,8 @@ Actions axisymStaeckelActions(const potential::OblatePerfectEllipsoid& potential
     const coord::PosVelCyl& point)
 {
     const AxisymFunctionStaeckel fnc = findIntegralsOfMotionOblatePerfectEllipsoid(potential, point);
+    if(!math::isFinite(fnc.E+fnc.I3+fnc.Lz) || fnc.E>=0)
+        return Actions(NAN, NAN, fnc.Lz);
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
     return computeActions(fnc, lim);
 }
@@ -465,6 +511,8 @@ ActionAngles axisymStaeckelActionAngles(const potential::OblatePerfectEllipsoid&
     const coord::PosVelCyl& point, Frequencies* freq)
 {
     const AxisymFunctionStaeckel fnc = findIntegralsOfMotionOblatePerfectEllipsoid(potential, point);
+    if(!math::isFinite(fnc.E+fnc.I3+fnc.Lz) || fnc.E>=0)
+        return ActionAngles(Actions(NAN, NAN, fnc.Lz), Angles(NAN, NAN, NAN));
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
     return computeActionAngles(fnc, lim, freq);
 }
@@ -476,6 +524,8 @@ Actions axisymFudgeActions(const potential::BasePotential& potential,
         throw std::invalid_argument("Fudge approximation only works for axisymmetric potentials");
     const coord::ProlSph coordsys(pow_2(interfocalDistance));
     const AxisymFunctionFudge fnc = findIntegralsOfMotionAxisymFudge(potential, point, coordsys);
+    if(!math::isFinite(fnc.E+fnc.Ilambda+fnc.Inu+fnc.Lz) || fnc.E>=0)
+        return Actions(NAN, NAN, fnc.Lz);
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
     return computeActions(fnc, lim);
 }
@@ -487,6 +537,8 @@ ActionAngles axisymFudgeActionAngles(const potential::BasePotential& potential,
         throw std::invalid_argument("Fudge approximation only works for axisymmetric potentials");
     const coord::ProlSph coordsys(pow_2(interfocalDistance));
     const AxisymFunctionFudge fnc = findIntegralsOfMotionAxisymFudge(potential, point, coordsys);
+    if(!math::isFinite(fnc.E+fnc.Ilambda+fnc.Inu+fnc.Lz) || fnc.E>=0)
+        return ActionAngles(Actions(NAN, NAN, fnc.Lz), Angles(NAN, NAN, NAN));
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
     return computeActionAngles(fnc, lim, freq);
 }

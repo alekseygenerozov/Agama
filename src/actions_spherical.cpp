@@ -5,7 +5,6 @@
 #include <cassert>
 #include <cmath>
 
-//#include <iostream>
 namespace actions{
 
 Actions sphericalActions(const potential::BasePotential& potential,
@@ -58,14 +57,12 @@ ActionFinderSpherical::ActionFinderSpherical(
         gridLrel[i] = 1.*i/(gridSizeLrel-1);
 
     // fill a 2d grid in (E, L/Lcirc(E) )
-    math::Matrix<double> grid2d(gridE.size(), gridLrel.size());
-    for(unsigned int iE=0; iE<gridE.size(); iE++) {
-        double E = iE==0 ? gridE[1]*0.1+gridE[0]*0.9 :  // slightly offset from the boundaries
-            iE==gridE.size()-1 ? gridE[gridE.size()-2]*0.01 :
-            gridE[iE];
+    math::Matrix<double> grid2d(gridSizeE, gridSizeLrel);
+    for(unsigned int iE=0; iE<gridSizeE-1; iE++) {
+        double E = iE==0 ? gridE[1]*0.1+gridE[0]*0.9 : gridE[iE]; // slightly offset from the boundary
         const double Lc = interpLcirc(E);
-        for(unsigned int iL=0; iL<gridLrel.size(); iL++) {
-            double L = (iL<gridLrel.size()-1 ? gridLrel[iL] : 1-1e-3) * Lc;
+        for(unsigned int iL=0; iL<gridSizeLrel; iL++) {
+            double L = (iL<gridSizeLrel-1 ? gridLrel[iL] : 1-1e-3) * Lc;
             double R1, R2, Jr;
             findPlanarOrbitExtent(potential, E, L, R1, R2, &Jr);
             grid2d(iE, iL) = Jr/(Lc-L);
@@ -73,7 +70,10 @@ ActionFinderSpherical::ActionFinderSpherical(
         }
         //std::cout<<"\n";
     }
-
+    // end point at E=0: all values set to the limiting value (1)
+    for(unsigned int iL=0; iL<gridSizeLrel; iL++)
+        grid2d(gridSizeE-1, iL) = 1;
+    
     // create a 2d interpolator
     interpJr = math::LinearInterpolator2d(gridE, gridLrel, grid2d);
 }
@@ -87,8 +87,8 @@ Actions ActionFinderSpherical::actions(const coord::PosVelCyl& point) const
     acts.Jphi = Lz(point);
     acts.Jz   = L - fabs(acts.Jphi);
     acts.Jr   = Lc>0 ? interpJr.value(E, L/Lc) * (Lc-L) : 0;
-    if(!math::isFinite(acts.Jr))
-        throw std::runtime_error("ActionFinderSpherical: bad value encountered for Jr");
+    /*if(!math::isFinite(acts.Jr))
+        throw std::runtime_error("ActionFinderSpherical: bad value encountered for Jr");*/
     return acts;
 }
 
