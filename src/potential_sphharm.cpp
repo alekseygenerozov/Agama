@@ -29,7 +29,9 @@ class DensitySphHarmIntegrand: public math::IFunctionNdim {
 public:
     DensitySphHarmIntegrand(const BaseDensity& _dens, int _l, int _m, 
         const math::IFunction& _radialMultFactor, double _rscale) :
-        dens(_dens), l(_l), m(_m), radialMultFactor(_radialMultFactor), rscale(_rscale) {};
+        dens(_dens), l(_l), m(_m), radialMultFactor(_radialMultFactor), rscale(_rscale),
+        mult( 0.5*sqrt((2*l+1.) * math::factorial(l-math::abs(m)) / math::factorial(l+math::abs(m))) )
+    {};
 
     /// evaluate the m-th azimuthal harmonic of density at a point in (scaled r, cos(theta)) plane
     virtual void eval(const double vars[], double values[]) const 
@@ -42,19 +44,16 @@ public:
         const double r = rscale * scaled_r / (1-scaled_r);
         const double R = r * sqrt(1-pow_2(costheta));
         const double z = r * costheta;
-        const double mult =            // overall multiplication factor
-            r*r *                      // jacobian of transformation to spherical coordinates
-            rscale/pow_2(1-scaled_r) * // un-scaling the radial coordinate
-            ( 2*M_PI /                 // integration over phi
-            (2*M_SQRTPI) ) *           // definition of spherical function Y_l^m
-            radialMultFactor(r);       // additional radius-dependent factor
-        const double Plm = math::legendrePoly(l, math::abs(m), acos(costheta));
+        const double Plm = math::legendrePoly(l, math::abs(m), costheta);
         double val = computeRho_m(dens, R, z, m) * Plm;
         if((dens.symmetry() & ST_PLANESYM) == ST_PLANESYM)   // symmetric w.r.t. change of sign in z
             val *= (l%2==0 ? 2 : 0);  // only even-l terms survive
         else
             val += computeRho_m(dens, R, -z, m) * Plm * (l%2==0 ? 1 : -1);
-        values[0] = val * mult;
+        values[0] = val * mult *
+            r*r *                      // jacobian of transformation to spherical coordinates
+            rscale/pow_2(1-scaled_r) * // un-scaling the radial coordinate
+            radialMultFactor(r);       // additional radius-dependent factor
     }
     /// return the scaled radial variable (useful for determining the integration interval)
     double scaledr(double r) const {
@@ -68,12 +67,13 @@ protected:
     const int l, m;                           ///< multipole indices
     const math::IFunction& radialMultFactor;  ///< additional radius-dependent multiplier
     const double rscale;                      ///< scaling factor for integration in radius
+    const double mult;                        ///< constant multiplicative factor in Y_l^m
 };
 
 //----------------------------------------------------------------------------//
 // BasePotentialSphericalHarmonic -- parent class for all potentials 
 // using angular expansion in spherical harmonics
-void BasePotentialSphericalHarmonic::setSymmetry(SymmetryType sym)
+void SphericalHarmonicCoefSet::setSymmetry(SymmetryType sym)
 {
     mysymmetry = sym;
     lmax = (mysymmetry & ST_SPHSYM)    ==ST_SPHSYM     ? 0 :     // if spherical model, use only l=0,m=0 term
@@ -102,7 +102,7 @@ void BasePotentialSphericalHarmonic::evalSph(const coord::PosSph &pos,
     double legendre_deriv_array[MAX_NCOEFS_ANGULAR];
     double legendre_deriv2_array[MAX_NCOEFS_ANGULAR];
     for(int m=0; m<=mmax*lmax; m+=mstep) {
-        math::legendrePolyArray(lmax, m, pos.theta, legendre_array, 
+        math::sphHarmonicArray(lmax, m, pos.theta, legendre_array, 
             grad!=NULL||hess!=NULL ? legendre_deriv_array : NULL, 
             hess!=NULL ? legendre_deriv2_array : NULL);
         double cosmphi = (m==0 ? 1 : cos(m*pos.phi)*M_SQRT2) * 2*M_SQRTPI;   // factor \sqrt{4\pi} from the definition of spherical function Y_l^m absorbed into this term
@@ -190,7 +190,7 @@ BasisSetExp::BasisSetExp(double _Alpha, unsigned int _Ncoefs_radial, unsigned in
 }
 
 void BasisSetExp::checkSymmetry()
-{ 
+{
     SymmetryType sym=ST_SPHERICAL;  // too optimistic:))
     const double MINCOEF = 1e-8 * fabs(SHcoefs[0][0]);
     for(unsigned int n=0; n<=Ncoefs_radial; n++) {
@@ -285,7 +285,7 @@ void BasisSetExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::Po
         double ralpha=pow(point.r, 1/Alpha);
         double xi=(ralpha-1)/(ralpha+1);
         for(int m=0; m<=lmax; m+=mstep)
-            math::legendrePolyArray(lmax, m, point.theta, legendre_array[m]);
+            math::sphHarmonicArray(lmax, m, point.theta, legendre_array[m]);
         for(int l=0; l<=lmax; l+=lstep) {
             double w=(2*l+1)*Alpha+0.5;
             double phil=pow(point.r, l) * pow(1+ralpha, -(2*l+1)*Alpha);
@@ -333,10 +333,10 @@ void BasisSetExp::computeSHCoefs(const double r, double coefsF[], double coefsdF
         double multr = -pow(r, l) * pow(1+ralpha, -(2*l+1)*Alpha);
         double multdr= (l-(l+1)*ralpha)/((ralpha+1)*r);
         for(unsigned int n=0; n<=Ncoefs_radial; n++) {
-            double multdFdr=0, multd2Fdr2=0, dGdr=0;
+            double multdFdr = 0, multd2Fdr2 = 0;
             if(coefsdFdr!=NULL) {
-                dGdr=(n>0 ? (-xi*n*gegenpoly_array[n] + (n+2*w-1)*gegenpoly_array[n-1])/(2*Alpha*r) : 0);
-                multdFdr= multdr * gegenpoly_array[n] + dGdr;
+                double dGdr = (n>0 ? (-xi*n*gegenpoly_array[n] + (n+2*w-1)*gegenpoly_array[n-1])/(2*Alpha*r) : 0);
+                multdFdr = multdr * gegenpoly_array[n] + dGdr;
                 if(coefsd2Fdr2!=NULL)
                     multd2Fdr2 = ( (l+1)*(l+2)*pow_2(ralpha) + 
                                    ( (1-2*l*(l+1)) - (2*n+1)*(2*l+1)/Alpha - n*(n+1)/pow_2(Alpha))*ralpha + 
@@ -400,7 +400,7 @@ public:
 private:
     const int n;
 };
-    
+
 void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin, double Rmax)
 {
     std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);  // SHE coefficients to pass to initspline routine
@@ -488,7 +488,7 @@ void SplineExp::computeCoefsFromPoints(const particles::PointMassArray<coord::Po
         if(srcPoints.mass(i)<0) 
             throw std::invalid_argument("SplineExp: input particles have negative mass");
     }
-    
+
     // make a copy of input array to allow it to be sorted
     particles::PointMassArray<coord::PosSph> points(srcPoints);
     std::sort(points.data.begin(), points.data.end(), compareParticleSph);
@@ -497,7 +497,7 @@ void SplineExp::computeCoefsFromPoints(const particles::PointMassArray<coord::Po
     outputRadii.resize(npoints);
     for(size_t i=0; i<npoints; i++)
         outputRadii[i] = points.point(i).r;
-    
+
     // we need two intermediate arrays of inner and outer coefficients for each particle,
     // and in the end we output one array of 'final' coefficients for each particle.
     // We can use a trick to save memory, by allocating only one temporary array, 
@@ -517,7 +517,7 @@ void SplineExp::computeCoefsFromPoints(const particles::PointMassArray<coord::Po
     // initialize SH expansion coefs at each point's location
     for(size_t i=0; i<npoints; i++) {
         for(int m=0; m<=lmax; m+=mstep)
-            math::legendrePolyArray(lmax, m, points.point(i).theta, legendre_array[m]);
+            math::sphHarmonicArray(lmax, m, points.point(i).theta, legendre_array[m]);
         for(int l=0; l<=lmax; l+=lstep)
             for(int m=l*mmin; m<=l*mmax; m+=mstep) {
                 int coefind = l*(l+1)+m;
@@ -576,7 +576,7 @@ double get_ascale(const std::vector<double>& radii, const std::vector<std::vecto
         targetRad = radii[radii.size()/2];
     return targetRad;
 }
-    
+
 void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosSph> &points, 
     double smoothfactor, double innerBinRadius, double outerBinRadius)
 {
@@ -719,7 +719,7 @@ void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosS
 }
 
 void SplineExp::checkSymmetry(const std::vector< std::vector<double> > &coefsArray)
-{ 
+{
     SymmetryType sym=ST_SPHERICAL;  // too optimistic:))
     // if ALL coefs of a certain subset of indices are below this value, assume some symmetry
     const double MINCOEF = 1e-8 * fabs(coefsArray[0][0]);

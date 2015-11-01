@@ -377,8 +377,8 @@ void sampleNdim(const IFunctionNdim& fnc, const double xlower[], const double xu
     // determine number of sample points and bins
     const double NUM_POINTS_PER_BIN = 10.;  // default # of sampling points per N-dimensional bin
     std::vector<unsigned int> numBins(fnc.numVars());  // number of bins per each dimension
-    unsigned int totalNumBins = 1;  // total number of N-dimensional bins
     if(numBinsInput!=NULL) {        // use the provided values
+        unsigned int totalNumBins = 1;  // total number of N-dimensional bins
         for(unsigned int d=0; d<fnc.numVars(); d++) {
             numBins[d] = numBinsInput[d];
             totalNumBins *= numBinsInput[d];
@@ -390,7 +390,6 @@ void sampleNdim(const IFunctionNdim& fnc, const double xlower[], const double xu
         const unsigned int numBinsPerDim = static_cast<unsigned int>( fmax(
             pow(numSamples*1.0/NUM_POINTS_PER_BIN, 1./fnc.numVars()), 1.) );
         numBins.assign(fnc.numVars(), numBinsPerDim);
-        totalNumBins = powInt(numBinsPerDim, fnc.numVars());
     }
     Sampler sampler(fnc, xlower, xupper, &numBins.front());
 

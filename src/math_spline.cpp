@@ -110,7 +110,7 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const st
         throw std::bad_alloc();
     }
 
-    // initialize b-spline matrix C 
+    // initialize b-spline matrix C
     gsl_vector_const_view v_knots = gsl_vector_const_view_array(&knots.front(), knots.size());
     gsl_bspline_knots(&v_knots.vector, bsplineWorkspace);
     for(size_t i=0; i<numDataPoints; i++) {
@@ -148,9 +148,9 @@ void SplineApproxImpl::loadyvalues(const std::vector<double> &_yvalues)
 }
 
 /// convenience function returning values from band matrix or zero if indexes are outside the band
-double getVal(const Matrix<double>& deriv, size_t row, size_t col)
+inline double getVal(const Matrix<double>& deriv, size_t row, size_t col)
 {
-    if(row<col || row>=col+3) return 0; 
+    if(row<col || row>=col+3) return 0;
     else return deriv(row-col, col);
 }
 
@@ -393,7 +393,8 @@ void SplineApprox::fitDataOptimal(const std::vector<double> &yvalues,
 */
 
 // if one wants to have a 'natural' spline boundary condition then pass NaN as the value of derivative.
-CubicSpline::CubicSpline(const std::vector<double>& xa, const std::vector<double>& ya, double der1, double der2) :
+CubicSpline::CubicSpline(const std::vector<double>& xa,
+    const std::vector<double>& ya, double der1, double der2) :
     xval(xa), yval(ya)
 {
     unsigned int num_points = xa.size();
@@ -403,7 +404,7 @@ CubicSpline::CubicSpline(const std::vector<double>& xa, const std::vector<double
         throw std::invalid_argument("Error in spline initialization: number of nodes should be >=3");
     unsigned int max_index = num_points - 1;  /* Engeln-Mullges + Uhlig "n" */
     unsigned int sys_size = max_index - 1;    /* linear system is sys_size x sys_size */
-    std::vector<double> g(sys_size), diag(sys_size), offdiag(sys_size);  // temporary arrays
+    std::vector<double> rhs(sys_size), diag(sys_size), offdiag(sys_size);  // temporary arrays
 
     for(unsigned int i = 0; i < sys_size; i++) {
         const double h_i   = xa[i + 1] - xa[i];
@@ -412,45 +413,76 @@ CubicSpline::CubicSpline(const std::vector<double>& xa, const std::vector<double
             throw std::invalid_argument("Error in spline initialization: x values are not monotonic");
         const double ydiff_i   = ya[i + 1] - ya[i];
         const double ydiff_ip1 = ya[i + 2] - ya[i + 1];
-        const double g_i = (h_i != 0.0) ? 1.0 / h_i : 0.0;
-        const double g_ip1 = (h_ip1 != 0.0) ? 1.0 / h_ip1 : 0.0;
+        const double g_i   = 1.0 / h_i;
+        const double g_ip1 = 1.0 / h_ip1;
         offdiag[i] = h_ip1;
         diag[i] = 2.0 * (h_ip1 + h_i);
-        g[i] = 3.0 * (ydiff_ip1 * g_ip1 -  ydiff_i * g_i);
-        if(i == 0 && der1==der1) {
+        rhs[i]  = 6.0 * (ydiff_ip1 * g_ip1 -  ydiff_i * g_i);
+        if(i == 0 && isFinite(der1)) {
             diag[i] = 1.5 * h_i + 2.0 * h_ip1;
-            g[i] = 3.0 * (ydiff_ip1 * g_ip1 - 1.5 * ydiff_i * g_i + 0.5 * der1);
+            rhs[i]  = 6.0 * ydiff_ip1 * g_ip1 - 9.0 * ydiff_i * g_i + 3.0 * der1;
         }
-        if(i == sys_size-1 && der2==der2) {
+        if(i == sys_size-1 && isFinite(der2)) {
             diag[i] = 1.5 * h_ip1 + 2.0 * h_i;
-            g[i] = 3.0 * (1.5 * ydiff_ip1 * g_ip1 - 0.5 * der2 - ydiff_i * g_i);
+            rhs[i]  = 9.0 * ydiff_ip1 * g_ip1 - 3.0 * der2 - 6.0 * ydiff_i * g_i;
         }
     }
 
     if (sys_size == 1) {
-        cval[1] = g[0] / diag[0];
+        cval[1] = rhs[0] / diag[0];
     } else {
         offdiag.resize(sys_size-1);
-        linearSystemSolveTridiagSymm(diag, offdiag, g, cval);
-        cval.insert(cval.begin(), 0.);
-        cval.push_back(0.);
-        if(isFinite(der1)) 
-            cval[0] = ( 3.0*(ya[1]-ya[0])/(xa[1]>xa[0] ? xa[1]-xa[0] : 1) 
-                - 3.0*der1 - cval[1]*(xa[1]-xa[0]) )*0.5/(xa[1]>xa[0] ? xa[1]-xa[0] : 1);
+        linearSystemSolveTridiagSymm(diag, offdiag, rhs, cval);
+        cval.insert(cval.begin(), 0.);  // for natural cubic spline,
+        cval.push_back(0.);             // 2nd derivatives are zero at endpoints;
+        if(isFinite(der1))              // but for a clamped spline they are not.
+            cval[0] = ( 3. * (ya[1]-ya[0]) / (xa[1]-xa[0]) 
+                - 3. * der1 - 0.5 * cval[1] * (xa[1]-xa[0]) ) / (xa[1]-xa[0]);
         if(isFinite(der2))
-            cval[max_index] = -( 3*(ya[max_index]-ya[max_index-1])/(xa[max_index]-xa[max_index-1]) 
-                - 3*der2 + cval[max_index-1]*(xa[max_index]-xa[max_index-1]) )*0.5/(xa[max_index]-xa[max_index-1]);
+            cval[max_index] = ( -3. * (ya[max_index]-ya[max_index-1]) / (xa[max_index]-xa[max_index-1]) 
+                + 3. * der2 - 0.5 * cval[max_index-1] * (xa[max_index]-xa[max_index-1]) )
+                / (xa[max_index]-xa[max_index-1]);
     }
 }
 
-// evaluate spline value, derivative and 2nd derivative at once (faster than doing it separately)
+// evaluate spline value, derivative and 2nd derivative at once (faster than doing it separately);
+// possibly for several splines (K>=1), k=0,...,K-1);
+// input arguments contain the value(s) and 2nd derivative(s) of these splines
+// at the boundaries of interval [xl..xh] that contain the point x.
+template<unsigned int K>
+inline void evalCubicSplines(
+    const double xl,   // input:   xl <= x
+    const double xh,   // input:   x  <= xh 
+    const double x,    // input:   x-value where y is wanted
+    const double* yl,  // input:   Y_k(xl)
+    const double* yh,  // input:   Y_k(xh)
+    const double* cl,  // input:   d2Y_k(xl)
+    const double* ch,  // input:   d2Y_k(xh)
+    double* y,         // output:  y_k(x)      if y   != NULL
+    double* dy,        // output:  dy_k/dx     if dy  != NULL
+    double* d2y)       // output:  d^2y_k/d^2x if d2y != NULL
+{
+    const double h = xh - xl, dx = x - xl;
+    for(unsigned int k=0; k<K; k++) {
+        double c_i = cl[k];
+        double b_i = (yh[k] - yl[k]) / h - h * (1./6 * ch[k] + 1./3 * c_i);
+        double d_i = (ch[k] - c_i)   / h;
+        if(y)
+            y[k]   = yl[k] + dx * (b_i + dx * (1./2 * c_i + dx * 1./6 * d_i));
+        if(dy)
+            dy[k]  = b_i + dx * (c_i + dx * 1./2 * d_i);
+        if(d2y)
+            d2y[k] = c_i + dx * d_i;
+    }
+}
+
 void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* deriv2) const
 {
     if(xval.size() == 0)
         throw std::range_error("Empty spline");
-    if(x <= xval.front()) {
+    if(x < xval.front()) {
         double dx  =  xval[1]-xval[0];
-        double der = (yval[1]-yval[0])/dx - dx*(cval[1]+2*cval[0])/3.0;
+        double der = (yval[1]-yval[0]) / dx - dx * (1./6 * cval[1] + 1./3 * cval[0]);
         if(val)
             *val   = yval[0] + der*(x-xval[0]);
         if(deriv)
@@ -459,10 +491,10 @@ void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* 
             *deriv2= 0;
         return;
     }
-    if(x >= xval.back()) {
+    if(x > xval.back()) {
         const unsigned int size = xval.size();
         double dx  =  xval[size-1]-xval[size-2];
-        double der = (yval[size-1]-yval[size-2])/dx + dx*(cval[size-2]+2*cval[size-1])/3.0;
+        double der = (yval[size-1]-yval[size-2]) / dx + dx * (1./6 * cval[size-2] + 1./3 * cval[size-1]);
         if(val)
             *val   = yval[size-1] + der*(x-xval[size-1]);
         if(deriv)
@@ -473,23 +505,8 @@ void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* 
     }
 
     unsigned int index = binSearch(x, &xval.front(), xval.size());
-    double x_hi = xval[index + 1];
-    double x_lo = xval[index];
-    double dx   = x_hi - x_lo;
-    double y_lo = yval[index];
-    double y_hi = yval[index + 1];
-    double dy   = y_hi - y_lo;
-    double delx = x - x_lo;
-    double c_i  = cval[index];
-    double c_ip1= cval[index+1];
-    double b_i  = (dy / dx) - dx * (c_ip1 + 2.0 * c_i) / 3.0;
-    double d_i  = (c_ip1 - c_i) / (3.0 * dx);
-    if(val)
-        *val    = y_lo + delx * (b_i + delx * (c_i + delx * d_i));
-    if(deriv)
-        *deriv  = b_i + delx * (2.0 * c_i + 3.0 * d_i * delx);
-    if(deriv2)
-        *deriv2 = 2.0 * c_i + 6.0 * d_i * delx;
+    evalCubicSplines<1> (xval[index], xval[index+1], x, 
+        &yval[index], &yval[index+1], &cval[index], &cval[index+1], val, deriv, deriv2);
 }
 
 bool CubicSpline::isMonotonic() const
@@ -517,27 +534,225 @@ bool CubicSpline::isMonotonic() const
     return ismonotonic;
 }
 
+
+// ------ Quintic spline ------- //
+QuinticSpline::QuinticSpline(const std::vector<double>& xvalues, 
+    const std::vector<double>& yvalues, const std::vector<double>& yderivs): 
+    xval(xvalues), yval(yvalues), yder(yderivs)
+{
+    unsigned int numPoints = xval.size();
+    if(yval.size() != numPoints || yder.size() != numPoints)
+        throw std::invalid_argument("Error in spline initialization: input arrays are not equal in length");
+    if(numPoints < 2)
+        throw std::invalid_argument("Error in spline initialization: number of nodes should be >=2");
+    yder3.assign(numPoints, 0);
+    std::vector<double> v(numPoints-1);
+    double dx = xval[1]-xval[0];
+    double dy = yval[1]-yval[0];
+    yder3[0]  = v[0] = 0.;
+    for(unsigned int i=1; i<numPoints-1; i++) {
+        double dx1 = xval[i+1] - xval[i];
+        double dx2 = xval[i+1] - xval[i-1];
+        double dy1 = yval[i+1] - yval[i];
+        double sig = dx/dx2;
+        double p   = sig*v[i-1] - 3;
+        v[i]       = (sig-1)/p;
+        yder3[i]   = 12 * ( 7*yder[i]*dx2 / (dx*dx1) 
+            + 3 * (yder[i-1]/dx + yder[i+1]/dx1)
+            - 10* (dy / (dx*dx) + dy1 / (dx1*dx1)) ) / dx2;
+        yder3[i]   = (yder3[i] - sig*yder3[i-1] ) / p;
+        dx = dx1;
+        dy = dy1;
+    }
+    yder3[numPoints-1] = 0.;
+    for(int i=numPoints-2; i>=0; i--)
+        yder3[i] += v[i]*yder3[i+1];
+}
+
+template<unsigned int K>   // K>=1 - number of splines to compute; k=0,...,K-1
+inline void evalQuinticSplines(
+    const double xl,   // input:   xl <= x
+    const double xh,   // input:   x  <= xh 
+    const double x,    // input:   x-value where y is wanted
+    const double* yl,  // input:   Y_k(xl)
+    const double* yh,  // input:   Y_k(xh)
+    const double* y1l, // input:   dY_k(xl)
+    const double* y1h, // input:   dY_k(xh)
+    const double* y3l, // input:   d3Y_k(xl)
+    const double* y3h, // input:   d3Y_k(xh)
+    double* y,         // output:  y_k(x)      if y   != NULL
+    double* dy,        // output:  dy_k/dx     if dy  != NULL
+    double* d2y,       // output:  d^2y_k/d^2x if d2y != NULL
+    double* d3y=NULL)  // output:  d^3y_k/d^3x if d3y != NULL
+{
+    const double h=xh-xl, hi=1./h, hq=h*h, hf=hq/48.;
+    const double
+        A  = hi*(xh-x),
+        Aq = A*A,
+        B  = 1-A,
+        Bq = B*B,
+        C  = h*Aq*B,
+        D  =-h*Bq*A,
+        E  = hf*C*(2*Aq-A-1),
+        F  = hf*D*(2*Bq-B-1);
+    double AB, ABh, ABB, BAA, Cp, Dp, Ep, Fp, Epp, Fpp;
+    if(dy) {
+        AB = A*B;
+        ABh= 2*hf*AB;
+        Cp = Aq-AB-AB;
+        Dp = Bq-AB-AB,
+        Ep = ABh * (1+A-5*Aq);
+        Fp = ABh * (1+B-5*Bq);
+    }
+    if(d2y) {
+        BAA = B-A-A;
+        ABB = A-B-B;
+        Epp = hf * (4*Aq*(9*B-A)-2);
+        Fpp = hf * (4*Bq*(B-9*A)+2);
+    }
+    for(unsigned int k=0; k<K; k++) {
+        double
+            t1 = hi * (yh[k] - yl[k]),
+            C2 = y1l[k] - t1,
+            C3 = y1h[k] - t1,
+            t2 = 6 * (C2 + C3) / hq,
+            C4 = y3l[k] - t2,
+            C5 = y3h[k] - t2;
+        if(y)
+            y[k]   = A*yl[k] + B*yh[k] + C*C2 + D*C3+ E*C4 + F*C5;
+        if(dy)
+            dy[k]  = t1 + Cp*C2 + Dp*C3 + Ep*C4 + Fp*C5;
+        if(d2y)
+            d2y[k] = (2*(BAA*C2 - ABB*C3) + Epp*C4 + Fpp*C5) * hi;
+        if(d3y)
+            d3y[k] = A*(2.5*A-1.5)*y3l[k] + B*(2.5*B-1.5)*y3h[k] + 5*A*B*t2;
+
+    }
+}
+
+void QuinticSpline::evalDeriv(const double x, double* val, double* deriv, double* deriv2) const
+{
+    if(xval.size() == 0)
+        throw std::range_error("Empty spline");
+    if(x < xval.front()) {
+        if(val)
+            *val   = yval[0] + yder[0]*(x-xval[0]);
+        if(deriv)
+            *deriv = yder[0];
+        if(deriv2)
+            *deriv2= 0;
+        return;
+    }
+    if(x > xval.back()) {
+        const unsigned int size = xval.size();
+        if(val)
+            *val   = yval[size-1] + yder[size-1]*(x-xval[size-1]);
+        if(deriv)
+            *deriv = yder[size-1];
+        if(deriv2)
+            *deriv2= 0;
+        return;
+    }
+    unsigned int index = binSearch(x, &xval.front(), xval.size());
+    evalQuinticSplines<1> (xval[index], xval[index+1], x,
+        &yval[index], &yval[index+1], &yder[index], &yder[index+1], &yder3[index], &yder3[index+1],
+        val, deriv, deriv2);
+}
+
+double QuinticSpline::deriv3(const double x) const
+{
+    if(xval.size() == 0)
+        throw std::range_error("Empty spline");
+    if(x < xval.front() || x > xval.back())
+        return 0;
+    unsigned int index = binSearch(x, &xval.front(), xval.size());
+    double der3;
+    evalQuinticSplines<1> (xval[index], xval[index+1], x,
+        &yval[index], &yval[index+1], &yder[index], &yder[index+1], &yder3[index], &yder3[index+1],
+        NULL, NULL, NULL, &der3);
+    return der3;
+}
+
+
+// ------ INTERPOLATION IN 2D ------ //
+
+BaseInterpolator2d::BaseInterpolator2d(
+    const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+    const Matrix<double>& zvalues)
+{
+    const unsigned int xsize = xvalues.size();
+    const unsigned int ysize = yvalues.size();
+    if(xsize<2 || ysize<2)
+        throw std::invalid_argument("Error in 2d interpolator initialization: number of nodes should be >=2 in each direction");
+    if(zvalues.numRows() != xsize)
+        throw std::invalid_argument("Error in 2d interpolator initialization: x and z array lengths differ");
+    if(zvalues.numCols() != ysize)
+        throw std::invalid_argument("Error in 2d interpolator initialization: y and z array lengths differ");
+    xval = xvalues;
+    yval = yvalues;
+    zval = zvalues;
+}
+
+// ------- Bilinear interpolation in 2d ------- //
+
+void LinearInterpolator2d::evalDeriv(const double x, const double y, 
+     double *z, double *deriv_x, double *deriv_y,
+     double* deriv_xx, double* deriv_xy, double* deriv_yy) const
+{
+    if(isEmpty())
+        throw std::range_error("Empty 2d interpolator");
+    if(deriv_xx)
+        *deriv_xx = 0;
+    if(deriv_xy)
+        *deriv_xy = 0;
+    if(deriv_yy)
+        *deriv_yy = 0;
+    if(x<xval.front() || x>xval.back() || y<yval.front() || y>yval.back()) {
+        if(z)
+            *z = NAN;
+        if(deriv_x)
+            *deriv_x = NAN;
+        if(deriv_y)
+            *deriv_y = NAN;
+        return;
+    }
+    const unsigned int xi = binSearch(x, &xval.front(), xval.size());
+    const unsigned int yi = binSearch(y, &yval.front(), yval.size());
+    const double zlowlow = zval(xi, yi);
+    const double zlowupp = zval(xi, yi + 1);
+    const double zupplow = zval(xi + 1, yi);
+    const double zuppupp = zval(xi + 1, yi + 1);
+    // Get the width and height of the grid cell
+    const double dx = xval[xi+1] - xval[xi];
+    const double dy = yval[yi+1] - yval[yi];
+    // t and u are the positions within the grid cell at which we are computing
+    // the interpolation, in units of grid cell size
+    const double t = (x - xval[xi]) / dx;
+    const double u = (y - yval[yi]) / dy;
+    if(z)
+        *z = (1-t)*(1-u)*zlowlow + t*(1-u)*zupplow + (1-t)*u*zlowupp + t*u*zuppupp;
+    if(deriv_x)
+        *deriv_x = (-(1-u)*zlowlow + (1-u)*zupplow - u*zlowupp + u*zuppupp) / dx;
+    if(deriv_y)
+        *deriv_y = (-(1-t)*zlowlow - t*zupplow + (1-t)*zlowupp + t*zuppupp) / dy;
+}
+
+
 //------------ 2D CUBIC SPLINE -------------//
 // based on interp2d library by David Zaslavsky
 
 CubicSpline2d::CubicSpline2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
     const Matrix<double>& zvalues,
-    double deriv_xmin, double deriv_xmax, double deriv_ymin, double deriv_ymax)
+    double deriv_xmin, double deriv_xmax, double deriv_ymin, double deriv_ymax) :
+    BaseInterpolator2d(xvalues, yvalues, zvalues)
 {
     const unsigned int xsize = xvalues.size();
     const unsigned int ysize = yvalues.size();
     if(xsize<4 || ysize<4)
         throw std::invalid_argument("Error in 2d spline initialization: number of nodes should be >=4 in each direction");
-    if(zvalues.numRows() != xsize)
-        throw std::invalid_argument("Error in 2d spline initialization: x and z array lengths differ");
-    if(zvalues.numCols() != ysize)
-        throw std::invalid_argument("Error in 2d spline initialization: y and z array lengths differ");
-    xval = xvalues;
-    yval = yvalues;
-    zval = zvalues;
-    zx = Matrix<double>(xsize, ysize);
-    zy = Matrix<double>(xsize, ysize);
-    zxy= Matrix<double>(xsize, ysize);
+    zx.resize (xsize, ysize);
+    zy.resize (xsize, ysize);
+    zxy.resize(xsize, ysize);
     std::vector<double> tmpvalues(ysize);
     for(unsigned int i=0; i<xsize; i++) {
         for(unsigned int j=0; j<ysize; j++)
@@ -590,57 +805,60 @@ void CubicSpline2d::evalDeriv(const double x, const double y,
             *z_yy = NAN;
         return;
     }
-    // First compute the indices into the data arrays where we are interpolating
+    // Get the indices of grid cell in both dimensions
     const unsigned int xi = binSearch(x, &xval.front(), xval.size());
     const unsigned int yi = binSearch(y, &yval.front(), yval.size());
-    // Find the minimum and maximum values on the grid cell in each dimension
-    const double xlow = xval[xi];
-    const double xupp = xval[xi + 1];
-    const double ylow = yval[yi];
-    const double yupp = yval[yi + 1];
-    const double zlowlow = zval(xi, yi);
-    const double zlowupp = zval(xi, yi + 1);
-    const double zupplow = zval(xi + 1, yi);
-    const double zuppupp = zval(xi + 1, yi + 1);
-    // Get the width and height of the grid cell
-    const double dx = xupp - xlow;
-    const double dy = yupp - ylow;
-    // t and u are the positions within the grid cell at which we are computing
-    // the interpolation, in units of grid cell size
-    const double t = (x - xlow)/dx;
-    const double u = (y - ylow)/dy;
-    const double dt = 1./dx; // partial t / partial x
-    const double du = 1./dy; // partial u / partial y
-    const double zxlowlow  = zx (xi, yi)/dt;
-    const double zxlowupp  = zx (xi, yi + 1)/dt;
-    const double zxupplow  = zx (xi + 1, yi)/dt;
-    const double zxuppupp  = zx (xi + 1, yi + 1)/dt;
-    const double zylowlow  = zy (xi, yi)/du;
-    const double zylowupp  = zy (xi, yi + 1)/du;
-    const double zyupplow  = zy (xi + 1, yi)/du;
-    const double zyuppupp  = zy (xi + 1, yi + 1)/du;
-    const double zxylowlow = zxy(xi, yi)/(dt*du);
-    const double zxylowupp = zxy(xi, yi + 1)/(dt*du);
-    const double zxyupplow = zxy(xi + 1, yi)/(dt*du);
-    const double zxyuppupp = zxy(xi + 1, yi + 1)/(dt*du);
-    const double t0 = 1;
-    const double t1 = t;
-    const double t2 = t*t;
-    const double t3 = t*t2;
-    const double u0 = 1;
-    const double u1 = u;
-    const double u2 = u*u;
-    const double u3 = u*u2;
-    const double t0u0 = t0*u0, t0u1=t0*u1, t0u2=t0*u2, t0u3=t0*u3;
-    const double t1u0 = t1*u0, t1u1=t1*u1, t1u2=t1*u2, t1u3=t1*u3;
-    const double t2u0 = t2*u0, t2u1=t2*u1, t2u2=t2*u2, t2u3=t2*u3;
-    const double t3u0 = t3*u0, t3u1=t3*u1, t3u2=t3*u2, t3u3=t3*u3;
-    double zvalue=0;
-    double zderx=0;
-    double zdery=0;
-    double zd_xx=0;
-    double zd_xy=0;
-    double zd_yy=0;
+    const double
+        // Get the values on the corners of the grid cell
+        xlow = xval[xi],
+        xupp = xval[xi+1],
+        ylow = yval[yi],
+        yupp = yval[yi+1],
+        zlowlow = zval(xi,   yi),
+        zlowupp = zval(xi,   yi+1),
+        zupplow = zval(xi+1, yi),
+        zuppupp = zval(xi+1, yi+1),
+        // Get the width and height of the grid cell
+        dx = xupp - xlow,
+        dy = yupp - ylow,
+        // t and u are the positions within the grid cell at which we are computing
+        // the interpolation, in units of grid cell size
+        t = (x - xlow) / dx,
+        u = (y - ylow) / dy,
+        dt = 1./dx, // partial t / partial x
+        du = 1./dy, // partial u / partial y
+        dtdu = dt*du,
+        zxlowlow  = zx (xi  , yi  ) / dt,
+        zxlowupp  = zx (xi  , yi+1) / dt,
+        zxupplow  = zx (xi+1, yi  ) / dt,
+        zxuppupp  = zx (xi+1, yi+1) / dt,
+        zylowlow  = zy (xi  , yi  ) / du,
+        zylowupp  = zy (xi  , yi+1) / du,
+        zyupplow  = zy (xi+1, yi  ) / du,
+        zyuppupp  = zy (xi+1, yi+1) / du,
+        zxylowlow = zxy(xi  , yi  ) / dtdu,
+        zxylowupp = zxy(xi  , yi+1) / dtdu,
+        zxyupplow = zxy(xi+1, yi  ) / dtdu,
+        zxyuppupp = zxy(xi+1, yi+1) / dtdu,
+        t0 = 1,
+        t1 = t,
+        t2 = t*t,
+        t3 = t*t2,
+        u0 = 1,
+        u1 = u,
+        u2 = u*u,
+        u3 = u*u2,
+        t0u0 = t0*u0, t0u1=t0*u1, t0u2=t0*u2, t0u3=t0*u3,
+        t1u0 = t1*u0, t1u1=t1*u1, t1u2=t1*u2, t1u3=t1*u3,
+        t2u0 = t2*u0, t2u1=t2*u1, t2u2=t2*u2, t2u3=t2*u3,
+        t3u0 = t3*u0, t3u1=t3*u1, t3u2=t3*u2, t3u3=t3*u3;
+    double
+        zvalue= 0,
+        zderx = 0,
+        zdery = 0,
+        zd_xx = 0,
+        zd_xy = 0,
+        zd_yy = 0;
     double v = zlowlow;
     zvalue += v*t0u0;
     v = zylowlow;
@@ -727,38 +945,69 @@ void CubicSpline2d::evalDeriv(const double x, const double y,
     zd_xy  += 9*v*t2u2;
     zd_yy  += 6*v*t3u1;
 
-    if(z   !=NULL) *z=zvalue;
-    if(z_x !=NULL) *z_x=zderx*dt;
-    if(z_y !=NULL) *z_y=zdery*du;
-    if(z_xx!=NULL) *z_xx=zd_xx*dt*dt;
-    if(z_xy!=NULL) *z_xy=zd_xy*dt*du;
-    if(z_yy!=NULL) *z_yy=zd_yy*du*du;
+    if(z   !=NULL) *z    = zvalue;
+    if(z_x !=NULL) *z_x  = zderx*dt;
+    if(z_y !=NULL) *z_y  = zdery*du;
+    if(z_xx!=NULL) *z_xx = zd_xx*dt*dt;
+    if(z_xy!=NULL) *z_xy = zd_xy*dt*du;
+    if(z_yy!=NULL) *z_yy = zd_yy*du*du;
 }
 
-// ------ LINEAR INTERPOLATION IN 2D ------ //
 
-LinearInterpolator2d::LinearInterpolator2d(
-    const std::vector<double>& xvalues, const std::vector<double>& yvalues,
-    const Matrix<double>& zvalues)
+//------------ 2D QUINTIC SPLINE -------------//
+
+QuinticSpline2d::QuinticSpline2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+    const Matrix<double>& zvalues, const Matrix<double>& dzdx, const Matrix<double>& dzdy) :
+    BaseInterpolator2d(xvalues, yvalues, zvalues), zx(dzdx), zy(dzdy)
 {
     const unsigned int xsize = xvalues.size();
     const unsigned int ysize = yvalues.size();
-    if(xsize<2 || ysize<2)
-        throw std::invalid_argument("Error in 2d interpolator initialization: number of nodes should be >=2 in each direction");
-    if(zvalues.numRows() != xsize)
-        throw std::invalid_argument("Error in 2d interpolator initialization: x and z array lengths differ");
-    if(zvalues.numCols() != ysize)
-        throw std::invalid_argument("Error in 2d interpolator initialization: y and z array lengths differ");
-    xval = xvalues;
-    yval = yvalues;
-    zval = zvalues;
+    if(xsize<4 || ysize<4)
+        throw std::invalid_argument("Error in 2d spline initialization: number of nodes should be >=4 in each direction");
+    // 1. for each y do 1d quintic spline for z in x, and record d^3z/dx^3
+    zxxx.resize(xsize, ysize);
+    zyyy.resize(xsize, ysize);
+    zxyy.resize(xsize, ysize);
+    zxxxyy.resize(xsize, ysize);
+    std::vector<double> t(xsize), t1(xsize);
+    for(unsigned int j=0; j<ysize; j++) {
+        for(unsigned int i=0; i<xsize; i++) {
+            t[i]  = zval(i, j);
+            t1[i] = dzdx(i, j);
+        }
+        QuinticSpline s(xval, t, t1);
+        for(unsigned int i=0; i<xsize; i++)
+            zxxx(i, j) = s.deriv3(xval[i]);
+    }
+    // 2. for each x do 1d quintic spline for z and splines for dz/dx, d^3z/dx^3 in y
+    t.resize(ysize);
+    t1.resize(ysize);
+    for(unsigned int i=0; i<xsize; i++) {
+        for(unsigned int j=0; j<ysize; j++) {
+            t[j]  = zval(i, j);
+            t1[j] = dzdy(i, j);
+        }
+        QuinticSpline s(yval, t, t1);
+        for(unsigned int j=0; j<ysize; j++)
+            t1[j] = dzdx(i, j);
+        CubicSpline u(yval, t1);
+        for(unsigned int j=0; j<ysize; j++)
+            t1[j] = zxxx(i, j);
+        CubicSpline v(yval, t1);
+        for(unsigned int j=0; j<ysize; j++) {
+            zyyy(i, j) = s.deriv3(yval[j]);
+            u.evalDeriv(yval[j], NULL, NULL, &zxyy(i, j));
+            v.evalDeriv(yval[j], NULL, NULL, &zxxxyy(i, j));
+        }
+    }
 }
 
-void LinearInterpolator2d::evalDeriv(const double x, const double y, 
-    double *z, double *z_x, double *z_y) const
+void QuinticSpline2d::evalDeriv(const double x, const double y,
+    double* z, double* z_x, double* z_y,
+    double* z_xx, double* z_xy, double* z_yy) const
 {
     if(isEmpty())
-        throw std::range_error("Empty 2d interpolator");
+        throw std::range_error("Empty 2d spline");
     if(x<xval.front() || x>xval.back() || y<yval.front() || y>yval.back()) {
         if(z)
             *z = NAN;
@@ -766,30 +1015,49 @@ void LinearInterpolator2d::evalDeriv(const double x, const double y,
             *z_x = NAN;
         if(z_y)
             *z_y = NAN;
+        if(z_xx)
+            *z_xx = NAN;
+        if(z_xy)
+            *z_xy = NAN;
+        if(z_yy)
+            *z_yy = NAN;
         return;
     }
-    // First compute the indices into the data arrays where we are interpolating
-    const unsigned int xi = binSearch(x, &xval.front(), xval.size());
-    const unsigned int yi = binSearch(y, &yval.front(), yval.size());
-    // Find the minimum and maximum values on the grid cell in each dimension
-    const double zlowlow = zval(xi, yi);
-    const double zlowupp = zval(xi, yi + 1);
-    const double zupplow = zval(xi + 1, yi);
-    const double zuppupp = zval(xi + 1, yi + 1);
-    // Get the width and height of the grid cell
-    const double dx = xval[xi+1] - xval[xi];
-    const double dy = yval[yi+1] - yval[yi];
-    // t and u are the positions within the grid cell at which we are computing
-    // the interpolation, in units of grid cell size
-    const double t = (x - xval[xi]) / dx;
-    const double u = (y - yval[yi]) / dy;
-    if(z)
-        *z = (1-t)*(1-u)*zlowlow + t*(1-u)*zupplow + (1-t)*u*zlowupp + t*u*zuppupp;
-    if(z_x)
-        *z_x = (-(1-u)*zlowlow + (1-u)*zupplow - u*zlowupp + u*zuppupp) / dx;
-    if(z_y)
-        *z_y = (-(1-t)*zlowlow - t*zupplow + (1-t)*zlowupp + t*zuppupp) / dy;
+    // get the indices of grid cell
+    const unsigned int xl = binSearch(x, &xval.front(), xval.size()), xu = xl+1;
+    const unsigned int yl = binSearch(y, &yval.front(), yval.size()), yu = yl+1;
+
+    // obtain values of various derivatives at the boundaries of intervals for intermediate splines
+    const double
+        fl[2]  = { zval(xl, yl), zval(xu, yl) },
+        fh[2]  = { zval(xl, yu), zval(xu, yu) },
+        f1l[2] = { zy  (xl, yl), zy  (xu, yl) },
+        f1h[2] = { zy  (xl, yu), zy  (xu, yu) },
+        f3l[2] = { zyyy(xl, yl), zyyy(xu, yl) },
+        f3h[2] = { zyyy(xl, yu), zyyy(xu, yu) },
+        flo[4] = { zx  (xl, yl), zx  (xu, yl), zxxx(xl, yl),   zxxx(xu, yl) },
+        fhi[4] = { zx  (xl, yu), zx  (xu, yu), zxxx(xl, yu),   zxxx(xu, yu) },
+        f2l[4] = { zxyy(xl, yl), zxyy(xu, yl), zxxxyy(xl, yl), zxxxyy(xu, yl) },
+        f2h[4] = { zxyy(xl, yu), zxyy(xu, yu), zxxxyy(xl, yu), zxxxyy(xu, yu) };
+    bool der  = z_y!=NULL || z_xy!=NULL;
+    bool der2 = z_yy!=NULL;
+    // compute intermediate splines
+    double F[2], G[4], dF[2], dG[4], d2F[2], d2G[4];
+    evalQuinticSplines<2> (yval[yl], yval[yu], y, 
+        fl, fh, f1l, f1h, f3l, f3h,  F, der? dF : NULL, der2? d2F : NULL);
+    evalCubicSplines<4>   (yval[yl], yval[yu], y, 
+        flo, fhi, f2l, f2h,  G, der? dG : NULL, der2? d2G : NULL);
+    // compute and output requested values and derivatives
+    evalQuinticSplines<1> (xval[xl], xval[xu], x,
+        &F[0], &F[1], &G[0], &G[1], &G[2], &G[3],  z, z_x, z_xx);
+    if(z_y || z_xy)
+        evalQuinticSplines<1> (xval[xl], xval[xu], x,
+            &dF[0], &dF[1], &dG[0], &dG[1], &dG[2], &dG[3],  z_y, z_xy, NULL);
+    if(z_yy)
+        evalQuinticSplines<1> (xval[xl], xval[xu], x,
+            &d2F[0], &d2F[1], &d2G[0], &d2G[1], &d2G[2], &d2G[3],  z_yy, NULL, NULL);
 }
+
 
 //------------ GENERATION OF UNEQUALLY SPACED GRIDS ------------//
 
@@ -852,7 +1120,7 @@ static void makegrid(std::vector<double>::iterator begin, std::vector<double>::i
     while(begin!=end){
         *begin=startval;
         startval+=step;
-        begin++;
+        ++begin;
     }
     *(end-1)=endval;  // exact value
 }
@@ -876,10 +1144,10 @@ void createAlmostUniformGrid(const std::vector<double> &srcpoints,
         // find the index of bin with the largest number of points
         int largestbin=-1;
         unsigned int maxptperbin=0;
-        for(srciter=srcbegin, griditer=gridbegin; griditer!=gridend-1; griditer++) {
+        for(srciter=srcbegin, griditer=gridbegin; griditer!=gridend-1; ++griditer) {
             unsigned int ptperbin=0;
             while(srciter+ptperbin!=srcend && *(srciter+ptperbin) < *(griditer+1)) 
-                ptperbin++;
+                ++ptperbin;
             if(ptperbin>maxptperbin) {
                 maxptperbin=ptperbin;
                 largestbin=griditer-grid.begin();
@@ -896,7 +1164,7 @@ void createAlmostUniformGrid(const std::vector<double> &srcpoints,
                     ptperbin++;
                 if(ptperbin>=minbin)  // ok, move to the next one
                 {
-                    griditer++;
+                    ++griditer;
                     srciter+=ptperbin;
                 } else {  // assign minbin points and decrease the available grid interval from the front
                     if(griditer-grid.begin() < largestbin) { 
@@ -924,7 +1192,7 @@ void createAlmostUniformGrid(const std::vector<double> &srcpoints,
                     ptperbin++;
                 if(ptperbin>=minbin)  // ok, move to the previous one
                 {
-                    griditer--;
+                    --griditer;
                     if(srciter+1-ptperbin==srcbegin)
                         srciter=srcbegin;
                     else
@@ -941,7 +1209,7 @@ void createAlmostUniformGrid(const std::vector<double> &srcpoints,
                     } else {
                         // move gridend backward
                         while(ptperbin<minbin && srciter-ptperbin!=srcbegin) 
-                            ptperbin++;
+                            ++ptperbin;
                         if(srciter-ptperbin==srcbegin) {
                             directionBackward=false;
                             numChangesDirection++;

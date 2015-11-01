@@ -19,7 +19,7 @@ class CompositeDensity: public BaseDensity{
 public:
     /** Construct from the provided array of components; 
         note that they are 'taken over' and will be deleted in the destructor */
-    CompositeDensity(const std::vector<const BaseDensity*> _components) : 
+    CompositeDensity(const std::vector<const BaseDensity*>& _components) : 
         BaseDensity(), components(_components) {};
 
     virtual ~CompositeDensity() {
@@ -43,7 +43,7 @@ class CompositeCyl: public BasePotentialCyl{
 public:
     /** Construct from the provided array of components; 
         note that they are 'taken over' and will be deleted in the destructor */
-    CompositeCyl(const std::vector<const BasePotential*> _components) : 
+    CompositeCyl(const std::vector<const BasePotential*>& _components) : 
         BasePotentialCyl(), components(_components) {};
 
     virtual ~CompositeCyl() {

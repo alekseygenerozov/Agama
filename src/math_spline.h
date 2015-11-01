@@ -4,7 +4,8 @@
     \date    2011-2015
 
 Spline interpolation class is based on the GSL implementation by G.Jungman;
-2d spline is based on interp2d library by D.Zaslavsky.
+2d cubic spline is based on interp2d library by D.Zaslavsky;
+2d quintic spline is based on the code by W.Dehnen.
 */
 #pragma once
 #include "math_base.h"
@@ -17,7 +18,7 @@ class CubicSpline: public IFunction {
 public:
     /** empty constructor is required for the class to be used in std::vector and alike places */
     CubicSpline() {};
-    
+
     /** Initialize a cubic spline from the provided values of x and y
         (which should be arrays of equal length, and x values must be monotonically increasing).
         If deriv_left or deriv_right are provided, they set the slope at the lower or upper boundary
@@ -51,29 +52,71 @@ private:
 };
 
 
-/** Two-dimensional cubic spline */
-class CubicSpline2d {
+/** Class that defines a quintic spline.
+    Given y and dy/dx on a grid, d^3y/dx^3 is computed such that the (unique) 
+    polynomials of 5th order between two adjacent grid points that give y,dy/dx,
+    and d^3y/dx^3 on the grid are continuous in d^2y/dx^2, i.e. give the same
+    value at the grid points. At the grid boundaries  d^3y/dx^3=0  is adopted.
+*/
+class QuinticSpline: public IFunction {
 public:
-    CubicSpline2d() {};
-    /** Initialize a 2d cubic spline from the provided values of x, y and z.
-        The latter is 2d array (Matrix) with the following indexing convention:  z(i,j) = f(x[i],y[j]).
-        Values of x and y arrays should monotonically increase.
-        Derivatives at the boundaries of definition region may be provided as optional arguments
-        (currently a single value per entire side of the rectangle is supported);
-        if any of them is NaN this means a natural boundary condition.
-    */
-    CubicSpline2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
-        const Matrix<double>& zvalues,
-        double deriv_xmin=NAN, double deriv_xmax=NAN, double deriv_ymin=NAN, double deriv_ymax=NAN);
+    /** empty constructor is required for the class to be used in std::vector and alike places */
+    QuinticSpline() {};
 
-    /** compute the value of spline and optionally its derivatives at point x,y;
-        if the input location is outside the definition region, the result is NaN. 
-        Any combination of value, first and second derivatives is possible: 
-        if any of them is not needed, the corresponding pointer should be set to NULL. 
+    /** Initialize a quintic spline from the provided values of x, y(x) and y'(x)
+        (which should be arrays of equal length, and x values must be monotonically increasing).
     */
-    void evalDeriv(const double x, const double y, 
+    QuinticSpline(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+        const std::vector<double>& yderivs);
+
+    /** compute the value of spline and optionally its derivatives at point x;
+        if the input location is outside the definition interval, a linear extrapolation is performed. */
+    virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
+
+    /** return the value of 3rd derivative at a given point */
+    double deriv3(const double x) const;
+
+    /** two derivatives are returned by evalDeriv() method, and third derivative - by deriv3() */
+    virtual unsigned int numDerivs() const { return 2; }
+
+    /** return the lower end of definition interval */
+    double xmin() const { return xval.size()? xval.front() : NAN; }
+
+    /** return the upper end of definition interval */
+    double xmax() const { return xval.size()? xval.back() : NAN; }
+
+    /** check if the spline is initialized */
+    bool isEmpty() const { return xval.size()==0; }
+
+private:
+    std::vector<double> xval;  ///< grid nodes
+    std::vector<double> yval;  ///< values of function at grid nodes
+    std::vector<double> yder;  ///< first derivatives of function at grid nodes
+    std::vector<double> yder3; ///< third derivatives of function at grid nodes
+};
+
+
+/** Generic two-dimensional interpolator class */
+class BaseInterpolator2d {
+public:
+    BaseInterpolator2d() {};
+    /** Initialize a 2d interpolator from the provided values of x, y and z.
+        The latter is 2d array with the following indexing convention:  z[i][j] = f(x[i],y[j]).
+        Values of x and y arrays should monotonically increase.
+    */
+    BaseInterpolator2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+        const Matrix<double>& zvalues);
+
+    virtual ~BaseInterpolator2d() {};
+
+    /** compute the value of the interpolating function and optionally its derivatives at point x,y;
+        if the input location is outside the definition region, the result is NaN.
+        Any combination of value, first and second derivatives is possible:
+        if any of them is not needed, the corresponding pointer should be set to NULL.
+    */
+    virtual void evalDeriv(const double x, const double y,
         double* value=0, double* deriv_x=0, double* deriv_y=0,
-        double* deriv_xx=0, double* deriv_xy=0, double* deriv_yy=0) const;
+        double* deriv_xx=0, double* deriv_xy=0, double* deriv_yy=0) const = 0;
 
     /** shortcut for computing the value of spline */
     double value(const double x, const double y) const {
@@ -88,56 +131,85 @@ public:
     double ymin() const { return yval.size()? yval.front(): NAN; }
     double ymax() const { return yval.size()? yval.back() : NAN; }
 
-    /** check if the spline is initialized */
+    /** check if the interpolator is initialized */
     bool isEmpty() const { return xval.size()==0 || yval.size()==0; }
 
-private:
+protected:
     std::vector<double> xval, yval;  ///< grid nodes in x and y directions
     Matrix<double> zval;             ///< flattened 2d array of z values
-    Matrix<double> zx, zy, zxy;      ///< flattened 2d arrays of derivatives in x and y directions, and mixed 2nd derivatives
 };
 
 
 /** Two-dimensional bilinear interpolator */
-class LinearInterpolator2d {
+class LinearInterpolator2d: public BaseInterpolator2d {
 public:
-    LinearInterpolator2d() {};
-    /** Initialize a 2d linear interpolator from the provided values of x, y and z.
+    LinearInterpolator2d() : BaseInterpolator2d() {};
+
+    /** Initialize a 2d interpolator from the provided values of x, y and z.
         The latter is 2d array with the following indexing convention:  z[i][j] = f(x[i],y[j]).
         Values of x and y arrays should monotonically increase.
     */
     LinearInterpolator2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
-        const Matrix<double>& zvalues);
+        const Matrix<double>& zvalues) : 
+        BaseInterpolator2d(xvalues, yvalues, zvalues) {};
     
-    /** compute the value of interpolator and optionally its derivatives at point x,y;
-        if the input location is outside the definition region, the result is NaN. 
-        Any combination of value and first derivatives is possible: 
-        if any of them is not needed, the corresponding pointer should be set to NULL. 
-     */
-    void evalDeriv(const double x, const double y, 
-                   double* value=0, double* deriv_x=0, double* deriv_y=0) const;
-    
-    /** shortcut for computing the value of interpolator */
-    double value(const double x, const double y) const {
-        double v;
-        evalDeriv(x, y, &v);
-        return v;
-    }
-    
-    /** return the boundaries of definition region */
-    double xmin() const { return xval.size()? xval.front(): NAN; }
-    double xmax() const { return xval.size()? xval.back() : NAN; }
-    double ymin() const { return yval.size()? yval.front(): NAN; }
-    double ymax() const { return yval.size()? yval.back() : NAN; }
-    
-    /** check if the interpolator is initialized */
-    bool isEmpty() const { return xval.size()==0 || yval.size()==0; }
-    
-private:
-    std::vector<double> xval, yval;  ///< grid nodes in x and y directions
-    Matrix<double> zval;             ///< flattened 2d array of z values
+    /** Compute the value and/or derivatives of the interpolator;
+        note that for the linear interpolator the 2nd derivatives are always zero. */
+    virtual void evalDeriv(const double x, const double y,
+        double* value=0, double* deriv_x=0, double* deriv_y=0,
+        double* deriv_xx=0, double* deriv_xy=0, double* deriv_yy=0) const;
 };
-    
+
+
+/** Two-dimensional cubic spline */
+class CubicSpline2d: public BaseInterpolator2d {
+public:
+    CubicSpline2d() : BaseInterpolator2d() {};
+
+    /** Initialize a 2d cubic spline from the provided values of x, y and z.
+        The latter is 2d array (Matrix) with the following indexing convention:  z(i,j) = f(x[i],y[j]).
+        Values of x and y arrays should monotonically increase.
+        Derivatives at the boundaries of definition region may be provided as optional arguments
+        (currently a single value per entire side of the rectangle is supported);
+        if any of them is NaN this means a natural boundary condition.
+    */
+    CubicSpline2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+        const Matrix<double>& zvalues,
+        double deriv_xmin=NAN, double deriv_xmax=NAN, double deriv_ymin=NAN, double deriv_ymax=NAN);
+
+    /** compute the value of spline and optionally its derivatives at point x,y */
+    virtual void evalDeriv(const double x, const double y,
+        double* value=0, double* deriv_x=0, double* deriv_y=0,
+        double* deriv_xx=0, double* deriv_xy=0, double* deriv_yy=0) const;
+
+private:
+    /// flattened 2d arrays of derivatives in x and y directions, and mixed 2nd derivatives
+    Matrix<double> zx, zy, zxy;
+};
+
+
+/** Two-dimensional quintic spline */
+class QuinticSpline2d: public BaseInterpolator2d {
+public:
+    QuinticSpline2d() : BaseInterpolator2d() {};
+
+    /** Initialize a 2d quintic spline from the provided values of x, y, z(x,y), dz/dx and dz/dy.
+        The latter three are 2d arrays (variables of Matrix type) with the following indexing
+        convention:  z(i,j) = f(x[i],y[j]), etc.
+        Values of x and y arrays should monotonically increase.
+    */
+    QuinticSpline2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+        const Matrix<double>& zvalues, const Matrix<double>& dzdx, const Matrix<double>& dzdy);
+
+    /** compute the value of spline and optionally its derivatives at point x,y */
+    virtual void evalDeriv(const double x, const double y,
+        double* value=0, double* deriv_x=0, double* deriv_y=0,
+        double* deriv_xx=0, double* deriv_xy=0, double* deriv_yy=0) const;
+
+private:
+    Matrix<double> zx, zy, zxxx, zyyy, zxyy, zxxxyy;
+};
+
 
 /// opaque internal data for SplineApprox
 class SplineApproxImpl;

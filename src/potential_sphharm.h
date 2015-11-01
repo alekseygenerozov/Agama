@@ -10,21 +10,30 @@
 
 namespace potential {
 
-/** parent class for all potential expansions based on spherical harmonics for angular variables **/
-class BasePotentialSphericalHarmonic: public BasePotentialSph {
+class SphericalHarmonicCoefSet {
 public:
-    BasePotentialSphericalHarmonic(unsigned int _Ncoefs_angular) :
-        BasePotentialSph(), Ncoefs_angular(_Ncoefs_angular) {}
-    virtual SymmetryType symmetry() const { return mysymmetry; };
+    SphericalHarmonicCoefSet(unsigned int _Ncoefs_angular) :
+        Ncoefs_angular(_Ncoefs_angular) {}
     unsigned int getNumCoefsAngular() const { return Ncoefs_angular; }
 
 protected:
+    SymmetryType mysymmetry;             ///< specifies the type of symmetry
     unsigned int Ncoefs_angular;         ///< l_max, the order of angular expansion (0 means spherically symmetric model)
     int lmax, lstep, mmin, mmax, mstep;  ///< range of angular coefficients used for given symmetry
 
     /// assigns the range for angular coefficients based on mysymmetry
     void setSymmetry(SymmetryType sym);
 
+};  // class SphericalHarmonicCoefSet
+
+
+/** parent class for all potential expansions based on spherical harmonics for angular variables **/
+class BasePotentialSphericalHarmonic: public BasePotentialSph, public SphericalHarmonicCoefSet {
+public:
+    BasePotentialSphericalHarmonic(unsigned int _Ncoefs_angular) :
+        BasePotentialSph(), SphericalHarmonicCoefSet(_Ncoefs_angular) {}
+
+protected:
     /** The function that computes spherical-harmonic coefficients for potential 
         and its radial (first/second) derivative at given radius.
         Must be implemented in derived classes, and is used in evaluation of potential and forces; 
@@ -33,11 +42,15 @@ protected:
     virtual void computeSHCoefs(const double r, double coefsF[], double coefsdFdr[], double coefsd2Fdr2[]) const = 0;
 
 private:
-    SymmetryType mysymmetry;    ///< may have different type of symmetry
-
+    /** Calculate the potential and its derivatives, using the spherical-harmonic
+        expansion coefficients and their derivatives returned by computeSHCoefs(). */
     virtual void evalSph(const coord::PosSph &pos,
         double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const;
-};
+
+    virtual SymmetryType symmetry() const { return mysymmetry; }
+
+};  // class BasePotentialSphericalHarmonic
+
 
 /** basis-set expansion on the Zhao(1996) basis set (alpha models) **/
 class BasisSetExp: public BasePotentialSphericalHarmonic {
@@ -88,7 +101,9 @@ private:
 
     /// assigns symmetry class if some coefficients are (near-)zero
     void checkSymmetry();
-};
+
+};  // class BasisSetExp
+
 
 /** spherical-harmonic expansion of potential with coefficients being spline functions of radius **/
 class SplineExp: public BasePotentialSphericalHarmonic
@@ -199,6 +214,29 @@ private:
     /// (lm is the combined index of angular harmonic >0); corresponding values for 0th coef must be known
     void coeflm(unsigned int lm, double r, double xi, double *val, double *der, double *der2, 
         double c0val, double c0der=0, double c0der2=0) const;
-};
+
+};  // class SplineExp
+
+#if 0
+class DensitySphericalHarmonic: public BaseDensity, public SphericalHarmonicCoefSet {
+public:
+    DensitySphericalHarmonic(unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
+        const BaseDensity& density, double Rmin=0, double Rmax=0);
+    BasePotentialSph(), SphericalHarmonicCoefSet(_Ncoefs_angular) {}
+
+private:
+    /** evaluate density at the position specified in cartesian coordinates */
+    virtual double densityCar(const coord::PosCar &pos) const {
+        return densitySph(toPosSph(pos)); }
+
+    /** evaluate density at the position specified in cylindrical coordinates */
+    virtual double densityCyl(const coord::PosCyl &pos) const {
+        return densitySph(toPosSph(pos)); }
+
+    /** Evaluate density at the position specified in spherical coordinates */
+    virtual double densitySph(const coord::PosSph &pos) const;
+
+};  // class DensitySphericalHarmonic
+#endif
 
 }  // namespace

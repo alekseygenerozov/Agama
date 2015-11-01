@@ -191,7 +191,7 @@ ConfigFile::ConfigFile(const std::string& _fileName) :
     std::ifstream strm(fileName.c_str());
     if(!strm)
         throw std::runtime_error("File does not exist: "+_fileName);
-    std::string buffer, key;
+    std::string buffer;
     int secIndex = -1;
     while(std::getline(strm, buffer)) {
         std::string::size_type indx = buffer.find('[');

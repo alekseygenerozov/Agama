@@ -342,8 +342,8 @@ void Pspline2D(
 // 2. for each x0 do 1D Pspline for y and splines for dy/dx0, d^3y/dx0^3 in x1
     for(i=0; i<n[0]; i++) {
         Pspline(x[1],y[0][i],y[2][i],n[1],a[1][i]);
-        spline (x[1],y[1][i],n[1],z,z,a[2][i],0,1);
-        spline (x[1],a[0][i],n[1],z,z,a[3][i],0,1);
+        spline (x[1],y[1][i],n[1],z,z,a[2][i],1,1);
+        spline (x[1],a[0][i],n[1],z,z,a[3][i],1,1);
     }
     delete[] t;
     delete[] t1;

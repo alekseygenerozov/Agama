@@ -22,24 +22,24 @@ Version 0.3    07. June      2001
 Version 0.4    22. April     2002 
 Version 0.5    05. December  2002 
 Version 0.6    05. February  2003 
-Version 0.7    23. September 2004  fixed "find(): x out of range" error 
-Version 0.8    24. June      2005  explicit construction of tupel 
+Version 0.7    23. September 2004
+Version 0.8    24. June      2005
 
 ----------------------------------------------------------------------*/
 #include "potential_galpot.h"
 #include "potential_composite.h"
-#include "WD_FreeMemory.h"
-#include "WD_Numerics.h"
-#include "WD_Pspline.h"
-#include "WD_Vector.h"
+#include "math_specfunc.h"
+#include "math_spline.h"
 #include <cmath>
 #include <stdexcept>
+#include <gsl/gsl_integration.h>
+#include <gsl/gsl_sf_legendre.h>
 
 namespace potential{
 
 inline double sign(double x) { return x>0?1.:x<0?-1.:0; }
 
-const int    GALPOT_LMAX=80;     ///< maximum l for the Multipole expansion 
+const int    GALPOT_LMAX=78;     ///< maximum l for the Multipole expansion 
 const int    GALPOT_NRAD=201;    ///< DEFAULT number of radial points in Multipole 
 const double GALPOT_RMIN=1.e-4,  ///< DEFAULT min radius of logarithmic radial grid in Multipole
              GALPOT_RMAX=1.e3;   ///< DEFAULT max radius of logarithmic radial grid
@@ -250,244 +250,194 @@ double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
 }
 
 //----- multipole potential -----//
-const int N =GALPOT_LMAX/2+1; // number of multipoles
-const int N2=3*N/2;           // number of grid point for cos[theta] in [0,1]
-const int N4=5*N/2;           // number of points used to integrate over cos[theta]
-
-typedef WD::Vector<double,N> DBN;
-
-void Multipole::AllocArrays()
-{
-    X[0] = new double[K[0]];
-    X[1] = new double[K[1]];
-    WD::Alloc2D(Y[0],K);
-    WD::Alloc2D(Y[1],K);
-    WD::Alloc2D(Y[2],K);
-    WD::Alloc2D(Z[0],K);
-    WD::Alloc2D(Z[1],K);
-    WD::Alloc2D(Z[2],K);
-    WD::Alloc2D(Z[3],K);
-}
+const int numMultipoles = GALPOT_LMAX/2+1;   // number of multipoles (only even-l terms in the expansion are used)
+const int numIntPoints  = 5*numMultipoles/2; // number of points used to integrate over cos[theta]
 
 Multipole::Multipole(const BaseDensity& source_density,
-                     const double rmin, const double rmax,
-                     const int num_grid_points,
-                     const double _gamma, const double _beta)
+                     const double Rmin, const double Rmax,
+                     const int gridSizeR, const int /*numGridPointsC*/)
 {
     if(!isAxisymmetric(source_density))
         throw std::invalid_argument("Error in Multipole expansion: source density must be axially symmetric");
-    K[0] = num_grid_points;
-    K[1] = N2;
-    AllocArrays();
-    setup(source_density, rmin, rmax, _gamma, _beta);
-}
-
-Multipole::~Multipole()
-{
-    delete[] X[0]; 
-    delete[] X[1];
-    WD::Free2D(Y[0]);
-    WD::Free2D(Y[1]);
-    WD::Free2D(Y[2]);
-    WD::Free2D(Z[0]);
-    WD::Free2D(Z[1]);
-    WD::Free2D(Z[2]);
-    WD::Free2D(Z[3]);
-}
-
-void Multipole::setup(const BaseDensity& source_density,
-                      const double ri, const double ra,
-                      const double g, const double b)
-{
-  Rmin = ri;
-  Rmax = ra;
-  gamma= g; 
-  beta = b;
-  lRmin= log(Rmin);
-  lRmax= log(Rmax); 
-  g2   = 2.-gamma;
-
-  const    DBN    Zero=DBN(0.);
-  const    double half=0.5, three=3., sixth=1./6.,
-    dlr =(lRmax-lRmin)/double(K[0]-1);
-  int    i,l,k,ll,lli1;
-  double dx,dx2,xl_ll,xh_ll,risq,ril2,dP;
-  DBN    A[4],P2l,dP2l;
-
-  DBN    EX;
-  //
-  // 0  check for inconsistencies in input
-  //
-  if(beta>0. && beta<3.) {
-    //std::cerr<<" Warning: beta= "<<beta
-    //     <<" unsuitable for Multipole expansion;"
-    //     <<" we'll take beta=3.2\n";
-    beta=3.2;
-  }
-  //
-  // 1  compute expansion of the density
-  //
-  double
-    *ct   = new double[N4],
-    *st   = new double[N4],
-    *wi   = new double[N4],
-    *r    = new double[K[0]];
-  DBN
-    *W    = new DBN   [N4],
-    *rhol = new DBN   [K[0]],
-    *rhl2 = new DBN   [K[0]];
-  //
-  // 1.1 set points and weights for integration over cos(theta)
-  //
-  WD::GaussLegendre(ct,wi,N4);
-  for(i=0; i<N4; i++) {
-    ct[i] = 0.5 * (ct[i]+1.);
-    st[i] = sqrt(1.-ct[i]*ct[i]);
-    wi[i] = 0.5 * wi[i];
-    WD::LegendrePeven(W[i],ct[i]);
-    W[i] *= wi[i] * 4*M_PI;
-  }
-  //
-  // 1.2 integrate over cos(theta)
-  //
-  for(k=0; k<K[0]; k++) {
-    X[0][k] = k<K[0]-1? lRmin+dlr*k : lRmax;  // v0.7
-    r[k]    = exp(X[0][k]);
-    rhol[k] = 0.;
-    for(i=0; i<N4; i++)
-        rhol[k] += W[i] * source_density.density(coord::PosCyl(r[k]*st[i], r[k]*ct[i], 0));
-  }
-  delete[] ct;
-  delete[] st;
-  delete[] wi;
-  delete[] W;
-  //
-  // 1.3 establish spline in r needed for integration
-  //
-  WD::spline(r,rhol,K[0],(-gamma/r[0])*rhol[0],Zero,rhl2,0,1);
-  //
-  // 2. compute potential's expansion
-  //
-  DBN
-    *P1   = new DBN[K[0]],
-    *P2   = new DBN[K[0]],
-    *Phil = new DBN[K[0]],
-    *dPhl = new DBN[K[0]];
-  //
-  // 2.1 set P1[k][l] r[k]^(-1-2l) = Int[rho_2l(x,l) x^(2l+2), {x,0,r[k]}]
-  //
-  //     for r < Rmin we take  rho_2l proportional r^-gamma
-  //
-  risq  = Rmin*Rmin;
-  for(l=0; l<N; l++) {
-    P1[0][l] = rhol[0][l] * risq / double(2*l+3-gamma);
-    EX[l]    = exp(-(1+2*l)*dlr);
-  }
-  for(k=0; k<K[0]-1; k++) {
-    dx   = r[k+1]-r[k];
-    dx2  = dx*dx;
-    A[0] = r[k+1]*rhol[k] - r[k]*rhol[k+1] + sixth*r[k]*r[k+1] *
-      ( (r[k+1]+dx)*rhl2[k] - (r[k]-dx)*rhl2[k+1] );
-    A[1] = rhol[k+1]-rhol[k]
-      + sixth * ( (dx2-three*r[k+1]*r[k+1]) * rhl2[k]
-          -(dx2-three*r[k]*r[k])     * rhl2[k+1] );
-    A[2] = half  * (r[k+1]*rhl2[k] - r[k]*rhl2[k+1]);
-    A[3] = sixth * (rhl2[k+1]-rhl2[k]);
-    for(l=0,ll=2; l<N; l++,ll+=2) {
-      xl_ll = r[k]*EX(l);
-      xh_ll = r[k+1];
-      for(i=0,lli1=ll+1,dP=0.; i<4; i++,lli1++) {
-        xl_ll*= r[k];
-        xh_ll*= r[k+1];
-        dP   += A[i](l) * (xh_ll - xl_ll) / lli1;
-      }
-      P1[k+1][l] = EX(l) * P1[k](l) + dP / dx;
+    int gridSizeC = 3*numMultipoles/2;  // number of grid points for cos[theta] in [0,1]
+    double lRmin  = log(Rmin);
+    double lRmax  = log(Rmax); 
+    
+    //
+    // 1.1  set up radial grid
+    //
+    std::vector<double> gridR(gridSizeR), gridC(gridSizeC);
+    std::vector<double> r(gridSizeR);
+    math::Matrix<double> rhol(gridSizeR, numMultipoles), rhl2(gridSizeR, numMultipoles);
+    const double dlr =(lRmax-lRmin)/double(gridSizeR-1);
+    for(int k=0; k<gridSizeR; k++) {
+        gridR[k] = k<gridSizeR-1? lRmin+dlr*k : lRmax;
+        r[k]     = exp(gridR[k]);
     }
-  }
-  //
-  // 2.2 set P2[k][l] = r[k]^(2l) Int[rho_2l(x,l) x^(1-2l), {x,r[k],Infinity}]
-  //
-  //     for r > Rmax we take  rho_2l proportional r^-beta if beta>0
-  //                                  = 0                  if beta<=0
-  //
-  if(beta>0.) {
-    risq  = Rmax*Rmax;
-    for(l=0; l<N; l++) {
-      P2[K[0]-1][l] = rhol[K[0]-1][l] * risq / double(beta+2*l-2);
-      EX[l] = exp(-2*l*dlr);
-    }
-  } else {
-    P2[K[0]-1] = 0.;
-    for(l=0; l<N; l++)
-      EX[l] = exp(-2*l*dlr);
-  }
-  for(k=K[0]-2; k>=0; k--) {
-    risq = r[k]*r[k];
-    dx   = r[k+1]-r[k];
-    dx2  = dx*dx;
-    A[0] = r[k+1]*rhol[k] - r[k]*rhol[k+1] + sixth*r[k]*r[k+1] *
-      ( (r[k+1]+dx)*rhl2[k] - (r[k]-dx)*rhl2[k+1] );
-    A[1] = rhol[k+1]-rhol[k]
-      + sixth * ( (dx2-three*r[k+1]*r[k+1]) * rhl2[k]
-          -(dx2-three*r[k]*r[k])     * rhl2[k+1] );
-    A[2] = half  * (r[k+1]*rhl2[k] - r[k]*rhl2[k+1]);
-    A[3] = sixth * (rhl2[k+1]-rhl2[k]);
-    for(l=0,ll=1,ril2=1.; l<N; l++,ll-=2,ril2*=risq) {
-      xl_ll = r[k];
-      xh_ll = r[k+1]*EX(l);
-      for(i=0,lli1=ll+1,dP=0.; i<4; i++,lli1++) {
-        xl_ll *= r[k];
-        xh_ll *= r[k+1];
-        if(lli1) dP += A[i](l) * (xh_ll - xl_ll) / lli1;
-        else     dP += A[i](l) * ril2 * dlr;
-      }
-      P2[k][l] = EX(l) * P2[k+1](l) + dP / dx;
-    }
-  }
-  //
-  // 2.3 put together the Phi_2l(r) and dPhi_2l(r)/dlog[r]
-  //
-  for(k=0; k<K[0]; k++)
-    for(l=ll=0; l<N; l++,ll+=2) {
-      Phil[k][l] =-P1[k](l) - P2[k](l);                   // Phi_2l
-      dPhl[k][l] = (ll+1)*P1[k](l) - ll*P2[k](l);         // dPhi_2l/dlogr
-    }
-  if(gamma<2)
-    Phi0 = Phil[0](0) - dPhl[0](0) / g2;
-  delete[] r;
-  delete[] rhol;
-  delete[] rhl2;
-  delete[] P1;
-  delete[] P2;
-  //
-  // 4.  Put potential and its derivatives on a 2D grid in log[r] & cos[theta]
-  //
-  // 4.1 set linear grid in theta
-  //
-  for(i=0; i<N2; i++) 
-    X[1][i] = double(i) / double(N2-1);
-  //
-  // 4.2 set dPhi/dlogr & dPhi/dcos[theta] 
-  //
-  for(i=0; i<N2; i++) {
-    WD::dLegendrePeven(P2l,dP2l,X[1][i]);
-    for(k=0; k<K[0]; k++) {
-      Y[0][k][i] = Phil[k] * P2l;         // Phi
-      Y[1][k][i] = dPhl[k] * P2l;         // d Phi / d logR
-      Y[2][k][i] = Phil[k] * dP2l;        // d Phi / d cos(theta)
-    }
-  }
-  delete[] Phil;
-  delete[] dPhl;
-  //
-  // 4.3 establish 2D Pspline of Phi in log[r] & cos[theta]
-  //
-  WD::Pspline2D(X,Y,K,Z);
 
-  // 5.0 determine if the potential is spherically-symmetric
-  // (could determine this explicitly by analyzing the angular dependence of Phi(r,theta),
-  // but for now simply ask the source density model
-  isSpherical = (source_density.symmetry() & ST_SPHERICAL) == ST_SPHERICAL;
+    //
+    // 1.2  compute expansion of the density by integrating over cos(theta)
+    //
+    gsl_integration_glfixed_table* gltable = gsl_integration_glfixed_table_alloc(numIntPoints);
+    std::vector<double> Pl(numMultipoles*2-1), dPl(numMultipoles*2-1);
+    for(int i=0; i<numIntPoints; i++) {
+        double costheta, weight;
+        gsl_integration_glfixed_point(0, 1, i, &costheta, &weight, gltable);
+        double sintheta = sqrt(1. - pow_2(costheta));
+        gsl_sf_legendre_Pl_array(numMultipoles*2-2, costheta, &Pl.front());
+        for(int k=0; k<gridSizeR; k++) {
+            double dens = source_density.density(coord::PosCyl(r[k]*sintheta, r[k]*costheta, 0));
+            for(int l=0; l<numMultipoles; l++)
+                rhol(k, l) += dens * weight * Pl[l*2] * (4*M_PI);
+        }
+    }
+    gsl_integration_glfixed_table_free(gltable);
+    
+    //
+    // 1.3  determine asymptotic slopes of density profile at large and small r
+    //
+    double gamma = -log(rhol(1, 0) / rhol(0, 0)) / log(r[1] / r[0]);
+    double beta  = -log(rhol(gridSizeR-1, 0) / rhol(gridSizeR-2, 0)) / log(r[gridSizeR-1] / r[gridSizeR-2]);
+    if(gamma!=gamma) gamma = 0;
+    if(gamma>=2.8)   gamma = 2.8;
+    if(beta!=beta || beta>42.) beta=0;
+    else if(beta<=3.2) beta=3.2;
+    twominusgamma = 2-gamma;  // parameter used in extrapolation of potential at small r
+
+    //
+    // 1.4  establish spline in r needed for integration
+    //
+    std::vector<double> nodes(gridSizeR), values(gridSizeR);
+    for(int l=0; l<numMultipoles; l++) {
+        for(int k=0; k<gridSizeR; k++) {
+            nodes[k]  = r[k];
+            values[k] = rhol(k, l);
+        }
+        math::CubicSpline spl1(nodes, values, l==0 ? (-gamma/r[0])*rhol(0, l) : NAN, NAN);
+        for(int k=0; k<gridSizeR; k++)
+            spl1.evalDeriv(r[k], NULL, NULL, &rhl2(k, l));
+    }
+
+    //
+    // 2. compute potential expansion
+    //
+    // 2.1 set P1[k][l] r[k]^(-1-2l) = Int[rho_2l(x,l) x^(2l+2), {x,0,r[k]}]
+    //
+    //     for r < Rmin we take  rho_2l proportional r^-gamma
+    //
+    std::vector<double> P2l(numMultipoles), dP2l(numMultipoles), EX(numMultipoles);
+    math::Matrix<double> P1(gridSizeR, numMultipoles), P2(gridSizeR, numMultipoles);
+    for(int l=0; l<numMultipoles; l++) {
+        P1(0, l) = rhol(0, l) * pow_2(Rmin) / double(2*l+3-gamma);
+        EX[l]    = exp(-(1+2*l)*dlr);
+    }
+    for(int k=0; k<gridSizeR-1; k++) {
+        double dx   = r[k+1]-r[k];
+        for(int l=0; l<numMultipoles; l++) {
+            double A[4];
+            A[0] = r[k+1] * rhol(k, l) - r[k] * rhol(k+1, l)
+                + 1./6 * r[k]*r[k+1] * ( (r[k+1]+dx) * rhl2(k, l) - (r[k]-dx) * rhl2(k+1, l) );
+            A[1] = rhol(k+1, l) - rhol(k, l) 
+                + 1./6 * ( (dx*dx - 3.0*r[k+1]*r[k+1]) * rhl2(k, l)
+                         - (dx*dx - 3.0*r[k]  *r[k]  ) * rhl2(k+1, l) );
+            A[2] = 0.5  * (r[k+1] * rhl2(k, l) - r[k] * rhl2(k+1, l));
+            A[3] = 1./6 * (rhl2(k+1, l) - rhl2(k, l));
+            double xl_ll = r[k] * EX[l];
+            double xh_ll = r[k+1];
+            double dP=0.;
+            for(int i=0; i<4; i++) {
+                xl_ll*= r[k];
+                xh_ll*= r[k+1];
+                dP   += A[i] * (xh_ll - xl_ll) / (2*l+3+i);
+            }
+            P1(k+1, l) = EX[l] * P1(k, l) + dP / dx;
+        }
+    }
+    //
+    // 2.2 set P2[k][l] = r[k]^(2l) Int[rho_2l(x,l) x^(1-2l), {x,r[k],Infinity}]
+    //
+    //     for r > Rmax we take  rho_2l proportional r^-beta if beta>0
+    //                                  = 0                  if beta<=0
+    //
+    for(int l=0; l<numMultipoles; l++) {
+        P2(gridSizeR-1, l) = beta>0 ? rhol(gridSizeR-1, l) * pow_2(Rmax) / (beta+2*l-2) : 0;
+        EX[l] = exp(-2*l*dlr);
+    }
+    for(int k=gridSizeR-2; k>=0; k--) {
+        double dx   = r[k+1]-r[k];
+        double ril2 = 1.;
+        for(int l=0; l<numMultipoles; l++) {
+            double A[4];
+            A[0] = r[k+1] * rhol(k, l) - r[k] * rhol(k+1, l)
+                + 1./6*r[k]*r[k+1] * ( (r[k+1]+dx)*rhl2(k, l) - (r[k]-dx)*rhl2(k+1, l) );
+            A[1] = rhol(k+1, l) - rhol(k, l)
+                + 1./6 * ( (dx*dx - 3.0*r[k+1]*r[k+1]) * rhl2(k, l)
+                         - (dx*dx - 3.0*r[k]  *r[k]  ) * rhl2(k+1, l) );
+            A[2] = 0.5  * (r[k+1] * rhl2(k, l) - r[k] * rhl2(k+1, l));
+            A[3] = 1./6 * (rhl2(k+1, l) - rhl2(k, l));
+            double xl_ll = r[k];
+            double xh_ll = r[k+1]*EX[l];
+            double dP=0.;
+            for(int i=0; i<4; i++) {
+                xl_ll *= r[k];
+                xh_ll *= r[k+1];
+                int lli1=2-2*l+i;
+                if(lli1) dP += A[i] * (xh_ll - xl_ll) / lli1;
+                else     dP += A[i] * ril2 * dlr;
+            }
+            P2(k, l) = EX[l] * P2(k+1, l) + dP / dx;
+            ril2 *= pow_2(r[k]);
+        }
+    }
+    
+    //
+    // 2.3 put together the Phi_2l(r) and dPhi_2l(r)/dlog[r]
+    //
+    math::Matrix<double> Phil(gridSizeR, numMultipoles), dPhl(gridSizeR, numMultipoles);
+    for(int k=0; k<gridSizeR; k++)
+        for(int l=0; l<numMultipoles; l++) {
+            Phil(k, l) =-P1(k, l) - P2(k, l);              // Phi_2l
+            dPhl(k, l) = (2*l+1)*P1(k, l) - 2*l*P2(k, l);  // dPhi_2l/dlogr
+        }
+    if(gamma<2)
+        Phi0 = Phil(0, 0) - dPhl(0, 0) / (twominusgamma);
+
+    //
+    // 4.  Put potential and its derivatives on a 2D grid in log[r] & cos[theta]
+    //
+    // 4.1 set linear grid in theta
+    //
+    for(int i=0; i<gridSizeC; i++) 
+        gridC[i] = double(i) / double(gridSizeC-1);
+    //
+    // 4.2 set dPhi/dlogr & dPhi/dcos[theta] 
+    //
+    math::Matrix<double> Phi_val(gridSizeR, gridSizeC);
+    math::Matrix<double> Phi_dR (gridSizeR, gridSizeC);
+    math::Matrix<double> Phi_dC (gridSizeR, gridSizeC);
+    for(int i=0; i<gridSizeC; i++) {
+        gsl_sf_legendre_Pl_deriv_array(numMultipoles*2-2, gridC[i], &Pl.front(), &dPl.front());
+        for(int k=0; k<gridSizeR; k++) {
+            double val=0, dR=0, dC=0;
+            for(int l=0; l<numMultipoles; l++) {
+                val += Phil(k, l) * Pl[2*l];   // Phi
+                dR  += dPhl(k, l) * Pl[2*l];   // d Phi / d logR
+                dC  += Phil(k, l) * dPl[2*l];  // d Phi / d cos(theta)
+            }
+            Phi_val(k, i) = val;
+            Phi_dR (k, i) = dR;
+            Phi_dC (k, i) = dC;
+        }
+    }
+    //
+    // 4.3 establish 2D Pspline of Phi in log[r] & cos[theta]
+    //
+    spl = math::QuinticSpline2d(gridR, gridC, Phi_val, Phi_dR, Phi_dC);
+
+    // [EV] 5.0 determine if the potential is spherically-symmetric
+    // (could determine this explicitly by analyzing the angular dependence of Phi(r,theta),
+    // but for now simply ask the source density model
+    isSpherical = (source_density.symmetry() & ST_SPHERICAL) == ST_SPHERICAL;
 }
 
 void Multipole::evalCyl(const coord::PosCyl &pos,
@@ -496,58 +446,61 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
     double r=hypot(pos.R, pos.z);
     double ct=pos.z/r, st=pos.R/r;  // cos(theta), sin(theta)
     if(r==0 || r==INFINITY) {ct=st=0;}
-    double Xi[2];
-    double lr=log(r), Phi;
-    Xi[0] = fmin(lRmax,fmax(lRmin,lr));
-    Xi[1] = fabs(ct);
-    double der[2];      // first derivatives from spline by its arguments (log r, z/r)
-    double der2a[2],der2b[2]; 
-    double* der2[]={der2a,der2b};  // second derivatives from spline, if required
+    double lr = log(r);
+    // coordinates on the scaled grid
+    const double lRmin = spl.xmin(), lRmax = spl.xmax();
+    double valR = fmin(lRmax,fmax(lRmin,lr));
+    double valC = fabs(ct);
+    // value and derivatives of spline by its arguments (log r, z/r)
+    double Phi=0, PhiR=0, PhiC=0, PhiRR=0, PhiRC=0, PhiCC=0;
     if(deriv2)
-        Phi = WD::Psplev2D(X,Y,Z,K,Xi,der,der2);
+        spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC, &PhiRR, &PhiRC, &PhiCC);
+    else if(deriv)
+        spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC);
     else
-        Phi = WD::Psplev2D(X,Y,Z,K,Xi,der);
-    if(deriv) der[1]*= sign(ct);
-    if(deriv2) der2[0][1]*= sign(ct);
+        spl.evalDeriv(valR, valC, &Phi);
+    PhiC  *= sign(ct);
+    PhiRC *= sign(ct);
     if(lr < lRmin) {  // extrapolation at small radii
-        if(g2>0.) {
-            Phi = (Phi-Phi0)*exp(g2*(lr-Xi[0]));
-            if(deriv) der[0] = g2*Phi;
-            if(deriv2) der2[0][0] = g2*g2*Phi;
-            Phi+= Phi0;
-        } else if(g2==0.) {
-            if(deriv) der[0] = Phi/lRmin;
-            if(deriv2) der2[0][0] = 0.;
-            Phi*= lr/lRmin;
+        if(twominusgamma>0) {
+            Phi   = (Phi-Phi0)*exp(twominusgamma*(lr-valR));
+            PhiR  = twominusgamma*Phi;
+            PhiRR = pow_2(twominusgamma)*Phi;
+            Phi  += Phi0;
+        } else if(twominusgamma==0) {
+            PhiR  = Phi/lRmin;
+            PhiRR = 0.;
+            Phi  *= lr/lRmin;
         } else {
-            Phi*= exp(g2*(lr-Xi[0]));
-            if(deriv) der[0] = g2*Phi;
-            if(deriv2) der2[0][0] = g2*g2*Phi;
+            Phi  *= exp(twominusgamma*(lr-valR));
+            PhiR  = twominusgamma*Phi;
+            PhiRR = pow_2(twominusgamma)*Phi;
         }
     } else if(lr > lRmax)  // extrapolation at large radii
     {  // use monopole+quadrupole terms; more accurate than in the original code
-        double M = (1.5*Phi + 0.5*der[0]) * Rmax/r;      // compute them from the spline value
-        double Q = -0.5*(Phi + der[0]) * pow_3(Rmax/r);  // and derivative at r=Rmax
-        Phi = M+Q;
-        if(deriv) der[0] = -M-3*Q;
-        if(deriv2) der2[0][0] = M+9*Q;
+        double Rmax = exp(lRmax);
+        double M = (1.5*Phi + 0.5*PhiR) * Rmax/r;      // compute them from the spline value
+        double Q = -0.5*(Phi + PhiR) * pow_3(Rmax/r);  // and derivative at r=Rmax
+        Phi   = M+Q;
+        PhiR  = -M-3*Q;
+        PhiRR = M+9*Q;
     }
     if(potential)
-        *potential=Phi;
-    if(r==0) r=1e-100;  // safety measure to avoid 0/0
+        *potential = Phi;
+    if(r==0) r = 1e-100;  // safety measure to avoid 0/0
     if(deriv) {
-        deriv->dR=(der[0]-der[1]*ct)*st/r;
-        deriv->dz=(der[0]*ct+der[1]*st*st)/r;
-        deriv->dphi=0;
+        deriv->dR   = (PhiR-PhiC*ct)*st/r;
+        deriv->dz   = (PhiR*ct+PhiC*st*st)/r;
+        deriv->dphi = 0;
     }
     if(deriv2) {
         double z2=ct*ct, R2=st*st;
-        deriv2->dR2 = (der2[0][0]*R2 + der2[1][1]*R2*z2 - der2[0][1]*2*R2*ct
-                      + der[0]*(z2-R2) + der[1]*(2*R2-z2)*ct) / (r*r);  // d2/dR2
-        deriv2->dz2 = (der2[0][0]*z2 + der2[1][1]*R2*R2 + der2[0][1]*2*R2*ct
-                      + der[0]*(R2-z2) - der[1]*3*R2*ct) / (r*r);       // d2/dz2
-        deriv2->dRdz= (der2[0][0]*ct*st - der2[1][1]*ct*st*R2 + der2[0][1]*st*(R2-z2)
-                      - der[0]*2*ct*st + der[1]*st*(2*z2-R2)) / (r*r);  // d2/dRdz
+        deriv2->dR2 = (PhiRR*R2 + PhiCC*R2*z2 - PhiRC*2*R2*ct
+            + PhiR*(z2-R2) + PhiC*(2*R2-z2)*ct) / (r*r);  // d2/dR2
+        deriv2->dz2 = (PhiRR*z2 + PhiCC*R2*R2 + PhiRC*2*R2*ct
+            + PhiR*(R2-z2) - PhiC*3*R2*ct) / (r*r);       // d2/dz2
+        deriv2->dRdz= (PhiRR*ct*st - PhiCC*ct*st*R2 + PhiRC*st*(R2-z2)
+            - PhiR*2*ct*st + PhiC*st*(2*z2-R2)) / (r*r);  // d2/dRdz
         deriv2->dRdphi=deriv2->dzdphi=deriv2->dphi2=0;
     }
 }
@@ -557,9 +510,7 @@ std::vector<const BasePotential*> createGalaxyPotentialComponents(
     const std::vector<DiskParam>& DiskParams, 
     const std::vector<SphrParam>& SphrParams)
 {
-    // keep track of inner/outer slopes of spheroid density profiles..
-    double gamma=0, beta=1.e3;
-    // ..and the length scales of all components
+    // keep track of length scales of all components
     double lengthMin=1e100, lengthMax=0;
     
     // first create a set of density components for the multipole
@@ -574,16 +525,11 @@ std::vector<const BasePotential*> createGalaxyPotentialComponents(
     }
     for(unsigned int i=0; i<SphrParams.size(); i++) {
         componentsDens.push_back(new SpheroidDensity(SphrParams[i]));
-        gamma = fmax(gamma, SphrParams[i].gamma);
         lengthMin = fmin(lengthMin, SphrParams[i].scaleRadius);
         lengthMax = fmax(lengthMax, SphrParams[i].scaleRadius);
         if(SphrParams[i].outerCutoffRadius) 
             lengthMax = fmax(lengthMax, SphrParams[i].outerCutoffRadius);
-        else
-            beta = fmin(beta, SphrParams[i].beta);
     }
-    // if cutoff radius is provided or there are no spheroidal components, outer slope is undetermined
-    if(beta==1.e3) beta=-1;
     if(componentsDens.size()==0)
         throw std::invalid_argument("Empty parameters in GalPot");
     // create an composite density object to be passed to Multipole;
@@ -593,7 +539,7 @@ std::vector<const BasePotential*> createGalaxyPotentialComponents(
     // create multipole potential from this combined density
     double rmin = GALPOT_RMIN * lengthMin;
     double rmax = GALPOT_RMAX * lengthMax;
-    const BasePotential* mult=new Multipole(dens, rmin, rmax, GALPOT_NRAD, gamma, beta);
+    const BasePotential* mult=new Multipole(dens, rmin, rmax, GALPOT_NRAD, 0);
 
     // now create a composite potential from the multipole and non-residual part of disk potential
     std::vector<const BasePotential*> componentsPot;

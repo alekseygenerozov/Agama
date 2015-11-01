@@ -56,6 +56,7 @@ is provided in potential_factory.h, taking the name of parameter file and the Un
 
 #pragma once
 #include "potential_base.h"
+#include "math_spline.h"
 #include <vector>
 
 namespace potential{
@@ -186,32 +187,23 @@ private:
 */
 class Multipole: public BasePotentialCyl{
 private:
-    int    K[2];  // dimensions of 2d spline
-    double Rmin, Rmax, gamma, beta, Phi0;
-    double lRmin, lRmax, g2;
-    double lzmin, lzmax, tg3, g3h;
-    double *logr; 
-    double *X[2], **Y[3], **Z[4];
-    void   AllocArrays();
-    void   setup(const BaseDensity& source_density,
-                 const double r_min, const double r_max,
-                 const double gamma, const double beta);
+    double twominusgamma, Phi0;
+    math::QuinticSpline2d spl;
 public:
     /** Compute the potential using the multi expansion and approximate it 
         by a two-dimensional spline in (R,z) plane. 
         \param[in]  source_density  is the density model that serves as an input 
                     to the potential approximation, a std::runtime_error exception 
                     is raised if it is not axisymmetric;
-        \param[in]  r_min, r_max  give the radial grid extent;
-        \param[in]  num_grid_points   is the size of logarithmic spline grid in R;
+        \param[in]  r_min, r_max    give the radial grid extent;
+        \param[in]  gridSizeR  is the size of logarithmic spline grid in R;
+        \param[in]  gridSizeC  is the size of grid in (z/r)
         \param[in]  gamma  is the power-law index of density extrapolation at small r;
         \param[in]  beta   is the slope of density profile at large radii;
     */
     Multipole (const BaseDensity& source_density,
                const double r_min, const double r_max,
-               const int num_grid_points,
-               const double gamma, const double beta);
-    ~Multipole();
+               const int gridSizeR, const int gridSizeC);
     virtual SymmetryType symmetry() const { return isSpherical ? ST_SPHERICAL : ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "AxisymmetricMultipole"; };

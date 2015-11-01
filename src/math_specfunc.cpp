@@ -16,11 +16,11 @@
 
 namespace math {
 
-double legendrePoly(const int l, const int m, const double theta) {
-    return gsl_sf_legendre_sphPlm(l, m, cos(theta));
+double legendrePoly(const int l, const int m, const double x) {
+    return gsl_sf_legendre_Plm(l, m, x);
 }
 
-void legendrePolyArray(const int lmax, const int m, const double theta,
+void sphHarmonicArray(const int lmax, const int m, const double theta,
     double* result_array, double* deriv_array, double* deriv2_array)
 {
     assert(result_array!=NULL);
@@ -35,11 +35,11 @@ void legendrePolyArray(const int lmax, const int m, const double theta,
         gsl_sf_legendre_Plm_array(lmax, m, costheta, result_array);
     double prefact = 0.5/sqrt(M_PI*gsl_sf_fact(2*m));
     for(int l=m; l<=lmax; l++) {
-        double prefactl=sqrt(2*l+1.0)*prefact;
+        double prefactl=sqrt(2*l+1.)*prefact;
         result_array[l-m] *= prefactl;
         if(deriv_array)
             deriv_array[l-m] *= prefactl;
-        prefact *= sqrt((l+1.0-m)/(l+1.0+m));
+        prefact *= sqrt((l-m+1.)/(l+m+1.));
     }
     if(deriv2_array) {
         assert(deriv_array!=NULL);

@@ -8,19 +8,25 @@
 
 namespace math {
 
-/** Normalized associated Legendre polynomial (or, rather, function) of the first kind:
-    \f$  P_l^m(\cos(\theta))  \f$.
+/** Associated Legendre polynomial (or, rather, function) of the first kind:
+    \f$  P_l^m(x)  \f$.
     These functions are used in spherical-harmonic expansion as follows: 
-    \f$  Y_l^m = P_l^m(\cos(\theta)) * \{\sin,\cos\}(m\phi)  \f$.
+    \f$  Y_l^m = \sqrt{\frac{ (2l+1) (l-m)! }{ 4\pi (l+m)! }}
+         P_l^m(\cos(\theta)) * \{\sin,\cos\}(m\phi)  \f$
+    (this routine returns un-normalized P).
 */
-double legendrePoly(const int l, const int m, const double theta);
+double legendrePoly(const int l, const int m, const double x);
 
-/** Array of normalized associated Legendre polynomials for l=m..lmax.
-    The output arrays contain values of P, dP/dtheta, d^2P/dtheta^2  for l=m,m+1,...,lmax;
+/** Array of normalized associate Legendre polynomials W and their derivatives for l=m..lmax;
+    (theta-dependent factors in spherical-harmonic expansion:  
+    \f$  Y_l^m(\theta, \phi) = W_l^m(\theta) \{\sin,\cos\}(m\phi) ,
+         W_l^m = \sqrt{\frac{ (2l+1) (l-m)! }{ 4\pi (l+m)! }} P_l^m(\cos(\theta))  \f$,
+    where P are un-normalized associated Legendre functions.
+    The output arrays contain values of W, dW/dtheta, d^2W/dtheta^2  for l=m,m+1,...,lmax;
     if either deriv_array or deriv2_array = NULL, the corresponding thing is not computed
     (note that if deriv2_array is not NULL, deriv_array must not be NULL too).
 */
-void legendrePolyArray(const int lmax, const int m, const double theta,
+void sphHarmonicArray(const int lmax, const int m, const double theta,
     double* result_array, double* deriv_array=0, double* deriv2_array=0);
 
 /** Gegenbauer (ultraspherical) polynomial:  \f$ C_n^{(\lambda)}(x) \f$ */

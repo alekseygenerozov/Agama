@@ -183,7 +183,7 @@ static PotentialType getPotentialTypeByName(const std::string& PotentialName)
     if(!mapinitialized) initPotentialAndSymmetryNameMap();
     for(PotentialNameMapType::const_iterator iter=PotentialNames.begin(); 
         iter!=PotentialNames.end(); 
-        iter++)
+        ++iter)
         if(utils::stringsEqual(PotentialName, iter->second)) 
             return iter->first;
     return PT_UNKNOWN;
@@ -195,7 +195,7 @@ static PotentialType getDensityTypeByName(const std::string& DensityName)
     if(!mapinitialized) initPotentialAndSymmetryNameMap();
     for(DensityNameMapType::const_iterator iter=DensityNames.begin(); 
         iter!=DensityNames.end(); 
-        iter++)
+        ++iter)
         if(utils::stringsEqual(DensityName, iter->second)) 
             return iter->first;
     return PT_UNKNOWN;
@@ -211,7 +211,7 @@ static SymmetryType getSymmetryTypeByName(const std::string& SymmetryName)
     // if more than one symmetry types are defined that could start with the same letter)
     for(SymmetryNameMapType::const_iterator iter=SymmetryNames.begin(); 
         iter!=SymmetryNames.end(); 
-        iter++)
+        ++iter)
         if(tolower(SymmetryName[0]) == tolower(iter->second[0])) 
             return iter->first;
     return ST_DEFAULT;

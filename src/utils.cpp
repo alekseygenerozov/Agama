@@ -160,7 +160,7 @@ bool convertToBool(const char* val) {
 //  Uses some sophisticated techniques to fit the number into a string of exactly the given length.
 std::string pp(double num, unsigned int width)
 {
-    std::string result, tmp;
+    std::string result;
     if(num==0) { 
         for(int i=0; i<static_cast<int>(width)-1; i++) result+=' ';
         result+='0';

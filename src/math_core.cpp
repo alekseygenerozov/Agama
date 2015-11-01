@@ -85,8 +85,19 @@ unsigned int binSearch(const double x, const double arr[], unsigned int size)
         throw std::invalid_argument("Error in binSearch: should have at least one bin");
     if(x<arr[0] && x>arr[size-1])
         throw std::invalid_argument("Error in binSearch: point is outside the interval");
-    unsigned int index = 0;
+    // first guess the likely location in the case that the input grid is equally-spaced
+    unsigned int index = static_cast<unsigned int>( (x-arr[0]) / (arr[size-1]-arr[0]) * (size-1) );
     unsigned int indhi = size-1;
+    if(index==size-1)
+        return size-2;     // special case -- we are exactly at the end of array, return the previous node
+    if(x>=arr[index]) {
+        if(x<arr[index+1])
+            return index;  // guess correct, exiting
+        // otherwise the search is restricted to [ index .. indhi ]
+    } else {
+        indhi = index;  // search restricted to [ 0 .. index ]
+        index = 0;
+    }
     while(indhi > index + 1) {
         unsigned int i = (indhi + index)/2;
         if(arr[i] > x)

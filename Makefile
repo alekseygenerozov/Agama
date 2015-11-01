@@ -43,8 +43,7 @@ SOURCES   = \
             potential_perfect_ellipsoid.cpp \
             potential_sphharm.cpp \
             utils.cpp \
-            utils_config.cpp \
-            WD_Numerics.cpp
+            utils_config.cpp
 
 # ancient code
 #LEGACYSRC = Stackel_JS.cpp \
@@ -61,10 +60,11 @@ TORUSSRC  = CHB.cc \
             Point_ClosedOrbitCheby.cc \
             Point_None.cc \
             Torus.cc \
-            Toy_Isochrone.cc
+            Toy_Isochrone.cc \
+            WD_Numerics.cc
+
 # disable several warnings - shouldn't be taken as an endorsement to ignore them, but as a sign of negligence for code maintenance
-TORUSFLAGS = -Wreorder -Wno-unused-variable 
-# -Wunused-but-set-variable -Wmaybe-uninitialized
+TORUSFLAGS = -Wreorder -Wno-unused-variable
 
 # test programs
 TESTSRCS  = test_math_core.cpp \
