@@ -429,20 +429,21 @@ CubicSpline::CubicSpline(const std::vector<double>& xa,
     }
 
     if (sys_size == 1) {
+        cval.assign(3, 0.);
         cval[1] = rhs[0] / diag[0];
     } else {
         offdiag.resize(sys_size-1);
         linearSystemSolveTridiagSymm(diag, offdiag, rhs, cval);
         cval.insert(cval.begin(), 0.);  // for natural cubic spline,
         cval.push_back(0.);             // 2nd derivatives are zero at endpoints;
-        if(isFinite(der1))              // but for a clamped spline they are not.
-            cval[0] = ( 3. * (ya[1]-ya[0]) / (xa[1]-xa[0]) 
-                - 3. * der1 - 0.5 * cval[1] * (xa[1]-xa[0]) ) / (xa[1]-xa[0]);
-        if(isFinite(der2))
-            cval[max_index] = ( -3. * (ya[max_index]-ya[max_index-1]) / (xa[max_index]-xa[max_index-1]) 
-                + 3. * der2 - 0.5 * cval[max_index-1] * (xa[max_index]-xa[max_index-1]) )
-                / (xa[max_index]-xa[max_index-1]);
     }
+    if(isFinite(der1))              // but for a clamped spline they are not.
+        cval[0] = ( 3. * (ya[1]-ya[0]) / (xa[1]-xa[0]) 
+            - 3. * der1 - 0.5 * cval[1] * (xa[1]-xa[0]) ) / (xa[1]-xa[0]);
+    if(isFinite(der2))
+        cval[max_index] = ( -3. * (ya[max_index]-ya[max_index-1]) / (xa[max_index]-xa[max_index-1]) 
+            + 3. * der2 - 0.5 * cval[max_index-1] * (xa[max_index]-xa[max_index-1]) )
+            / (xa[max_index]-xa[max_index-1]);
 }
 
 // evaluate spline value, derivative and 2nd derivative at once (faster than doing it separately);
@@ -595,18 +596,14 @@ inline void evalQuinticSplines(
         D  =-h*Bq*A,
         E  = hf*C*(2*Aq-A-1),
         F  = hf*D*(2*Bq-B-1);
-    double AB, ABh, ABB, BAA, Cp, Dp, Ep, Fp, Epp, Fpp;
+    double Cp=0, Dp=0, Ep=0, Fp=0, Epp=0, Fpp=0;
     if(dy) {
-        AB = A*B;
-        ABh= 2*hf*AB;
-        Cp = Aq-AB-AB;
-        Dp = Bq-AB-AB,
-        Ep = ABh * (1+A-5*Aq);
-        Fp = ABh * (1+B-5*Bq);
+        Cp = Aq-2*A*B;
+        Dp = Bq-2*A*B,
+        Ep = 2*A*B*hf * (1+A-5*Aq);
+        Fp = 2*A*B*hf * (1+B-5*Bq);
     }
     if(d2y) {
-        BAA = B-A-A;
-        ABB = A-B-B;
         Epp = hf * (4*Aq*(9*B-A)-2);
         Fpp = hf * (4*Bq*(B-9*A)+2);
     }
@@ -623,7 +620,7 @@ inline void evalQuinticSplines(
         if(dy)
             dy[k]  = t1 + Cp*C2 + Dp*C3 + Ep*C4 + Fp*C5;
         if(d2y)
-            d2y[k] = (2*(BAA*C2 - ABB*C3) + Epp*C4 + Fpp*C5) * hi;
+            d2y[k] = ((2*B-4*A)*C2 - (2*A-4*B)*C3 + Epp*C4 + Fpp*C5) * hi;
         if(d3y)
             d3y[k] = A*(2.5*A-1.5)*y3l[k] + B*(2.5*B-1.5)*y3h[k] + 5*A*B*t2;
 
@@ -990,7 +987,7 @@ QuinticSpline2d::QuinticSpline2d(const std::vector<double>& xvalues, const std::
         QuinticSpline s(yval, t, t1);
         for(unsigned int j=0; j<ysize; j++)
             t1[j] = dzdx(i, j);
-        CubicSpline u(yval, t1);
+        CubicSpline u(yval, t1, 0, 0);
         for(unsigned int j=0; j<ysize; j++)
             t1[j] = zxxx(i, j);
         CubicSpline v(yval, t1);

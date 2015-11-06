@@ -1,5 +1,5 @@
 /** \file    math_base.h
-    \brief   Base class for mathematical functions of one variable
+    \brief   Base class for mathematical functions
     \author  Eugene Vasiliev
     \date    2015
 */

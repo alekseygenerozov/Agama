@@ -17,14 +17,25 @@ namespace math {
 */
 double legendrePoly(const int l, const int m, const double x);
 
-/** Array of normalized associate Legendre polynomials W and their derivatives for l=m..lmax;
-    (theta-dependent factors in spherical-harmonic expansion:  
+/** Array of un-normalized associate Legendre polynomials P_l^m(x) and their derivatives.
+    The output arrays contain values of P and optionally dP/dx  for l=m,m+1,...,lmax;
+*/
+void legendrePolyArray(const int lmax, const int m, const double x,
+    double* result_array, double* deriv_array=0);
+
+/** Array of normalized associate Legendre polynomials W and their derivatives for l=m..lmax
+    (theta-dependent factors in spherical-harmonic expansion):
     \f$  Y_l^m(\theta, \phi) = W_l^m(\theta) \{\sin,\cos\}(m\phi) ,
          W_l^m = \sqrt{\frac{ (2l+1) (l-m)! }{ 4\pi (l+m)! }} P_l^m(\cos(\theta))  \f$,
     where P are un-normalized associated Legendre functions.
     The output arrays contain values of W, dW/dtheta, d^2W/dtheta^2  for l=m,m+1,...,lmax;
     if either deriv_array or deriv2_array = NULL, the corresponding thing is not computed
     (note that if deriv2_array is not NULL, deriv_array must not be NULL too).
+    This routine differs from `legendrePolyArray` in the following:
+    (1) it takes theta rather than cos(theta) as argument;
+    (2) returns normalized functions directly suitable for Y_l^m;
+    (3) returns derivatives w.r.t. theta, not cos(theta), and may compute the 2nd derivative;
+    (4) accurately handles values of theta close to 0 or pi.
 */
 void sphHarmonicArray(const int lmax, const int m, const double theta,
     double* result_array, double* deriv_array=0, double* deriv2_array=0);

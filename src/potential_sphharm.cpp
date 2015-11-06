@@ -9,7 +9,7 @@
 namespace potential {
 
 /// max number of basis-function expansion members (radial and angular).
-static const unsigned int MAX_NCOEFS_ANGULAR = 100;
+static const unsigned int MAX_NCOEFS_ANGULAR = 101;
 static const unsigned int MAX_NCOEFS_RADIAL  = 100;
 
 /// max number of function evaluations in multidimensional integration
@@ -77,7 +77,7 @@ void SphericalHarmonicCoefSet::setSymmetry(SymmetryType sym)
 {
     mysymmetry = sym;
     lmax = (mysymmetry & ST_SPHSYM)    ==ST_SPHSYM     ? 0 :     // if spherical model, use only l=0,m=0 term
-        static_cast<int>(std::min<unsigned int>(Ncoefs_angular, MAX_NCOEFS_ANGULAR));
+        static_cast<int>(std::min<unsigned int>(Ncoefs_angular, MAX_NCOEFS_ANGULAR-1));
     lstep= (mysymmetry & ST_REFLECTION)==ST_REFLECTION ? 2 : 1;  // if reflection symmetry, use only even l
     mmax = (mysymmetry & ST_ZROTSYM)   ==ST_ZROTSYM    ? 0 : 1;  // if axisymmetric model, use only m=0 terms, otherwise all terms up to l (1 is the multiplying factor)
     mmin = (mysymmetry & ST_PLANESYM)  ==ST_PLANESYM   ? 0 :-1;  // if triaxial symmetry, do not use sine terms which correspond to m<0
@@ -1018,6 +1018,138 @@ double SplineExp::enclosedMass(const double r) const
     double der;
     coef0(r, NULL, &der, NULL);
     return der * r*r;   // d Phi(r)/d r = G M(r) / r^2
+}
+
+///////////-------- Spherical-harmonic expansion of density profile -----------/////////////
+
+DensitySphericalHarmonic::DensitySphericalHarmonic(
+    unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
+    const BaseDensity& srcDensity, double rmin, double rmax):
+    BaseDensity(), SphericalHarmonicCoefSet(numCoefsAngular)
+{
+    // find inner/outermost radius if they were not provided
+    if(rmin<0 || rmax<0 || (rmax>0 && rmax<=rmin*numCoefsRadial))
+        throw std::invalid_argument("DensitySphericalHarmonic: invalid choice of min/max grid radii");
+    double totMass = rmin==0 || rmax==0 ? srcDensity.totalMass() : 0;
+    if(!math::isFinite(totMass))
+        throw std::invalid_argument("DensitySphericalHarmonic: source density model has infinite mass");
+    // the algo for automatic determination rmin/max below is fairly arbitrary
+    if(rmax==0) {
+        // how far should be the outer node (leave out this fraction of mass)
+        double epsOut = 0.1/sqrt(pow_2(numCoefsRadial)+0.01*pow(numCoefsRadial*1.0,4.0));
+        rmax = getRadiusByMass(srcDensity, totMass*(1-epsOut));
+    }
+    if(rmin==0) {
+        // how close can we get to zero, in terms of innermost grid node
+        double epsIn = 5.0/pow(numCoefsRadial*1.0,3.0);
+        rmin  = getRadiusByMass(srcDensity, totMass*epsIn*0.1);
+    }
+    
+    //  create grid in radius
+    std::vector<double> gridRadii;
+#if 0
+    math::createNonuniformGrid(numCoefsRadial, rmin, rmax, false, gridRadii);
+#else
+    gridRadii.assign(numCoefsRadial, rmax);
+    const double logrmin = log(rmin), dlog = (log(rmax)-logrmin)/(numCoefsRadial-1);
+    for(unsigned int k=0; k<numCoefsRadial-1; k++) {
+        gridRadii[k] = exp(logrmin+dlog*k);
+    }
+#endif
+
+    //  prepare table for integration in angle, using Gauss-Legendre quadrature for cos(theta) on [-1..1]
+    const unsigned int numIntPoints = numCoefsAngular+1;
+    std::vector<double> coords(numIntPoints), weights(numIntPoints);
+    math::prepareIntegrationTableGL(-1, 1, numIntPoints, &coords.front(), &weights.front());
+
+    // compute integrals of density times various Legendre polynomials
+    setSymmetry(srcDensity.symmetry());  // assign the range of l's
+    std::vector< std::vector<double> > rhol(lmax+1);
+    for(int l=0; l<=lmax; l+=lstep)
+        rhol[l].assign(numCoefsRadial, 0);
+    std::vector<double> legPoly(lmax+1);
+    // integrate over half of the interval only, taking into account (alleged) reflection symmetry z -> -z
+    for(unsigned int i=numIntPoints/2; i<numIntPoints; i++) {
+        double costheta = coords[i];
+        double sintheta = sqrt(1. - pow_2(costheta));
+        double weight = weights[i];
+        // if the number of points is odd, the central point at x=0 should get half of the weight
+        if(numIntPoints%2==1 && i==numIntPoints/2) weight/=2;
+
+        math::legendrePolyArray(lmax, 0, costheta, &legPoly.front());
+        for(unsigned int k=0; k<numCoefsRadial; k++) {
+            double dens = srcDensity.density(
+                coord::PosCyl(gridRadii[k]*sintheta, gridRadii[k]*costheta, 0));
+            for(int l=0; l<=lmax; l+=lstep)
+                rhol[l][k] += dens * weight * legPoly[l];
+        }
+    }
+    
+    //  establish splines for rho_lm(r)
+    splines.resize(lmax+1);
+    for(int l=0; l<=lmax; l+=lstep) {
+        //  determine asymptotic slopes of density profile at large and small r
+        double deriv_inner = log(rhol[l][1] / rhol[l][0]) / log(gridRadii[1] / gridRadii[0]);
+        double deriv_outer = log(rhol[l][numCoefsRadial-1] / rhol[l][numCoefsRadial-2]) /
+            log(gridRadii[numCoefsRadial-1] / gridRadii[numCoefsRadial-2]);
+        if(!math::isFinite(deriv_inner))
+            deriv_inner = 0;
+        if(deriv_inner <= -2.8)
+            deriv_inner = -2.8;
+        if(!math::isFinite(deriv_outer))
+            deriv_outer = 0;
+        if(deriv_outer >= -3.2)
+            deriv_outer = -3.2;
+        splines[l] = math::CubicSpline(gridRadii, rhol[l], 
+            deriv_inner/gridRadii.front()*rhol[l].front(),
+            deriv_outer/gridRadii.back() *rhol[l].back());
+    }
+}
+
+double DensitySphericalHarmonic::innerSlope(int l) const
+{
+    double val, der;
+    if(l>lmax || splines[l].isEmpty())
+        return 0;
+    else {
+        splines[l].evalDeriv(splines[l].xmin(), &val, &der);
+        return val==0 ? 0 : -splines[l].xmin()*der/val;
+    }
+}
+
+double DensitySphericalHarmonic::outerSlope(int l) const
+{
+    double val, der;
+    if(l>lmax || splines[l].isEmpty())
+        return 0;
+    else {
+        splines[l].evalDeriv(splines[l].xmax(), &val, &der);
+        return val==0 ? 0 : -splines[l].xmax()*der/val;
+    }
+}
+
+double DensitySphericalHarmonic::rho_l(double r, int l) const
+{
+    if(l>lmax || splines[l].isEmpty())
+        return 0;
+    double rmin=splines[0].xmin(), rmax=splines[0].xmax();
+    if(r<rmin || r>rmax) {
+        double val, der, r0 = r<rmin ? rmin : rmax;
+        splines[l].evalDeriv(r0, &val, &der);
+        return val==0 ? 0 : val * pow(r/r0, r0*der/val);
+    }
+    return splines[l](r);
+}
+
+double DensitySphericalHarmonic::densitySph(const coord::PosSph &pos) const
+{
+    double result=0;
+    double legPoly[MAX_NCOEFS_ANGULAR];
+    math::legendrePolyArray(lmax, 0, cos(pos.theta), legPoly);
+    for(int l=0; l<=lmax; l+=lstep) {
+        result += rho_l(pos.r, l) * legPoly[l] * (2*l+1);
+    }
+    return result;
 }
 
 }; // namespace

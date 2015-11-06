@@ -200,6 +200,21 @@ double integrateAdaptive(const IFunction& F, double x1, double x2, double relTol
 */
 double integrateGL(const IFunction& F, double x1, double x2, unsigned int N);
 
+/** prepare a table for Gauss-Legendre integration of one or many functions on the same interval.
+    The integral is approximated by a weighted sum of function values over the array of points:
+    \f$  \int_{x1}^{x2} f(x) dx = \sum_{i=0}^{N-1}  w_i f(x_i)  \f$.
+    This function computes the coordinates x_i and weights w_i of these points 
+    for the given order of quadrature; the user then may perform the above summation
+    for as many functions as necessary, using the same table.
+    \param[in]  x1  is the lower end of interval;
+    \param[in]  x2  is the upper end of interval;
+    \param[in]  N   is the number of points in the tables;
+    \param[out] coords   points to the array that will be filled with coordinates of the points
+    (it should be allocated before the call to this routine);
+    \param[out] weights  will be filled with weights (array should be allocated beforehand).
+*/
+void prepareIntegrationTableGL(double x1, double x2, int N, double* coords, double* weights);
+
 /** Helper class for integrand transformations.
     A function defined on a finite interval [x_low,x_upp], with possible integrable 
     singularities at endpoints, can be integrated on the interval [x1,x2] 

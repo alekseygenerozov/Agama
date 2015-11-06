@@ -20,6 +20,16 @@ double legendrePoly(const int l, const int m, const double x) {
     return gsl_sf_legendre_Plm(l, m, x);
 }
 
+void legendrePolyArray(const int lmax, const int m, const double x,
+    double* result_array, double* deriv_array)
+{
+    assert(result_array!=NULL);
+    if(deriv_array)
+        gsl_sf_legendre_Plm_deriv_array(lmax, m, x, result_array, deriv_array);
+    else
+        gsl_sf_legendre_Plm_array(lmax, m, x, result_array);
+}
+
 void sphHarmonicArray(const int lmax, const int m, const double theta,
     double* result_array, double* deriv_array, double* deriv2_array)
 {

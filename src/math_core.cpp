@@ -634,6 +634,14 @@ double integrateGL(const IFunction& fnc, double x1, double x2, unsigned int N)
     return result;
 }
 
+void prepareIntegrationTableGL(double x1, double x2, int N, double* coords, double* weights)
+{
+    gsl_integration_glfixed_table* gltable = gsl_integration_glfixed_table_alloc(N);
+    for(int i=0; i<N; i++)
+        gsl_integration_glfixed_point(x1, x2, i, &(coords[i]), &(weights[i]), gltable);
+    gsl_integration_glfixed_table_free(gltable);
+}
+
 // integration transformation classes
 
 double ScaledIntegrandEndpointSing::x_from_y(const double y) const 

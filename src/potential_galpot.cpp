@@ -28,12 +28,11 @@ Version 0.8    24. June      2005
 ----------------------------------------------------------------------*/
 #include "potential_galpot.h"
 #include "potential_composite.h"
+#include "potential_sphharm.h"
+#include "math_core.h"
 #include "math_specfunc.h"
-#include "math_spline.h"
 #include <cmath>
 #include <stdexcept>
-#include <gsl/gsl_integration.h>
-#include <gsl/gsl_sf_legendre.h>
 
 namespace potential{
 
@@ -250,57 +249,77 @@ double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
 }
 
 //----- multipole potential -----//
-const int numMultipoles = GALPOT_LMAX/2+1;   // number of multipoles (only even-l terms in the expansion are used)
-const int numIntPoints  = 5*numMultipoles/2; // number of points used to integrate over cos[theta]
+
+/// integrand for the density multiplied by a given power of radius
+class DensitySphHarmIntegrandAxi: public math::IFunctionNoDeriv {
+public:
+    DensitySphHarmIntegrandAxi(const DensitySphericalHarmonic& _densh, int _l, double _r0, int _p):
+        densh(_densh), l(_l), r0(_r0), p(_p) {};
+    virtual double value(double r) const {
+        return densh.rho_l(r, l) * math::powInt(r/r0, p);
+    }
+private:
+    const DensitySphericalHarmonic& densh;
+    int l;
+    double r0;
+    int p;
+};
 
 Multipole::Multipole(const BaseDensity& source_density,
                      const double Rmin, const double Rmax,
-                     const int gridSizeR, const int /*numGridPointsC*/)
+                     const int gridSizeR, const int numCoefsAngular)
 {
     if(!isAxisymmetric(source_density))
         throw std::invalid_argument("Error in Multipole expansion: source density must be axially symmetric");
-    int gridSizeC = 3*numMultipoles/2;  // number of grid points for cos[theta] in [0,1]
-    double lRmin  = log(Rmin);
-    double lRmax  = log(Rmax); 
-    
+    const int numMultipoles = numCoefsAngular/2+1;   // number of multipoles (only even-l terms in the expansion are used)
+    const int gridSizeC     = 2*numCoefsAngular+1;   // number of grid points for theta in [0,pi/2]
+    math::Matrix<double> Phil(gridSizeR, numMultipoles), dPhl(gridSizeR, numMultipoles);
+    std::vector<double> Pl(numMultipoles*2-1), dPl(numMultipoles*2-1);
+
     //
     // 1.1  set up radial grid
     //
     std::vector<double> gridR(gridSizeR), gridC(gridSizeC);
     std::vector<double> r(gridSizeR);
-    math::Matrix<double> rhol(gridSizeR, numMultipoles), rhl2(gridSizeR, numMultipoles);
-    const double dlr =(lRmax-lRmin)/double(gridSizeR-1);
+    const double
+        lRmin = log(Rmin),
+        lRmax = log(Rmax), 
+        dlr = (lRmax-lRmin)/double(gridSizeR-1);
     for(int k=0; k<gridSizeR; k++) {
         gridR[k] = k<gridSizeR-1? lRmin+dlr*k : lRmax;
         r[k]     = exp(gridR[k]);
     }
 
+#if 0
+    // original implementation
     //
     // 1.2  compute expansion of the density by integrating over cos(theta)
     //
-    gsl_integration_glfixed_table* gltable = gsl_integration_glfixed_table_alloc(numIntPoints);
-    std::vector<double> Pl(numMultipoles*2-1), dPl(numMultipoles*2-1);
-    for(int i=0; i<numIntPoints; i++) {
-        double costheta, weight;
-        gsl_integration_glfixed_point(0, 1, i, &costheta, &weight, gltable);
+    math::Matrix<double> rhol(gridSizeR, numMultipoles), rhl2(gridSizeR, numMultipoles);
+    const int numIntPoints = numCoefsAngular+1;
+    std::vector<double> glx(numIntPoints), glw(numIntPoints);
+    math::prepareIntegrationTableGL(-1, 1, numIntPoints, &glx.front(), &glw.front());
+    for(int i=numIntPoints/2; i<numIntPoints; i++) {
+        double costheta = glx[i];
         double sintheta = sqrt(1. - pow_2(costheta));
-        gsl_sf_legendre_Pl_array(numMultipoles*2-2, costheta, &Pl.front());
+        double weight = glw[i];
+        if(fabs(costheta)<1e-10) weight/=2;
+        math::legendrePolyArray(numMultipoles*2-2, 0, costheta, &Pl.front());
         for(int k=0; k<gridSizeR; k++) {
             double dens = source_density.density(coord::PosCyl(r[k]*sintheta, r[k]*costheta, 0));
             for(int l=0; l<numMultipoles; l++)
-                rhol(k, l) += dens * weight * Pl[l*2] * (4*M_PI);
+                rhol(k, l) += dens * weight * Pl[l*2];
         }
     }
-    gsl_integration_glfixed_table_free(gltable);
-    
+
     //
     // 1.3  determine asymptotic slopes of density profile at large and small r
     //
     double gamma = -log(rhol(1, 0) / rhol(0, 0)) / log(r[1] / r[0]);
     double beta  = -log(rhol(gridSizeR-1, 0) / rhol(gridSizeR-2, 0)) / log(r[gridSizeR-1] / r[gridSizeR-2]);
-    if(gamma!=gamma) gamma = 0;
+    if(!math::isFinite(gamma)) gamma = 0;
     if(gamma>=2.8)   gamma = 2.8;
-    if(beta!=beta || beta>42.) beta=0;
+    if(!math::isFinite(beta) || beta>42.) beta=0;
     else if(beta<=3.2) beta=3.2;
     twominusgamma = 2-gamma;  // parameter used in extrapolation of potential at small r
 
@@ -328,7 +347,7 @@ Multipole::Multipole(const BaseDensity& source_density,
     std::vector<double> P2l(numMultipoles), dP2l(numMultipoles), EX(numMultipoles);
     math::Matrix<double> P1(gridSizeR, numMultipoles), P2(gridSizeR, numMultipoles);
     for(int l=0; l<numMultipoles; l++) {
-        P1(0, l) = rhol(0, l) * pow_2(Rmin) / double(2*l+3-gamma);
+        P1(0, l) = rhol(0, l) * pow_2(Rmin) / (2*l+3-gamma);
         EX[l]    = exp(-(1+2*l)*dlr);
     }
     for(int k=0; k<gridSizeR-1; k++) {
@@ -389,26 +408,68 @@ Multipole::Multipole(const BaseDensity& source_density,
             ril2 *= pow_2(r[k]);
         }
     }
-    
+
     //
-    // 2.3 put together the Phi_2l(r) and dPhi_2l(r)/dlog[r]
+    // 2.3 put together Phi_2l(r) and dPhi_2l(r)/dlog[r]
     //
-    math::Matrix<double> Phil(gridSizeR, numMultipoles), dPhl(gridSizeR, numMultipoles);
     for(int k=0; k<gridSizeR; k++)
         for(int l=0; l<numMultipoles; l++) {
-            Phil(k, l) =-P1(k, l) - P2(k, l);              // Phi_2l
-            dPhl(k, l) = (2*l+1)*P1(k, l) - 2*l*P2(k, l);  // dPhi_2l/dlogr
+            Phil(k, l) = -4*M_PI * (P1(k, l) + P2(k, l));               // Phi_2l
+            dPhl(k, l) =  4*M_PI * ( (2*l+1)*P1(k, l) - 2*l*P2(k, l));  // dPhi_2l/dlogr
         }
-    if(gamma<2)
-        Phi0 = Phil(0, 0) - dPhl(0, 0) / (twominusgamma);
+    
+#else
+    // new implementation using a separate class for spherical-harmonic density expansion
+
+    const DensitySphericalHarmonic* densh = NULL;
+    if(source_density.name() == DensitySphericalHarmonic::myName())   // use existing sph.-harm. expansion
+        densh = static_cast<const DensitySphericalHarmonic*>(&source_density);
+    else    // create new spherical-harmonic expansion
+        densh = new DensitySphericalHarmonic(gridSizeR, numCoefsAngular, source_density, Rmin, Rmax);
+
+    // accumulate the 'inner' and 'outer' parts of the potential at radial grid points
+    std::vector<double> P1(gridSizeR), P2(gridSizeR);
+    for(int l=0; l<numMultipoles; l++) {
+        // inner part
+        P1[0] = densh->rho_l(Rmin, 2*l) * pow_2(Rmin) / (3+2*l-densh->innerSlope(2*l));
+        for(int k=1; k<gridSizeR; k++) {
+            double s = math::integrateGL(
+                DensitySphHarmIntegrandAxi(*densh, 2*l, r[k], 2*l+2),
+                r[k-1], r[k], l<30 ? 15 : 20);
+            // use the recurrence relation that avoids overflow for high l
+            P1[k] = P1[k-1] * math::powInt(r[k-1]/r[k], 1+2*l) + s * r[k];
+        }
+        // outer part
+        P2[gridSizeR-1] = densh->rho_l(Rmax, 2*l) * pow_2(Rmax) / (densh->outerSlope(2*l)+2*l-2);
+        if(!math::isFinite(P2[gridSizeR-1]))
+            P2[gridSizeR-1] = 0;
+        for(int k=gridSizeR-2; k>=0; k--) {
+            double s = math::integrateGL(
+                DensitySphHarmIntegrandAxi(*densh, 2*l, r[k], 1-2*l),
+                r[k], r[k+1], l<30 ? 15 : 20);
+            P2[k] = P2[k+1] * math::powInt(r[k]/r[k+1], 2*l) + s * r[k];
+        }
+        // put together inner and outer parts to compute the potential and its radial derivative,
+        // for each spherical-harmonic term
+        for(int k=0; k<gridSizeR; k++) {
+            Phil(k, l) = -4*M_PI * (P1[k] + P2[k]);               // Phi_2l
+            dPhl(k, l) =  4*M_PI * ( (2*l+1)*P1[k] - 2*l*P2[k]);  // dPhi_2l/dlogr
+        }
+    }
+
+    twominusgamma = 2-densh->innerSlope(0);
+    if(source_density.name() != DensitySphericalHarmonic::myName())
+        delete densh;   // destroy temporarily created spherical-harmonic expansion of the density
+#endif
 
     //
     // 4.  Put potential and its derivatives on a 2D grid in log[r] & cos[theta]
     //
-    // 4.1 set linear grid in theta
+    // 4.1 set linear grid in theta, i.e. non-uniform in cos(theta), with denser spacing close to z-axis
     //
-    for(int i=0; i<gridSizeC; i++) 
-        gridC[i] = double(i) / double(gridSizeC-1);
+    for(int i=0; i<gridSizeC-1; i++) 
+        gridC[i] = sin(M_PI_2 * i / (gridSizeC-1));
+    gridC[gridSizeC-1] = 1.0;
     //
     // 4.2 set dPhi/dlogr & dPhi/dcos[theta] 
     //
@@ -416,12 +477,12 @@ Multipole::Multipole(const BaseDensity& source_density,
     math::Matrix<double> Phi_dR (gridSizeR, gridSizeC);
     math::Matrix<double> Phi_dC (gridSizeR, gridSizeC);
     for(int i=0; i<gridSizeC; i++) {
-        gsl_sf_legendre_Pl_deriv_array(numMultipoles*2-2, gridC[i], &Pl.front(), &dPl.front());
+        math::legendrePolyArray(numMultipoles*2-2, 0, gridC[i], &Pl.front(), &dPl.front());
         for(int k=0; k<gridSizeR; k++) {
             double val=0, dR=0, dC=0;
             for(int l=0; l<numMultipoles; l++) {
                 val += Phil(k, l) * Pl[2*l];   // Phi
-                dR  += dPhl(k, l) * Pl[2*l];   // d Phi / d logR
+                dR  += dPhl(k, l) * Pl[2*l];   // d Phi / d log(r)
                 dC  += Phil(k, l) * dPl[2*l];  // d Phi / d cos(theta)
             }
             Phi_val(k, i) = val;
@@ -429,6 +490,8 @@ Multipole::Multipole(const BaseDensity& source_density,
             Phi_dC (k, i) = dC;
         }
     }
+    Phi0 = Phil(0, 0) - dPhl(0, 0) / (twominusgamma);
+
     //
     // 4.3 establish 2D Pspline of Phi in log[r] & cos[theta]
     //
@@ -539,7 +602,7 @@ std::vector<const BasePotential*> createGalaxyPotentialComponents(
     // create multipole potential from this combined density
     double rmin = GALPOT_RMIN * lengthMin;
     double rmax = GALPOT_RMAX * lengthMax;
-    const BasePotential* mult=new Multipole(dens, rmin, rmax, GALPOT_NRAD, 0);
+    const BasePotential* mult=new Multipole(dens, rmin, rmax, GALPOT_NRAD, GALPOT_LMAX);
 
     // now create a composite potential from the multipole and non-residual part of disk potential
     std::vector<const BasePotential*> componentsPot;

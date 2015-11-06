@@ -1,8 +1,9 @@
-#define COMPARE_WD_PSPLINE
-#define STRESS_TEST
+//#define COMPARE_WD_PSPLINE
+//#define STRESS_TEST
 
 #include "math_spline.h"
 #include "math_core.h"
+#include "math_specfunc.h"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -60,6 +61,7 @@ int main()
     }
 
     //-------- test cubic and quintic splines ---------//
+    // accuracy of approximation of an oscillating fnc //
 
     math::createNonuniformGrid(NNODES, XMIN, XMAX, false, xnodes);
     xnodes[1]=(xnodes[1]+xnodes[2])/2;  // slightly squeeze grid spacing to allow
@@ -106,6 +108,63 @@ int main()
     ok &= sumerr3n<5e-3 && sumerr3<3e-4 && sumerr5 < 4e-5;
     if(OUTPUT)
         strm.close();
+
+    //-------- another test for cubic and quintic splines ---------//
+    //      accuracy of approximation of Legendre polynomials      //
+
+    for(int lmax=4; lmax<=32; lmax*=2) {   // vary the order of polynomials
+        for(int np=lmax*2-2; np<=lmax*4-2; np+=lmax) {   // vary the number of grid points on the interval -1<=x<=1
+            std::vector<double> legPl(lmax+1), legdPl(lmax+1);
+            std::vector<double> x(np+1);
+            std::vector<std::vector<double> > Pl(lmax+1), dPl(lmax+1);
+            for(int l=0; l<=lmax; l++) {
+                Pl [l].resize(x.size());
+                dPl[l].resize(x.size());
+            }
+            // assign x nodes and store values of Pl(x_i) and dPl/dx
+            for(int p=0; p<=np; p++) {
+                x[p] = p==0 ? -1 : p==np ? 1 : p==np/2 ? 0 : -cos(M_PI*(1.*p/np));
+                math::legendrePolyArray(lmax, 0, x[p], &legPl.front(), &legdPl.front());
+                for(int l=0; l<=lmax; l++) {
+                    Pl [l][p] = legPl[l];
+                    dPl[l][p] = legdPl[l];
+                }
+            }
+            // init cubic and quintic splines
+            std::vector<math::CubicSpline>   spl3(lmax+1);
+            std::vector<math::QuinticSpline> spl5(lmax+1);
+            for(int l=0; l<=lmax; l++) {
+                spl3[l] = math::CubicSpline  (x, Pl[l], dPl[l].front(), dPl[l].back());
+                spl5[l] = math::QuinticSpline(x, Pl[l], dPl[l]);
+            }
+            // compute the rms error for each l
+            std::vector<double> err3(lmax+1), err5(lmax+1), err3der(lmax+1), err5der(lmax+1);
+            const int NPTCHECK=1000;
+            for(int p=0; p<NPTCHECK; p++) {
+                double xp = (2*p+0.5)/NPTCHECK - 1.;
+                math::legendrePolyArray(lmax, 0, xp, &legPl.front(), &legdPl.front());
+                for(int l=0; l<=lmax; l++) {
+                    double v, d;
+                    spl3[l].evalDeriv(xp, &v, &d);
+                    err3[l] += pow_2(v - legPl[l]);
+                    err3der[l] += pow_2(d - legdPl[l]);
+                    spl5[l].evalDeriv(xp, &v, &d);
+                    err5[l] += pow_2(v - legPl[l]);
+                    err5der[l] += pow_2(d - legdPl[l]);
+                }
+            }
+            double maxerr3=0, maxerr5=0, maxerr3der=0, maxerr5der=0;
+            for(int l=0; l<=lmax; l++) {
+                maxerr3 = fmax(maxerr3, sqrt(err3[l]/NPTCHECK));
+                maxerr5 = fmax(maxerr5, sqrt(err5[l]/NPTCHECK));
+                maxerr3der = fmax(maxerr3der, sqrt(err3der[l]/NPTCHECK));
+                maxerr5der = fmax(maxerr5der, sqrt(err5der[l]/NPTCHECK));
+            }
+            std::cout << "Lmax="<<lmax<<", Npoints="<<(np+1)<<
+                ": rms(3)= "<<maxerr3<<", rms(5)= "<<maxerr5<<
+                ": rms(3')= "<<maxerr3der<<", rms(5')= "<<maxerr5der<<"\n";
+        }
+    }
 
     //----------- test 2d cubic and quintic spline ------------//
 
@@ -245,6 +304,7 @@ int main()
     }
 
 #ifdef STRESS_TEST
+    //----------- test the performance of 2d spline calculation -------------//
     double z, dx, dy, dxx, dxy, dyy;
     double wder[2];
     double wder2x[2], wder2y[2]; 

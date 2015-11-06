@@ -66,6 +66,18 @@ class test6: public math::IFunctionNoDeriv{
     }
 };
 
+class test_powerlaw: public math::IFunctionNoDeriv{
+public:
+    test_powerlaw(double _p): p(_p) {};
+    virtual double value(double x) const{
+        return pow(x, p);
+    }
+    double exactValue(double xmin, double xmax) const{
+        return p==-1 ? log(xmax/xmin) : (pow(xmax, p+1) - pow(xmin, p+1)) / (p+1);
+    }
+    double p;
+};
+
 static const double  // rotation
     A00 = 0.8786288646, A01 = -0.439043856, A02 = 0.1877546558,
     A10 = 0.4474142786, A11 = 0.8943234085, A12 = -0.002470791,
@@ -235,6 +247,22 @@ int main()
         for(unsigned int i=0; i<points.numRows(); i++)
             fout << points(i,0) << "\t" << points(i,1) << "\t" << points(i,2) << "\n";
     }
+
+#if 0
+    for(double p=-40; p<=40; p+=1.77) {
+        test_powerlaw tpl(p);
+        for(int n=8; n<=32; n*=2) {
+            double xmin=1., xmax=1.5;
+            result = math::integrateGL(tpl, xmin, xmax, n);
+            exact  = tpl.exactValue(xmin, xmax);
+            std::cout << "p="<<p<<", N="<<n<<": error("<<xmax<<")="<<(result-exact)/exact;
+            xmax=2.0;
+            result = math::integrateGL(tpl, xmin, xmax, n);
+            exact  = tpl.exactValue(xmin, xmax);
+            std::cout << ", error("<<xmax<<")="<<(result-exact)/exact<<"\n";
+        }
+    }
+#endif
 
     if(ok)
         std::cout << "ALL TESTS PASSED\n";

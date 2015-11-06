@@ -187,8 +187,8 @@ private:
 */
 class Multipole: public BasePotentialCyl{
 private:
-    double twominusgamma, Phi0;
-    math::QuinticSpline2d spl;
+    double twominusgamma, Phi0;  ///< parameters for extrapolating the potential at small radii
+    math::QuinticSpline2d spl;   ///< 2d spline in meridional plane for interpolating the potential
 public:
     /** Compute the potential using the multi expansion and approximate it 
         by a two-dimensional spline in (R,z) plane. 
@@ -203,7 +203,7 @@ public:
     */
     Multipole (const BaseDensity& source_density,
                const double r_min, const double r_max,
-               const int gridSizeR, const int gridSizeC);
+               const int gridSizeR, const int numCoefsAngular);
     virtual SymmetryType symmetry() const { return isSpherical ? ST_SPHERICAL : ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "AxisymmetricMultipole"; };

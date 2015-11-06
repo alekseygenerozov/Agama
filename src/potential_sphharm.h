@@ -217,14 +217,30 @@ private:
 
 };  // class SplineExp
 
-#if 0
+
+/** Spherical-harmonic expansion of density with coefficients being spline functions of radius */
 class DensitySphericalHarmonic: public BaseDensity, public SphericalHarmonicCoefSet {
 public:
     DensitySphericalHarmonic(unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
         const BaseDensity& density, double Rmin=0, double Rmax=0);
-    BasePotentialSph(), SphericalHarmonicCoefSet(_Ncoefs_angular) {}
+
+    virtual SymmetryType symmetry() const { return mysymmetry; }
+    virtual const char* name() const { return myName(); };
+    static const char* myName() { return "DensitySphericalHarmonic"; };
+
+    /** return spline-interpolated spherical-harmonic expansion coefficient at the given radius */
+    double rho_l(double r, int l) const;
+
+    /** return the negative logarithmic slope \f$ -d\log\rho_l(r) / d\log r \f$ 
+        of l-th expansion coefficient as r -> 0 */
+    double innerSlope(int l) const;
+
+    /** return the slope of l-th coefficient as r -> infinity */
+    double outerSlope(int l) const;
 
 private:
+    std::vector<math::CubicSpline> splines;  ///< radial dependence of each sph.-harm. expansion term
+
     /** evaluate density at the position specified in cartesian coordinates */
     virtual double densityCar(const coord::PosCar &pos) const {
         return densitySph(toPosSph(pos)); }
@@ -237,6 +253,5 @@ private:
     virtual double densitySph(const coord::PosSph &pos) const;
 
 };  // class DensitySphericalHarmonic
-#endif
 
 }  // namespace
