@@ -1077,7 +1077,10 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
         if(numIntPoints%2==1 && i==numIntPoints/2) weight/=2;
 
         math::legendrePolyArray(lmax, 0, costheta, &legPoly.front());
-        for(unsigned int k=0; k<numCoefsRadial; k++) {
+#ifdef _OPENMP
+#pragma omp parallel for
+#endif
+        for(int k=0; k<(int)numCoefsRadial; k++) {
             double dens = srcDensity.density(
                 coord::PosCyl(gridRadii[k]*sintheta, gridRadii[k]*costheta, 0));
             for(int l=0; l<=lmax; l+=lstep)

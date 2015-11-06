@@ -23,6 +23,7 @@ SOURCES   = \
             df_factory.cpp \
             df_halo.cpp \
             galaxymodel.cpp \
+            galaxymodel_selfconsistent.cpp \
             math_core.cpp \
             math_fit.cpp \
             math_linalg.cpp \
@@ -81,6 +82,7 @@ TESTSRCS  = test_math_core.cpp \
             test_torus_new.cpp \
             test_distributionfunction.cpp \
             test_df_fit.cpp \
+            test_selfconsistentmodel.cpp \
 
 LIBNAME   = $(LIBDIR)/libfJ.a
 PY_WRAPPER= $(LIBDIR)/py_wrapper.so

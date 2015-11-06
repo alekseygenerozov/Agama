@@ -276,9 +276,7 @@ Multipole::Multipole(const BaseDensity& source_density,
     math::Matrix<double> Phil(gridSizeR, numMultipoles), dPhl(gridSizeR, numMultipoles);
     std::vector<double> Pl(numMultipoles*2-1), dPl(numMultipoles*2-1);
 
-    //
-    // 1.1  set up radial grid
-    //
+    // set up radial grid
     std::vector<double> gridR(gridSizeR), gridC(gridSizeC);
     std::vector<double> r(gridSizeR);
     const double
@@ -290,137 +288,7 @@ Multipole::Multipole(const BaseDensity& source_density,
         r[k]     = exp(gridR[k]);
     }
 
-#if 0
-    // original implementation
-    //
-    // 1.2  compute expansion of the density by integrating over cos(theta)
-    //
-    math::Matrix<double> rhol(gridSizeR, numMultipoles), rhl2(gridSizeR, numMultipoles);
-    const int numIntPoints = numCoefsAngular+1;
-    std::vector<double> glx(numIntPoints), glw(numIntPoints);
-    math::prepareIntegrationTableGL(-1, 1, numIntPoints, &glx.front(), &glw.front());
-    for(int i=numIntPoints/2; i<numIntPoints; i++) {
-        double costheta = glx[i];
-        double sintheta = sqrt(1. - pow_2(costheta));
-        double weight = glw[i];
-        if(fabs(costheta)<1e-10) weight/=2;
-        math::legendrePolyArray(numMultipoles*2-2, 0, costheta, &Pl.front());
-        for(int k=0; k<gridSizeR; k++) {
-            double dens = source_density.density(coord::PosCyl(r[k]*sintheta, r[k]*costheta, 0));
-            for(int l=0; l<numMultipoles; l++)
-                rhol(k, l) += dens * weight * Pl[l*2];
-        }
-    }
-
-    //
-    // 1.3  determine asymptotic slopes of density profile at large and small r
-    //
-    double gamma = -log(rhol(1, 0) / rhol(0, 0)) / log(r[1] / r[0]);
-    double beta  = -log(rhol(gridSizeR-1, 0) / rhol(gridSizeR-2, 0)) / log(r[gridSizeR-1] / r[gridSizeR-2]);
-    if(!math::isFinite(gamma)) gamma = 0;
-    if(gamma>=2.8)   gamma = 2.8;
-    if(!math::isFinite(beta) || beta>42.) beta=0;
-    else if(beta<=3.2) beta=3.2;
-    twominusgamma = 2-gamma;  // parameter used in extrapolation of potential at small r
-
-    //
-    // 1.4  establish spline in r needed for integration
-    //
-    std::vector<double> nodes(gridSizeR), values(gridSizeR);
-    for(int l=0; l<numMultipoles; l++) {
-        for(int k=0; k<gridSizeR; k++) {
-            nodes[k]  = r[k];
-            values[k] = rhol(k, l);
-        }
-        math::CubicSpline spl1(nodes, values, l==0 ? (-gamma/r[0])*rhol(0, l) : NAN, NAN);
-        for(int k=0; k<gridSizeR; k++)
-            spl1.evalDeriv(r[k], NULL, NULL, &rhl2(k, l));
-    }
-
-    //
-    // 2. compute potential expansion
-    //
-    // 2.1 set P1[k][l] r[k]^(-1-2l) = Int[rho_2l(x,l) x^(2l+2), {x,0,r[k]}]
-    //
-    //     for r < Rmin we take  rho_2l proportional r^-gamma
-    //
-    std::vector<double> P2l(numMultipoles), dP2l(numMultipoles), EX(numMultipoles);
-    math::Matrix<double> P1(gridSizeR, numMultipoles), P2(gridSizeR, numMultipoles);
-    for(int l=0; l<numMultipoles; l++) {
-        P1(0, l) = rhol(0, l) * pow_2(Rmin) / (2*l+3-gamma);
-        EX[l]    = exp(-(1+2*l)*dlr);
-    }
-    for(int k=0; k<gridSizeR-1; k++) {
-        double dx   = r[k+1]-r[k];
-        for(int l=0; l<numMultipoles; l++) {
-            double A[4];
-            A[0] = r[k+1] * rhol(k, l) - r[k] * rhol(k+1, l)
-                + 1./6 * r[k]*r[k+1] * ( (r[k+1]+dx) * rhl2(k, l) - (r[k]-dx) * rhl2(k+1, l) );
-            A[1] = rhol(k+1, l) - rhol(k, l) 
-                + 1./6 * ( (dx*dx - 3.0*r[k+1]*r[k+1]) * rhl2(k, l)
-                         - (dx*dx - 3.0*r[k]  *r[k]  ) * rhl2(k+1, l) );
-            A[2] = 0.5  * (r[k+1] * rhl2(k, l) - r[k] * rhl2(k+1, l));
-            A[3] = 1./6 * (rhl2(k+1, l) - rhl2(k, l));
-            double xl_ll = r[k] * EX[l];
-            double xh_ll = r[k+1];
-            double dP=0.;
-            for(int i=0; i<4; i++) {
-                xl_ll*= r[k];
-                xh_ll*= r[k+1];
-                dP   += A[i] * (xh_ll - xl_ll) / (2*l+3+i);
-            }
-            P1(k+1, l) = EX[l] * P1(k, l) + dP / dx;
-        }
-    }
-    //
-    // 2.2 set P2[k][l] = r[k]^(2l) Int[rho_2l(x,l) x^(1-2l), {x,r[k],Infinity}]
-    //
-    //     for r > Rmax we take  rho_2l proportional r^-beta if beta>0
-    //                                  = 0                  if beta<=0
-    //
-    for(int l=0; l<numMultipoles; l++) {
-        P2(gridSizeR-1, l) = beta>0 ? rhol(gridSizeR-1, l) * pow_2(Rmax) / (beta+2*l-2) : 0;
-        EX[l] = exp(-2*l*dlr);
-    }
-    for(int k=gridSizeR-2; k>=0; k--) {
-        double dx   = r[k+1]-r[k];
-        double ril2 = 1.;
-        for(int l=0; l<numMultipoles; l++) {
-            double A[4];
-            A[0] = r[k+1] * rhol(k, l) - r[k] * rhol(k+1, l)
-                + 1./6*r[k]*r[k+1] * ( (r[k+1]+dx)*rhl2(k, l) - (r[k]-dx)*rhl2(k+1, l) );
-            A[1] = rhol(k+1, l) - rhol(k, l)
-                + 1./6 * ( (dx*dx - 3.0*r[k+1]*r[k+1]) * rhl2(k, l)
-                         - (dx*dx - 3.0*r[k]  *r[k]  ) * rhl2(k+1, l) );
-            A[2] = 0.5  * (r[k+1] * rhl2(k, l) - r[k] * rhl2(k+1, l));
-            A[3] = 1./6 * (rhl2(k+1, l) - rhl2(k, l));
-            double xl_ll = r[k];
-            double xh_ll = r[k+1]*EX[l];
-            double dP=0.;
-            for(int i=0; i<4; i++) {
-                xl_ll *= r[k];
-                xh_ll *= r[k+1];
-                int lli1=2-2*l+i;
-                if(lli1) dP += A[i] * (xh_ll - xl_ll) / lli1;
-                else     dP += A[i] * ril2 * dlr;
-            }
-            P2(k, l) = EX[l] * P2(k+1, l) + dP / dx;
-            ril2 *= pow_2(r[k]);
-        }
-    }
-
-    //
-    // 2.3 put together Phi_2l(r) and dPhi_2l(r)/dlog[r]
-    //
-    for(int k=0; k<gridSizeR; k++)
-        for(int l=0; l<numMultipoles; l++) {
-            Phil(k, l) = -4*M_PI * (P1(k, l) + P2(k, l));               // Phi_2l
-            dPhl(k, l) =  4*M_PI * ( (2*l+1)*P1(k, l) - 2*l*P2(k, l));  // dPhi_2l/dlogr
-        }
-    
-#else
-    // new implementation using a separate class for spherical-harmonic density expansion
-
+    // construct spherical-harmonic expansion of density
     const DensitySphericalHarmonic* densh = NULL;
     if(source_density.name() == DensitySphericalHarmonic::myName())   // use existing sph.-harm. expansion
         densh = static_cast<const DensitySphericalHarmonic*>(&source_density);
@@ -460,18 +328,16 @@ Multipole::Multipole(const BaseDensity& source_density,
     twominusgamma = 2-densh->innerSlope(0);
     if(source_density.name() != DensitySphericalHarmonic::myName())
         delete densh;   // destroy temporarily created spherical-harmonic expansion of the density
-#endif
 
+    // Put potential and its derivatives on a 2D grid in log[r] & cos[theta]
     //
-    // 4.  Put potential and its derivatives on a 2D grid in log[r] & cos[theta]
-    //
-    // 4.1 set linear grid in theta, i.e. non-uniform in cos(theta), with denser spacing close to z-axis
+    // set linear grid in theta, i.e. non-uniform in cos(theta), with denser spacing close to z-axis
     //
     for(int i=0; i<gridSizeC-1; i++) 
         gridC[i] = sin(M_PI_2 * i / (gridSizeC-1));
     gridC[gridSizeC-1] = 1.0;
     //
-    // 4.2 set dPhi/dlogr & dPhi/dcos[theta] 
+    // set dPhi/dlogr & dPhi/dcos[theta] 
     //
     math::Matrix<double> Phi_val(gridSizeR, gridSizeC);
     math::Matrix<double> Phi_dR (gridSizeR, gridSizeC);
@@ -493,11 +359,11 @@ Multipole::Multipole(const BaseDensity& source_density,
     Phi0 = Phil(0, 0) - dPhl(0, 0) / (twominusgamma);
 
     //
-    // 4.3 establish 2D Pspline of Phi in log[r] & cos[theta]
+    // establish 2D quintic spline of Phi in log[r] & cos[theta]
     //
     spl = math::QuinticSpline2d(gridR, gridC, Phi_val, Phi_dR, Phi_dC);
 
-    // [EV] 5.0 determine if the potential is spherically-symmetric
+    // determine if the potential is spherically-symmetric
     // (could determine this explicitly by analyzing the angular dependence of Phi(r,theta),
     // but for now simply ask the source density model
     isSpherical = (source_density.symmetry() & ST_SPHERICAL) == ST_SPHERICAL;

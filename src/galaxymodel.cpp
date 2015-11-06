@@ -6,6 +6,9 @@
 #include <cmath>
 #include <stdexcept>
 
+// this is a temporary measure
+#include "debug_utils.h"
+
 namespace galaxymodel{
 
 //------- HELPER ROUTINES -------//
@@ -97,11 +100,22 @@ public:
             return;
         }
 
-        // 2. determine the actions
-        actions::Actions acts = model.actFinder.actions(posvel);
+        double dfval;
+        try{
+            // 2. determine the actions
+            actions::Actions acts = model.actFinder.actions(posvel);
 
-        // 3. compute the value of distribution function times the jacobian
-        double dfval = model.distrFunc.value(acts) * jac;
+            // 3. compute the value of distribution function times the jacobian
+            dfval = model.distrFunc.value(acts) * jac;
+            
+            if(!math::isFinite(dfval))
+                throw std::runtime_error("DF is not finite");
+        }
+        catch(std::exception& e) {
+            //!!! this is a temporary measure, should replace with a more sophisticated error reporting
+            std::cerr << e.what() << " at "<<posvel<<"\n";
+            dfval = 0;
+        }
 
         // 4. output the value(s) to the integration routine
         outputValues(posvel, dfval, values);
