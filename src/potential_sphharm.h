@@ -81,7 +81,7 @@ public:
     unsigned int getNumCoefsRadial() const { return Ncoefs_radial; }
 
     /// a faster estimate of M(r) from the l=0 harmonic only
-    double enclosedMass(const double radius) const;
+    virtual double enclosedMass(const double radius) const;
 
 private:
     unsigned int Ncoefs_radial;                 ///< number of radial basis functions [ =SHcoefs.size() ]
@@ -152,7 +152,7 @@ public:
     void getCoefs(std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const;
 
     /// a faster estimate of M(r) from the l=0 harmonic only
-    double enclosedMass(const double radius) const;
+    virtual double enclosedMass(const double radius) const;
 
 private:
     unsigned int Ncoefs_radial;              ///< number of radial coefficients (excluding the one at r=0)
@@ -228,8 +228,19 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensitySphericalHarmonic"; };
 
+    /** a faster estimate of M(r) from the l=0 harmonic only:
+        \f$  M(r) \int_0^r 4\pi x^2 \rho_0(x) dx  \f$   */
+    virtual double enclosedMass(const double radius) const {
+        return 4*M_PI * integrate(0, radius, 0, 2); }
+
     /** return spline-interpolated spherical-harmonic expansion coefficient at the given radius */
     double rho_l(double r, int l) const;
+
+    /** return the integral of l-th coefficient times (r/r0)^n on the interval 0<=r1<=r2<=infinity */
+    double integrate(double r1, double r2, int l, int n, double r0=1) const;
+
+private:
+    std::vector<math::CubicSpline> splines;  ///< radial dependence of each sph.-harm. expansion term
 
     /** return the negative logarithmic slope \f$ -d\log\rho_l(r) / d\log r \f$ 
         of l-th expansion coefficient as r -> 0 */
@@ -237,9 +248,6 @@ public:
 
     /** return the slope of l-th coefficient as r -> infinity */
     double outerSlope(int l) const;
-
-private:
-    std::vector<math::CubicSpline> splines;  ///< radial dependence of each sph.-harm. expansion term
 
     /** evaluate density at the position specified in cartesian coordinates */
     virtual double densityCar(const coord::PosCar &pos) const {

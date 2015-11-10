@@ -250,31 +250,14 @@ double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
 
 //----- multipole potential -----//
 
-/// integrand for the density multiplied by a given power of radius
-class DensitySphHarmIntegrandAxi: public math::IFunctionNoDeriv {
-public:
-    DensitySphHarmIntegrandAxi(const DensitySphericalHarmonic& _densh, int _l, double _r0, int _p):
-        densh(_densh), l(_l), r0(_r0), p(_p) {};
-    virtual double value(double r) const {
-        return densh.rho_l(r, l) * math::powInt(r/r0, p);
-    }
-private:
-    const DensitySphericalHarmonic& densh;
-    int l;
-    double r0;
-    int p;
-};
-
 Multipole::Multipole(const BaseDensity& source_density,
                      const double Rmin, const double Rmax,
                      const int gridSizeR, const int numCoefsAngular)
 {
     if(!isAxisymmetric(source_density))
         throw std::invalid_argument("Error in Multipole expansion: source density must be axially symmetric");
-    const int numMultipoles = numCoefsAngular/2+1;   // number of multipoles (only even-l terms in the expansion are used)
+    const int numMultipoles = numCoefsAngular/2+1;   // number of multipoles (only even-l terms are used)
     const int gridSizeC     = 2*numCoefsAngular+1;   // number of grid points for theta in [0,pi/2]
-    math::Matrix<double> Phil(gridSizeR, numMultipoles), dPhl(gridSizeR, numMultipoles);
-    std::vector<double> Pl(numMultipoles*2-1), dPl(numMultipoles*2-1);
 
     // set up radial grid
     std::vector<double> gridR(gridSizeR), gridC(gridSizeC);
@@ -295,37 +278,58 @@ Multipole::Multipole(const BaseDensity& source_density,
     else    // create new spherical-harmonic expansion
         densh = new DensitySphericalHarmonic(gridSizeR, numCoefsAngular, source_density, Rmin, Rmax);
 
-    // accumulate the 'inner' and 'outer' parts of the potential at radial grid points
-    std::vector<double> P1(gridSizeR), P2(gridSizeR);
-    for(int l=0; l<numMultipoles; l++) {
+    // accumulate the 'inner' (P1) and 'outer' (P2) parts of the potential at radial grid points:
+    // P1_l(r) = r^{-l-1} \int_0^r \rho_l(s) s^{l+2} ds,
+    // P2_l(r) = r^l \int_r^\infty \rho_l(s) s^{1-l} ds.
+    // For each l, we compute P1(r) by looping over sub-intervals from inside out,
+    // and P2(r) - from outside in. In doing so, we use the recurrent relation
+    // P1(r_{i+1}) r_{i+1}^{l+1} = r_i^{l+1} P1(r_i) + \int_{r_i}^{r_{i+1}} \rho_l(s) s^{l+2} ds,
+    // and a similar relation for P2. This is further rewritten so that the integration over 
+    // density  \rho_l(s)  uses  (s/r_{i+1})^{l+2}  as the radius-dependent weight function -
+    // this avoids over/underflows when both l and r are large or small.
+    // Finally, \Phi_l(r) is computed as -4\pi ( P1_l(r) + P2_l(r) ), and similarly its derivative.
+    math::Matrix<double> Phil(gridSizeR, numMultipoles), dPhil(gridSizeR, numMultipoles);
+    std::vector<double>  P1(gridSizeR), P2(gridSizeR);
+    for(int l=0; l<=numCoefsAngular; l+=2) {
         // inner part
-        P1[0] = densh->rho_l(Rmin, 2*l) * pow_2(Rmin) / (3+2*l-densh->innerSlope(2*l));
+        P1[0] = densh->integrate(0, Rmin, l, l+2, Rmin) * Rmin;
         for(int k=1; k<gridSizeR; k++) {
-            double s = math::integrateGL(
-                DensitySphHarmIntegrandAxi(*densh, 2*l, r[k], 2*l+2),
-                r[k-1], r[k], l<30 ? 15 : 20);
-            // use the recurrence relation that avoids overflow for high l
-            P1[k] = P1[k-1] * math::powInt(r[k-1]/r[k], 1+2*l) + s * r[k];
+            double s = densh->integrate(r[k-1], r[k], l, l+2, r[k]);
+            P1[k] = P1[k-1] * math::powInt(r[k-1]/r[k], l+1) + s * r[k];
         }
         // outer part
-        P2[gridSizeR-1] = densh->rho_l(Rmax, 2*l) * pow_2(Rmax) / (densh->outerSlope(2*l)+2*l-2);
+        P2[gridSizeR-1] = densh->integrate(Rmax, INFINITY, l, 1-l, Rmax) * Rmax;
         if(!math::isFinite(P2[gridSizeR-1]))
             P2[gridSizeR-1] = 0;
         for(int k=gridSizeR-2; k>=0; k--) {
-            double s = math::integrateGL(
-                DensitySphHarmIntegrandAxi(*densh, 2*l, r[k], 1-2*l),
-                r[k], r[k+1], l<30 ? 15 : 20);
-            P2[k] = P2[k+1] * math::powInt(r[k]/r[k+1], 2*l) + s * r[k];
+            double s = densh->integrate(r[k], r[k+1], l, 1-l, r[k]);
+            P2[k] = P2[k+1] * math::powInt(r[k]/r[k+1], l) + s * r[k];
         }
         // put together inner and outer parts to compute the potential and its radial derivative,
         // for each spherical-harmonic term
         for(int k=0; k<gridSizeR; k++) {
-            Phil(k, l) = -4*M_PI * (P1[k] + P2[k]);               // Phi_2l
-            dPhl(k, l) =  4*M_PI * ( (2*l+1)*P1[k] - 2*l*P2[k]);  // dPhi_2l/dlogr
+            Phil (k, l/2) = -4*M_PI * (P1[k] + P2[k]);           // Phi_l
+            dPhil(k, l/2) =  4*M_PI * ( (l+1)*P1[k] - l*P2[k]);  // dPhi_l/dlogr
+        }
+        // analyze the behaviour of potential at small radii
+        if(l==0) {
+            // determine the central value of potential
+            double deltaPhi = 4*M_PI * (densh->integrate(0, r[0], 0, 1) - P1[0]);
+            Phi0 = Phil(0, 0) - deltaPhi;  // deltaPhi is Phi(rmin)-Phi(0)
+            // if the central value is finite, we derive the value of inner density slope gamma
+            // assuming that Phi(r) = Phi(0) + (Phi(rmin) - Phi(0)) * (r/rmin)^(2-gamma)
+            if(math::isFinite(deltaPhi) && deltaPhi!=0)
+                twominusgamma = dPhil(0, 0) / deltaPhi;
+            else
+                // otherwise we take the ratio between enclosed mass within rmin, given by P1(rmin),
+                // and the value of density at this radius, assuming that it varies as 
+                // rho(r) = rho(rmin) * (r/rmin)^(-gamma)  for r<rmin
+                twominusgamma = densh->rho_l(Rmin, 0) * pow_2(Rmin) / P1[0] - 1;
+            if(!math::isFinite(twominusgamma) || twominusgamma<-0.5)
+                twominusgamma=-0.5;  // rather arbitrary..
         }
     }
 
-    twominusgamma = 2-densh->innerSlope(0);
     if(source_density.name() != DensitySphericalHarmonic::myName())
         delete densh;   // destroy temporarily created spherical-harmonic expansion of the density
 
@@ -342,21 +346,21 @@ Multipole::Multipole(const BaseDensity& source_density,
     math::Matrix<double> Phi_val(gridSizeR, gridSizeC);
     math::Matrix<double> Phi_dR (gridSizeR, gridSizeC);
     math::Matrix<double> Phi_dC (gridSizeR, gridSizeC);
+    std::vector<double>  Pl(numCoefsAngular+1), dPl(numCoefsAngular+1);
     for(int i=0; i<gridSizeC; i++) {
-        math::legendrePolyArray(numMultipoles*2-2, 0, gridC[i], &Pl.front(), &dPl.front());
+        math::legendrePolyArray(numCoefsAngular, 0, gridC[i], &Pl.front(), &dPl.front());
         for(int k=0; k<gridSizeR; k++) {
             double val=0, dR=0, dC=0;
-            for(int l=0; l<numMultipoles; l++) {
-                val += Phil(k, l) * Pl[2*l];   // Phi
-                dR  += dPhl(k, l) * Pl[2*l];   // d Phi / d log(r)
-                dC  += Phil(k, l) * dPl[2*l];  // d Phi / d cos(theta)
+            for(int l=0; l<numMultipoles; l+=2) {
+                val += Phil (k, l/2) *  Pl[l];   // Phi
+                dR  += dPhil(k, l/2) *  Pl[l];   // d Phi / d log(r)
+                dC  += Phil (k, l/2) * dPl[l];   // d Phi / d cos(theta)
             }
             Phi_val(k, i) = val;
             Phi_dR (k, i) = dR;
             Phi_dC (k, i) = dC;
         }
     }
-    Phi0 = Phil(0, 0) - dPhl(0, 0) / (twominusgamma);
 
     //
     // establish 2D quintic spline of Phi in log[r] & cos[theta]

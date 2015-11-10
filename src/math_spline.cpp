@@ -400,8 +400,8 @@ CubicSpline::CubicSpline(const std::vector<double>& xa,
     unsigned int num_points = xa.size();
     if(ya.size() != num_points)
         throw std::invalid_argument("Error in spline initialization: input arrays are not equal in length");
-    if(num_points < 3)
-        throw std::invalid_argument("Error in spline initialization: number of nodes should be >=3");
+    if(num_points < 2)
+        throw std::invalid_argument("Error in spline initialization: number of nodes should be >=2");
     unsigned int max_index = num_points - 1;  /* Engeln-Mullges + Uhlig "n" */
     unsigned int sys_size = max_index - 1;    /* linear system is sys_size x sys_size */
     std::vector<double> rhs(sys_size), diag(sys_size), offdiag(sys_size);  // temporary arrays
@@ -428,7 +428,10 @@ CubicSpline::CubicSpline(const std::vector<double>& xa,
         }
     }
 
-    if (sys_size == 1) {
+    if(sys_size == 0) {
+        cval.assign(2, 0.);
+    } else
+    if(sys_size == 1) {
         cval.assign(3, 0.);
         cval[1] = rhs[0] / diag[0];
     } else {
@@ -465,15 +468,15 @@ inline void evalCubicSplines(
 {
     const double h = xh - xl, dx = x - xl;
     for(unsigned int k=0; k<K; k++) {
-        double c_i = cl[k];
-        double b_i = (yh[k] - yl[k]) / h - h * (1./6 * ch[k] + 1./3 * c_i);
-        double d_i = (ch[k] - c_i)   / h;
+        double c = cl[k];
+        double b = (yh[k] - yl[k]) / h - h * (1./6 * ch[k] + 1./3 * c);
+        double d = (ch[k] - c)   / h;
         if(y)
-            y[k]   = yl[k] + dx * (b_i + dx * (1./2 * c_i + dx * 1./6 * d_i));
+            y[k]   = yl[k] + dx * (b + dx * (1./2 * c + dx * 1./6 * d));
         if(dy)
-            dy[k]  = b_i + dx * (c_i + dx * 1./2 * d_i);
+            dy[k]  = b + dx * (c + dx * 1./2 * d);
         if(d2y)
-            d2y[k] = c_i + dx * d_i;
+            d2y[k] = c + dx * d;
     }
 }
 
@@ -535,6 +538,73 @@ bool CubicSpline::isMonotonic() const
     return ismonotonic;
 }
 
+namespace {
+// definite integral of x^(m+n)
+class MonomialIntegral: public IFunctionIntegral {
+public:
+    MonomialIntegral(int _n) : n(_n) {};
+    virtual double integrate(double x1, double x2, int m=0) const {
+        return m+n+1==0 ? log(x2/x1) : (powInt(x2, m+n+1) - powInt(x1, m+n+1)) / (m+n+1);
+    }
+private:
+    const int n;
+};
+}
+
+double CubicSpline::integrate(double x1, double x2, int n) const {
+    return integrate(x1, x2, MonomialIntegral(n));
+}
+
+double CubicSpline::integrate(double x1, double x2, const IFunctionIntegral& f) const
+{
+    if(x1==x2)
+        return 0;
+    if(x1>x2)
+        return integrate(x2, x1, f);
+    double result = 0;
+    if(x1<xval.front()) {    // spline is linearly extrapolated at x<xval[0]
+        double dx  =  xval[1]-xval[0];
+        double der = (yval[1]-yval[0]) / dx - dx * (1./6 * cval[1] + 1./3 * cval[0]);
+        double X2  = fmin(x2, xval.front());
+        result +=
+            f.integrate(x1, X2, 0) * (yval.front() - der * xval.front()) +
+            f.integrate(x1, X2, 1) * der;
+        if(x2<=xval.front())
+            return result;
+        x1 = xval.front();
+    }
+    if(x2>xval.back()) {    // same for x>xval[end]
+        unsigned int size = xval.size();
+        double dx  =  xval[size-1]-xval[size-2];
+        double der = (yval[size-1]-yval[size-2]) / dx + dx * (1./6 * cval[size-2] + 1./3 * cval[size-1]);
+        double X1  = fmax(x1, xval.back());
+        result +=
+            f.integrate(X1, x2, 0) * (yval.back() - der * xval.back()) +
+            f.integrate(X1, x2, 1) * der;
+        if(x1>=xval.back())
+            return result;
+        x2 = xval.back();
+    }
+    unsigned int i1 = binSearch(x1, &xval.front(), xval.size());
+    unsigned int i2 = binSearch(x2, &xval.front(), xval.size());
+    for(unsigned int i=i1; i<=i2; i++) {
+        double x  = xval[i];
+        double h  = xval[i+1] - x;
+        double a  = yval[i];
+        double c  = cval[i];
+        double b  = (yval[i+1] - a) / h - h * (1./6 * cval[i+1] + 1./3 * c);
+        double d  = (cval[i+1] - c) / h;
+        // spline(x) = yval[i] + dx * (b + dx * (c/2 + dx*d/6)), where dx = x-xval[i]
+        double X1 = i==i1 ? x1 : x;
+        double X2 = i==i2 ? x2 : xval[i+1];
+        result   +=
+            f.integrate(X1, X2, 0) * (a - x * (b - 1./2 * x * (c - 1./3 * x * d))) +
+            f.integrate(X1, X2, 1) * (b - x * (c - 1./2 * x * d)) +
+            f.integrate(X1, X2, 2) * (c - x * d) / 2 +
+            f.integrate(X1, X2, 3) * d / 6;
+    }
+    return result;
+}
 
 // ------ Quintic spline ------- //
 QuinticSpline::QuinticSpline(const std::vector<double>& xvalues, 
@@ -745,8 +815,6 @@ CubicSpline2d::CubicSpline2d(const std::vector<double>& xvalues, const std::vect
 {
     const unsigned int xsize = xvalues.size();
     const unsigned int ysize = yvalues.size();
-    if(xsize<4 || ysize<4)
-        throw std::invalid_argument("Error in 2d spline initialization: number of nodes should be >=4 in each direction");
     zx.resize (xsize, ysize);
     zy.resize (xsize, ysize);
     zxy.resize(xsize, ysize);
@@ -959,8 +1027,6 @@ QuinticSpline2d::QuinticSpline2d(const std::vector<double>& xvalues, const std::
 {
     const unsigned int xsize = xvalues.size();
     const unsigned int ysize = yvalues.size();
-    if(xsize<4 || ysize<4)
-        throw std::invalid_argument("Error in 2d spline initialization: number of nodes should be >=4 in each direction");
     // 1. for each y do 1d quintic spline for z in x, and record d^3z/dx^3
     zxxx.resize(xsize, ysize);
     zyyy.resize(xsize, ysize);

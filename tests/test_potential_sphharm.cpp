@@ -297,7 +297,7 @@ int main() {
     // axisymmetric
     const potential::Dehnen hernqa(1., 1., 1., .5, 1.);
     //p = new OldGalpotWrapper();
-    p = new potential::Multipole(hernqa, 1e-3, 1e3, 201, 20);
+    p = new potential::Multipole(hernqa, 1e-3, 1e3, 201, 40);
     test_average_error(*p, hernqa);
     delete p;
     p = new potential::SplineExp(100, 16, hernqa, 1e-3, 1e3);

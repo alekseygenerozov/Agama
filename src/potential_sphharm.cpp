@@ -5,18 +5,22 @@
 #include <algorithm>
 #include <cassert>
 #include <stdexcept>
+#include <iostream>
 
 namespace potential {
 
+// internal definitions
+namespace{
+
 /// max number of basis-function expansion members (radial and angular).
-static const unsigned int MAX_NCOEFS_ANGULAR = 101;
-static const unsigned int MAX_NCOEFS_RADIAL  = 100;
+const unsigned int MAX_NCOEFS_ANGULAR = 101;
+const unsigned int MAX_NCOEFS_RADIAL  = 100;
 
 /// max number of function evaluations in multidimensional integration
-static const unsigned int MAX_NUM_EVAL = 4096;
+const unsigned int MAX_NUM_EVAL = 4096;
 
 /// relative accuracy of potential computation (integration tolerance parameter)
-static const double EPSREL_POTENTIAL_INT = 1e-6;
+const double EPSREL_POTENTIAL_INT = 1e-6;
 
 /// relative accuracy in auxiliary root-finding routines
 const double ACCURACY_ROOT = 1e-6;
@@ -69,6 +73,8 @@ protected:
     const double rscale;                      ///< scaling factor for integration in radius
     const double mult;                        ///< constant multiplicative factor in Y_l^m
 };
+
+}  // internal namespace
 
 //----------------------------------------------------------------------------//
 // BasePotentialSphericalHarmonic -- parent class for all potentials 
@@ -1103,6 +1109,7 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
             deriv_outer = 0;
         if(deriv_outer >= -3.2)
             deriv_outer = -3.2;
+        std::cout << l<<','<<deriv_inner<<','<<deriv_outer<<'\n';
         splines[l] = math::CubicSpline(gridRadii, rhol[l], 
             deriv_inner/gridRadii.front()*rhol[l].front(),
             deriv_outer/gridRadii.back() *rhol[l].back());
@@ -1152,6 +1159,82 @@ double DensitySphericalHarmonic::densitySph(const coord::PosSph &pos) const
     for(int l=0; l<=lmax; l+=lstep) {
         result += rho_l(pos.r, l) * legPoly[l] * (2*l+1);
     }
+    return result;
+}
+
+// a few internal math constructs
+namespace{
+
+// safely evaluate nonnegative powers of 0 or negative powers of infinity
+inline double safepow(double x, double n)
+{
+    if(x==0)
+        return n>=0 ? 0 : INFINITY;
+    if(x==INFINITY)
+        return n<0 ? 0 : INFINITY;
+    return pow(x, n);
+}
+
+// compute \int_{x1}^{x2} (x/x0)^n dx;
+// the factor x0 is not taken out of the integral because for large |n+m| it may overflow,
+// but if the provided x0 is not too different from both x1 or x2 then it will work smoothly.
+inline double monomialInt(double x1, double x2, double n, double x0) 
+{
+    return x0 * ( n == -1 ?
+        log(x2/x1) : (safepow(x2/x0, n+1) - safepow(x1/x0, n+1)) / (n+1) );
+}
+
+// similar to the above: integrand for (x/x0)^n * x^m, to be provided to the spline
+class MonomialIntegral: public math::IFunctionIntegral {
+public:
+    MonomialIntegral(int _n, double _x0) : n(_n), x0(_x0) {};
+    virtual double integrate(double x1, double x2, int m=0) const {
+        return m+n+1==0 ?
+            math::powInt(x0, -n) * log(x2/x1) : 
+          ( math::powInt(x2/x0, n) * math::powInt(x2, m+1) -
+            math::powInt(x1/x0, n) * math::powInt(x1, m+1) ) / (m+n+1);
+    }
+private:
+    const int n;
+    const double x0;
+};
+
+}  // internal namespace
+
+double DensitySphericalHarmonic::integrate(double r1, double r2, int l, int n, double r0) const
+{
+    if(r1==r2 || l>lmax || splines[l].isEmpty())
+        return 0;
+    if(r1>r2)
+        return integrate(r2, r1, l, n, r0);
+    double rmin=splines[0].xmin(), rmax=splines[0].xmax();
+    double result=0;
+    if(r1<rmin) {
+        double val_rmin, der_rmin;
+        splines[l].evalDeriv(rmin, &val_rmin, &der_rmin);
+        if(val_rmin!=0) {
+            double gamma = -rmin * der_rmin / val_rmin;  // inner density slope
+            double rr = fmin(rmin, r2);
+            result += val_rmin * pow(rmin/r0, gamma) * monomialInt(r1, rr, n-gamma, r0);
+        }
+        if(r2<=rmin)
+            return result;
+        r1=rmin;
+    }
+    if(r2>rmax) {
+        double val_rmax, der_rmax;
+        splines[l].evalDeriv(rmax, &val_rmax, &der_rmax);
+        if(val_rmax!=0) {
+            double gamma = -rmax * der_rmax / val_rmax;  // outer density slope
+            double rr = fmax(rmax, r1);
+            result += val_rmax * pow(rmax/r0, gamma) * monomialInt(rr, r2, n-gamma, r0);
+        }
+        if(r1>=rmax)
+            return result;
+        r2=rmax;
+    }
+    // integration over the definition region of the spline is done by the spline itself
+    result += splines[l].integrate(r1, r2, MonomialIntegral(n, r0));
     return result;
 }
 

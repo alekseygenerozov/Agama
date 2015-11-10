@@ -107,6 +107,15 @@ public:
 
 };
 
+/** Prototype for a definite integral of a function */
+class IFunctionIntegral {
+public:
+    virtual ~IFunctionIntegral() {};
+
+    /** Compute the value of integral of the function times x^n on the interval [x1..x2] */
+    virtual double integrate(double x1, double x2, int n=0) const=0;
+};
+
 /** Prototype of a function of N>=1 variables that computes a vector of M>=1 values. */
 class IFunctionNdim {
 public:

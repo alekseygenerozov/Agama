@@ -6,6 +6,7 @@
 #include "math_specfunc.h"
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
@@ -20,10 +21,68 @@ const double XMIN = 0.2;
 const double XMAX = 12.;
 const double DISP = 0.5;  // y-dispersion
 const bool OUTPUT = false;
+
+// provides the integral of sin(x)*x^n
+class testfnc: public math::IFunctionIntegral {
+    virtual double integrate(double x1, double x2, int n=0) const {
+        return antideriv(x2,n)-antideriv(x1,n);
+    }
+    double antideriv(double x, int n) const {
+        switch(n) {
+            case 0: return -cos(x);
+            case 1: return -cos(x)*x+sin(x);
+            case 2: return  cos(x)*(2-x*x) + 2*x*sin(x);
+            case 3: return  cos(x)*x*(6-x*x) + 3*sin(x)*(x*x-2);
+            default: return NAN;
+        }
+    }
+};
+// provides the integrand for numerical integration of sin(x)*f(x)
+class testfncint: public math::IFunctionNoDeriv {
+public:
+    testfncint(const math::IFunction& _f): f(_f) {};
+    virtual double value(const double x) const {
+        return sin(x) * f(x);
+    }
+private:
+    const math::IFunction& f;
+};
+// provides the integrand for numerical integration of f(x)^2
+class squaredfnc: public math::IFunctionNoDeriv {
+public:
+    squaredfnc(const math::IFunction& _f): f(_f) {};
+    virtual double value(const double x) const {
+        return pow_2(f(x));
+    }
+private:
+    const math::IFunction& f;
+};
+
+bool test_integral(const math::CubicSpline& f, double x1, double x2)
+{
+    double result_int = f.integrate(x1, x2);
+    double result_ext = math::integrateAdaptive(f, x1, x2, 1e-10);
+    std::cout << "Ordinary intergral on ["<<x1<<":"<<x2<<
+        "]: internal routine = "<<result_int<<", adaptive integration = "<<result_ext<<"\n";
+    if(fabs(result_int-result_ext)>1e-10) return false;
+    result_int = f.integrate(x1, x2, testfnc());
+    result_ext = math::integrateAdaptive(testfncint(f), x1, x2, 1e-10);
+    std::cout << "Weighted intergral on ["<<x1<<":"<<x2<<
+        "]: internal routine = "<<result_int<<", adaptive integration = "<<result_ext<<"\n";
+    if(fabs(result_int-result_ext)>1e-10) return false;
+    result_int = f.integrate(x1, x2, f);
+    result_ext = math::integrateAdaptive(squaredfnc(f), x1, x2, 1e-10);
+    std::cout << "Integral of f(x)^2 on ["<<x1<<":"<<x2<<
+        "]: internal routine = "<<result_int<<", adaptive integration = "<<result_ext<<"\n";
+    if(fabs(result_int-result_ext)>1e-10) return false;
+    return true;
+}
+
 int main()
 {
     //----------- test penalized smoothing spline fit to noisy data -------------//
 
+    std::cout << std::setprecision(12);
     bool ok=true;
     std::vector<double> xnodes(NNODES);
     math::createNonuniformGrid(NNODES, XMIN, XMAX, true, xnodes);
@@ -108,6 +167,10 @@ int main()
     ok &= sumerr3n<5e-3 && sumerr3<3e-4 && sumerr5 < 4e-5;
     if(OUTPUT)
         strm.close();
+
+    // test the integration function //
+    ok &= test_integral(fcubcl, (xnodes[0]+xnodes[1])/2, xnodes.back());
+    ok &= test_integral(fcubna, -1.234567, xnodes.back()+1.);
 
     //-------- another test for cubic and quintic splines ---------//
     //      accuracy of approximation of Legendre polynomials      //

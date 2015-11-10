@@ -14,7 +14,7 @@ Spline interpolation class is based on the GSL implementation by G.Jungman;
 namespace math{
 
 /** Class that defines a cubic spline with natural or clamped boundary conditions */
-class CubicSpline: public IFunction {
+class CubicSpline: public IFunction, public IFunctionIntegral {
 public:
     /** empty constructor is required for the class to be used in std::vector and alike places */
     CubicSpline() {};
@@ -31,7 +31,16 @@ public:
         if the input location is outside the definition interval, a linear extrapolation is performed. */
     virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
 
+    /** return the number of derivatives that the spline provides */
     virtual unsigned int numDerivs() const { return 2; }
+
+    /** return the integral of spline function times x^n on the interval [x1..x2] */
+    virtual double integrate(double x1, double x2, int n=0) const;
+
+    /** return the integral of spline function times another function f(x) on the interval [x1..x2]; 
+        the other function is specified by the interface that provides the integral
+        of f(x) * x^n for 0<=n<=3 */
+    double integrate(double x1, double x2, const IFunctionIntegral& f) const;
 
     /** return the lower end of definition interval */
     double xmin() const { return xval.size()? xval.front() : NAN; }
@@ -77,7 +86,7 @@ public:
     double deriv3(const double x) const;
 
     /** two derivatives are returned by evalDeriv() method, and third derivative - by deriv3() */
-    virtual unsigned int numDerivs() const { return 2; }
+    virtual unsigned int numDerivs() const { return 3; }
 
     /** return the lower end of definition interval */
     double xmin() const { return xval.size()? xval.front() : NAN; }
