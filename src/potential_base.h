@@ -407,8 +407,8 @@ coord::PosCyl unscaleCoords(const double vars[], double* jac=0);
 /// helper class for integrating density over volume
 class DensityIntegrandNdim: public math::IFunctionNdim {
 public:
-    DensityIntegrandNdim(const BaseDensity& _dens) :
-        dens(_dens), axisym((_dens.symmetry() & ST_ZROTSYM) == ST_ZROTSYM) {}
+    DensityIntegrandNdim(const BaseDensity& _dens, bool _nonnegative = false) :
+        dens(_dens), axisym((_dens.symmetry() & ST_ZROTSYM) == ST_ZROTSYM), nonnegative(_nonnegative) {}
 
     /// integrand for the density at a given point (R,z,phi) with appropriate coordinate scaling
     virtual void eval(const double vars[], double values[]) const;
@@ -426,6 +426,7 @@ public:
 private:
     const BaseDensity& dens;  ///< the density model to be integrated over
     const bool axisym;        ///< flag determining if the density is axisymmetric
+    const bool nonnegative;   ///< flag determining whether to return zero if density was negative
 };
     
 ///@}

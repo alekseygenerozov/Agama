@@ -8,6 +8,7 @@
 */
 #include "coord.h"
 #include "debug_utils.h"
+#include <iostream>
 #include <iomanip>
 #include <stdexcept>
 

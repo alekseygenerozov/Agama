@@ -8,8 +8,11 @@
 
 // this is a temporary measure
 #include "debug_utils.h"
+#include <iostream>
 
 namespace galaxymodel{
+
+namespace{   // internal definitions
 
 //------- HELPER ROUTINES -------//
 
@@ -320,6 +323,68 @@ protected:
 };
 
 
+//------- PROGRESS REPORTING INTERFACE -------//
+
+class ProgressReport: public math::SamplingProgressReportCallback {
+public:
+    ProgressReport(const DFIntegrandNdim& _fnc, std::ostream& _strm) :
+        fnc(_fnc), strm(_strm), numSamplesReported(0), numCellsReported(0) {};
+    
+private:
+    const DFIntegrandNdim& fnc;      ///< the N-dimensional integrand
+    std::ostream& strm;              ///< output stream for printing out progress report
+    unsigned int numSamplesReported; ///< keep track of the number of reported overweight samples
+    unsigned int numCellsReported;   ///< keep track of the number of refined cells
+    
+    virtual void generalMessage(const char* msg)
+    {
+        strm << msg << std::endl;
+    }
+    
+    virtual void reportBins(const std::vector<double> binBoundaries[])
+    {
+        for(unsigned int d=0; d<fnc.numVars(); d++) {
+            strm << "bins for D=" << d << ':';
+            for(unsigned int k=0; k<binBoundaries[d].size(); k++)
+                strm << ' ' << binBoundaries[d][k];
+            strm << std::endl;
+        }
+    }
+    
+    virtual void reportIteration(int numIter, 
+        double integralValue, double integralError, unsigned int numCallsFnc)
+    {
+        strm << "Iteration #" << numIter << ": value= " << integralValue <<
+            " +- " << integralError << " using " << numCallsFnc << " function calls";
+        if(numSamplesReported>0 || numCellsReported>0)
+            strm << " and refining " << numCellsReported <<
+                " cells because of " << numSamplesReported << " overweight samples";
+        strm << std::endl;
+        numSamplesReported = numCellsReported = 0;
+    }
+    
+    virtual void reportOverweightSample(const double sampleCoords[], double fncValue)
+    {
+        if(++numSamplesReported <= 4) {
+            double jac;
+            coord::PosVelCyl posvel = fnc.unscaleVars(sampleCoords, &jac);
+            strm << "f= " << (fncValue/jac) << " *Jac= " << jac << " at " << posvel << std::endl;
+        }
+    }
+    
+    virtual void reportRefinedCell(const double lowerCorner[], const double upperCorner[])
+    {
+        if(++numCellsReported <= 4) {
+            std::vector<double> center(fnc.numVars());
+            for(unsigned int d=0; d<fnc.numVars(); d++)
+                center[d] = (lowerCorner[d] + upperCorner[d]) / 2;
+            strm << "Refining cell centered at " << fnc.unscaleVars(&center.front()) << std::endl;
+        }
+    }
+};
+
+}  // unnamed namespace
+
 //------- DRIVER ROUTINES -------//
 
 void computeMoments(const GalaxyModel& model,
@@ -470,7 +535,9 @@ void generatePosVelSamples(const GalaxyModel& model, const unsigned int numSampl
     unsigned int NB = static_cast<unsigned int>(pow(numSamples*0.1, 1./3))+1;  // # of bins per dimension
     // use adaptive binning in R, z and |v| dimensions only, and leave the other three unbinned
     unsigned int numBins[6] = {NB, NB, 1, NB, 1, 1};
-    math::sampleNdim(fnc, xlower, xupper, numSamples, numBins, result, NULL, &totalMass, &errorMass);
+    ProgressReport callback(fnc, std::cerr);
+    math::sampleNdim(fnc, xlower, xupper, numSamples, numBins,
+        result, NULL, &totalMass, &errorMass, &callback);
     const double pointMass = totalMass / result.numRows();
     points.data.clear();
     for(unsigned int i=0; i<result.numRows(); i++) {
@@ -487,7 +554,7 @@ void generateDensitySamples(const potential::BaseDensity& dens, const unsigned i
     particles::PointMassArray<coord::PosCyl>& points)
 {
     const bool axisym = isAxisymmetric(dens);
-    potential::DensityIntegrandNdim fnc(dens);
+    potential::DensityIntegrandNdim fnc(dens, true);  // require the values of density to be non-negative
     math::Matrix<double> result;      // sampled scaled coordinates
     double totalMass, errorMass;      // total mass and its estimated error
     double xlower[3] = {0,0,0};       // boundaries of sampling region in scaled coordinates

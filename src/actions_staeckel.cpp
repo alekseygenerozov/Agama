@@ -319,6 +319,8 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
     // due to roundoff errors, it may actually happen that f(lambda) is a very small negative number
     // in this case we need to estimate the value of lambda at which it is strictly positive (for root-finder)
     double lambda_pos = fnc.point.lambda + pn_lambda.dxToPositive();
+    if(lambda_pos<delta)
+        lambda_pos = delta;
     /*  now two more problems may occur:
         1. lambda_pos = NaN means that it could not be found, i.e., 
         f(lambda)<0, f'(lambda) is very small and f''(lambda)<0, we are near the top of inverse parabola 
@@ -346,7 +348,7 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
         || fabs(fnc.point.nu) > lim.nu_max
         || fnc.point.lambda < lim.lambda_min
         || fnc.point.lambda > lim.lambda_max)
-        throw std::invalid_argument("findLimits: something wrong with the data");
+        throw std::invalid_argument("findLimits failed");
 
     // ignore extremely small intervals
     if(lim.nu_max < delta * MINIMUM_RANGE)

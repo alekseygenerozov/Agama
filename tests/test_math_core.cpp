@@ -116,6 +116,56 @@ public:
     virtual unsigned int numValues() const { return 1; }
 };
 
+class ProgressReport: public math::SamplingProgressReportCallback {
+    unsigned int ndim;               ///< dimensions of the problem
+    unsigned int numSamplesReported; ///< keep track of the number of reported overweight samples
+    unsigned int numCellsReported;   ///< keep track of the number of refined cells
+public:
+    ProgressReport(unsigned int n): ndim(n), numSamplesReported(0), numCellsReported(0) {};
+        virtual void generalMessage(const char* msg)
+    {
+        std::cout << msg << std::endl;
+    }
+    virtual void reportBins(const std::vector<double> binBoundaries[])
+    {
+        for(unsigned int d=0; d<ndim; d++) {
+            std::cout << "bins for D=" << d << ':';
+            for(unsigned int k=0; k<binBoundaries[d].size(); k++)
+                std::cout << ' ' << binBoundaries[d][k];
+            std::cout << std::endl;
+        }
+    }
+    virtual void reportIteration(int numIter, 
+        double integralValue, double integralError, unsigned int numCallsFnc)
+    {
+        std::cout << "Iteration #" << numIter << ": value= " << integralValue <<
+            " +- " << integralError << " using " << numCallsFnc << " function calls";
+        if(numSamplesReported>0 || numCellsReported>0)
+            std::cout << " and refining " << numCellsReported <<
+                " cells because of " << numSamplesReported << " overweight samples";
+        std::cout << std::endl;
+        numSamplesReported = numCellsReported = 0;
+    }
+    virtual void reportOverweightSample(const double sampleCoords[], double fncValue)
+    {
+        if(++numSamplesReported <= 4) {
+            std::cout << "f= " << fncValue << " at";
+            for(unsigned int d=0; d<ndim; d++)
+                std::cout << ' ' << sampleCoords[d];
+            std::cout << std::endl;
+        }
+    }
+    virtual void reportRefinedCell(const double lowerCorner[], const double upperCorner[])
+    {
+        if(++numCellsReported <= 4) {
+            std::cout << "Refining cell centered at";
+            for(unsigned int d=0; d<ndim; d++)
+                std::cout << " [" << lowerCorner[d] << ':' << upperCorner[d] << ']';
+            std::cout << std::endl;
+        }
+    }
+};
+
 int main()
 {
     std::cout << std::setprecision(10);
@@ -232,14 +282,16 @@ int main()
     numEval=0;
     double ymin[] = {-4,-4,-2};
     double ymax[] = {+4,+4,+2};
+    test8Ndim fnc8;
     exact = 2*pow_2(M_PI*test8Ndim::Rin)*test8Ndim::Rout;  // volume of a torus
-    integrateNdim(test8Ndim(), ymin, ymax, toler, 1000000, &result, &error);
+    integrateNdim(fnc8, ymin, ymax, toler, 1000000, &result, &error);
     std::cout << "Volume of a 3d torus = "<<result<<" +- "<<error<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
     ok &= fabs(result-exact)<error;
 
     numEval=0;
     math::Matrix<double> points;
-    sampleNdim(test8Ndim(), ymin, ymax, 100000, NULL, points, NULL, &result, &error);
+    ProgressReport callback(fnc8.numVars());
+    sampleNdim(fnc8, ymin, ymax, 100000, NULL, points, NULL, &result, &error, &callback);
     std::cout << "Monte Carlo Volume of a 3d torus = "<<result<<" +- "<<error<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
     ok &= fabs(result-exact)<error*2;  // loose tolerance on MC error estimate
     if(0) {

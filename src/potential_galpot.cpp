@@ -388,7 +388,7 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
     double Phi=0, PhiR=0, PhiC=0, PhiRR=0, PhiRC=0, PhiCC=0;
     if(deriv2)
         spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC, &PhiRR, &PhiRC, &PhiCC);
-    else if(deriv)
+    else if(deriv || lr > lRmax)
         spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC);
     else
         spl.evalDeriv(valR, valC, &Phi);

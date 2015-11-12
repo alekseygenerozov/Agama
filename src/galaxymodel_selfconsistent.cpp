@@ -52,12 +52,13 @@ private:
 
 Component::Component(const df::BaseDistributionFunction* _distrFunc,
     double _rmin, double _rmax, 
-    unsigned int _numCoefsRadial, unsigned int _numCoefsAngular):
+    unsigned int _numCoefsRadial, unsigned int _numCoefsAngular,
+    const potential::BaseDensity* initDens):
     distrFunc(_distrFunc), rmin(_rmin), rmax(_rmax),
     numCoefsRadial(_numCoefsRadial), numCoefsAngular(_numCoefsAngular),
-    // density is initialized as a simple Plummer model
-    // with the correct total mass and a reasonable scale radius
-    density(new potential::Plummer(distrFunc->totalMass(), sqrt(rmin*rmax)))
+    // if the first guess for density is not provided, it is initialized as 
+    // a simple Plummer model with the correct total mass and a reasonable scale radius
+    density(initDens ? initDens : new potential::Plummer(distrFunc->totalMass(), sqrt(rmin*rmax)))
 {}
 
 

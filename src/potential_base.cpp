@@ -102,6 +102,8 @@ void DensityIntegrandNdim::eval(const double vars[], double values[]) const
         values[0] = dens.density(pos) * jac;
     else                // we're almost at infinity or nearly at zero (in both cases,
         values[0] = 0;  // the result is negligibly small, but difficult to compute accurately)
+    if(nonnegative && values[0]<0)
+        values[0] = 0;  // a non-negative result is required sometimes, e.g., for density sampling
 }
 
 double BaseDensity::enclosedMass(const double r) const

@@ -1058,39 +1058,55 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
 #else
     gridRadii.assign(numCoefsRadial, rmax);
     const double logrmin = log(rmin), dlog = (log(rmax)-logrmin)/(numCoefsRadial-1);
-    for(unsigned int k=0; k<numCoefsRadial-1; k++) {
-        gridRadii[k] = exp(logrmin+dlog*k);
+    for(unsigned int indR=0; indR<numCoefsRadial-1; indR++) {
+        gridRadii[indR] = exp(logrmin+dlog*indR);
     }
 #endif
 
     //  prepare table for integration in angle, using Gauss-Legendre quadrature for cos(theta) on [-1..1]
-    const unsigned int numIntPoints = numCoefsAngular+1;
-    std::vector<double> coords(numIntPoints), weights(numIntPoints);
-    math::prepareIntegrationTableGL(-1, 1, numIntPoints, &coords.front(), &weights.front());
+    unsigned int numIntPoints = numCoefsAngular+1;
+    std::vector<double> costheta(numIntPoints), sintheta(numIntPoints), weights(numIntPoints);
+    math::prepareIntegrationTableGL(-1, 1, numIntPoints, &costheta.front(), &weights.front());
+    for(unsigned int indC=0; indC<numIntPoints; indC++)
+        sintheta[indC] = sqrt(1. - pow_2(costheta[indC]));
 
-    // compute integrals of density times various Legendre polynomials
+    // will need integrate over half of the interval only, 
+    // taking into account (alleged) reflection symmetry z -> -z;
+    // if the number of points is odd, the central point at z=0 should get half of the weight
+    if(numIntPoints%2 == 1) {
+        weights[numIntPoints/2] /= 2;
+        numIntPoints = numIntPoints/2+1;
+    } else
+        numIntPoints = numIntPoints/2;
+
+    // 1st step: collect the values of density at a 2d grid in (r,theta);
+    // loop over radii and angular directions, using a combined index variable for better load balancing
+    int numPoints = numIntPoints * numCoefsRadial;
+    std::vector<double> densityValues(numPoints);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic,16)
+#endif
+    for(int n=0; n<numPoints; n++) {
+        unsigned int indR = n % numCoefsRadial;  // index in radial grid
+        unsigned int indC = n / numCoefsRadial;  // index in angular direction
+        densityValues[n]  = weights[indC] * srcDensity.density(
+            coord::PosCyl(gridRadii[indR]*sintheta[indC], gridRadii[indR]*costheta[indC], 0));
+    }
+
+    // 2nd step: transform these values to spherical-harmonic expansion coefficients
+    // prepare arrays for integrals of density times various Legendre polynomials
     setSymmetry(srcDensity.symmetry());  // assign the range of l's
     std::vector< std::vector<double> > rhol(lmax+1);
     for(int l=0; l<=lmax; l+=lstep)
         rhol[l].assign(numCoefsRadial, 0);
+    
+    // prepare the array of Legendre polynomials
     std::vector<double> legPoly(lmax+1);
-    // integrate over half of the interval only, taking into account (alleged) reflection symmetry z -> -z
-    for(unsigned int i=numIntPoints/2; i<numIntPoints; i++) {
-        double costheta = coords[i];
-        double sintheta = sqrt(1. - pow_2(costheta));
-        double weight = weights[i];
-        // if the number of points is odd, the central point at x=0 should get half of the weight
-        if(numIntPoints%2==1 && i==numIntPoints/2) weight/=2;
-
-        math::legendrePolyArray(lmax, 0, costheta, &legPoly.front());
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-        for(int k=0; k<(int)numCoefsRadial; k++) {
-            double dens = srcDensity.density(
-                coord::PosCyl(gridRadii[k]*sintheta, gridRadii[k]*costheta, 0));
+    for(unsigned int indC=0; indC<numIntPoints; indC++) {
+        math::legendrePolyArray(lmax, 0, costheta[indC], &legPoly.front());
+        for(unsigned int indR=0; indR<numCoefsRadial; indR++) {
             for(int l=0; l<=lmax; l+=lstep)
-                rhol[l][k] += dens * weight * legPoly[l];
+                rhol[l][indR] += densityValues[indC*numCoefsRadial+indR] * legPoly[l];
         }
     }
     
@@ -1111,8 +1127,8 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
             deriv_outer = -3.2;
         std::cout << l<<','<<deriv_inner<<','<<deriv_outer<<'\n';
         splines[l] = math::CubicSpline(gridRadii, rhol[l], 
-            deriv_inner/gridRadii.front()*rhol[l].front(),
-            deriv_outer/gridRadii.back() *rhol[l].back());
+            deriv_inner / gridRadii.front() * rhol[l].front(),
+            deriv_outer / gridRadii.back()  * rhol[l].back());
     }
 }
 

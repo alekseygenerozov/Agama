@@ -7,6 +7,7 @@
 #include "df_halo.h"
 #include "galaxymodel_selfconsistent.h"
 #include "galaxymodel.h"
+#include "potential_dehnen.h"
 #include "particles_io.h"
 #include "actions_staeckel.h"
 
@@ -60,10 +61,10 @@ int main()
     double bphi  = 0.8;
     const df::DoublePowerLawParam paramDPL = {norm,j0,jcore,alpha,beta,ar,az,aphi,br,bz,bphi};
     const df::DoublePowerLaw distrFunc(paramDPL);
-    galaxymodel::Component comp(&distrFunc, 0.01, 100, 49, 6);
+    galaxymodel::Component comp(&distrFunc, 0.01, 100, 49, 6, new potential::Dehnen(1,1,1,1,1));
     ProgRep progressReporter;
     galaxymodel::SelfConsistentModel model(std::vector<galaxymodel::Component>(1, comp), &progressReporter);
-    for(int iter=0; iter<10; iter++) {
+    for(int iter=0; iter<1; iter++) {
         std::cout << "Starting iteration #"<<iter<<'\n';
         model.doIteration();
     }

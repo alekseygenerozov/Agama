@@ -3,10 +3,9 @@
 #include <stdexcept>
 #include <cassert>
 #include <cmath>
-#include <set>
+#include <map>
 #include <algorithm>
 
-#include <iostream>
 namespace math{
 
 /**      Definitions:
@@ -79,7 +78,7 @@ class Sampler{
 public:
     /** Construct an N-dimensional sampler object and allocate bins */
     Sampler(const IFunctionNdim& fnc, const double xlower[], const double xupper[],
-            const unsigned int numBins[]);
+            const unsigned int numBins[], SamplingProgressReportCallback* callback);
 
     /** Perform a number of samples from the distribution function with the current binning scheme,
         and computes the estimate of integral EI (stored internally) */
@@ -121,6 +120,7 @@ private:
     double integValue;           ///< estimate of the integral of f(x) over H        [ EI ]
     double integError;           ///< estimate of the error in the integral          [ EE ]
     typedef long unsigned int CellEnum; ///< the way to enumerate all cells, should be a large enough type
+    SamplingProgressReportCallback* callback;  ///< progress reporting interface, if necessary
 
     /** randomly sample an N-dimensional point, such that it has equal probability 
         of falling into each cell, and its location within the given cell
@@ -147,7 +147,8 @@ private:
 };
 
 Sampler::Sampler(const IFunctionNdim& _fnc, const double xlower[], const double xupper[],
-    const unsigned int numBinsDim[]) : fnc(_fnc), Ndim(fnc.numVars())
+    const unsigned int numBinsDim[], SamplingProgressReportCallback* _callback) :
+    fnc(_fnc), Ndim(fnc.numVars()), callback(_callback)
 {
     binBoundaries.resize(Ndim);
     volume      = 1.0;
@@ -230,7 +231,8 @@ void Sampler::runPass(const unsigned int numSamples)
     }
     integValue = avg.mean() * numSamples;
     integError = sqrt(avg.disp() * numSamples);
-    std::cout << "Integral = "<<integValue<<" +- "<<integError<<"\n";
+    if(callback)
+        callback->reportIteration(0, integValue, integError, numCallsFnc);
 }
 
 void Sampler::readjustBins()
@@ -242,7 +244,6 @@ void Sampler::readjustBins()
     // work in each dimension separately
     for(unsigned int d=0; d<Ndim; d++)
     {
-        std::cout << "D="<<d;
         // create a projection onto d-th coordinate axis
         for(unsigned int i=0; i<npoints; i++) {
             projection[i].first  = sampleCoords(i, d);
@@ -267,14 +268,14 @@ void Sampler::readjustBins()
                 pointInd >= npoints - minBin*(numBins-binInd) )
             {
                 binBoundaries[d][binInd] = projection[pointInd].first;
-                std::cout << " "<<binBoundaries[d][binInd];
                 binInd++;
                 pointsInBin = 0;
             }
             pointInd++;
         }
-        std::cout << "\n";
     }
+    if(callback)
+        callback->reportBins(&binBoundaries.front());
 }
 
 void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
@@ -285,19 +286,30 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
     double sampleWeight = numCells * 1. / sampleCoords.numRows();
     int nIter=0;  // safeguard against infinite loop
     do{
-        // list of cells that need refinement
-        std::set<CellEnum> cellsForRefinement;
+        // list of cells that need refinement, along with their refinement factors R
+        // ( the ratio of the largest sample weight to maxWeight, which determines how many
+        // new samples we need to place into this cell: R = (N_new + N_existing) / N_existing )
+        std::map<CellEnum, double> cellsForRefinement;
         const unsigned int npoints = weightedFncValues.size();
         assert(sampleCoords.numRows() == npoints);   // number of internal samples already taken
         // maximum allowed value of f(x)*w(x), which is the weight of one output sample
+        // (this number is not constant because the estimate of integValue is adjusted after each iteration)
         const double maxWeight = integValue / (numOutputSamples+1e-6);
 
         // determine if any of our sampled points are too heavy for the requested number of output points
-        unsigned int numOverflows = 0;
         for(unsigned int i=0; i<npoints; i++) {
-            if(weightedFncValues[i] > maxWeight) {
-                cellsForRefinement.insert(cellIndex(&sampleCoords(i, 0)));
-                numOverflows++;
+            if(weightedFncValues[i] > maxWeight) {  // encountered an overweight sample
+                CellEnum index = cellIndex(&sampleCoords(i, 0));
+                std::map<CellEnum, double>::iterator iter = cellsForRefinement.find(index);
+                bool updated = true;
+                if(iter == cellsForRefinement.end())           // append a new cell
+                    cellsForRefinement.insert(std::pair<CellEnum, double> (index, weightedFncValues[i]));
+                else if(iter->second < weightedFncValues[i])   // update largest weight for this cell
+                    iter->second = weightedFncValues[i];
+                else
+                    updated = false;
+                if(updated && callback)
+                    callback->reportOverweightSample(&sampleCoords(i, 0), weightedFncValues[i]);
             }
         }
         if(cellsForRefinement.empty())
@@ -316,12 +328,13 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
         }
 
         // next add new samples into each cell that was marked for refinement
+        std::vector<double> lowerCorner(Ndim), upperCorner(Ndim);  // for reporting the cell corners
         sampleWeight *= 0.5;
         unsigned int numRefinedCells = 0;
-        for(std::set<CellEnum>::const_iterator iterCell = cellsForRefinement.begin();  
+        for(std::map<CellEnum, double>::const_iterator iterCell = cellsForRefinement.begin();  
             iterCell != cellsForRefinement.end(); ++iterCell) 
         {
-            CellEnum indexCell = *iterCell;
+            CellEnum indexCell = iterCell->first;
             // since # of samplesPerCell may not be an integer number,
             // we randomly choose this number for each cell to provide the correct average value
             int samplesPerThisCell = static_cast<int>(floor(samplesPerCell+random()));
@@ -335,14 +348,23 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
                 avg.add(wval);
             }
             numRefinedCells++;
+            if(callback) {
+                for(unsigned int d=Ndim; d>0; d--) {
+                    unsigned int b = indexCell % (binBoundaries[d-1].size()-1);
+                    indexCell /= (binBoundaries[d-1].size()-1);
+                    lowerCorner[d-1] = binBoundaries[d-1][b];
+                    upperCorner[d-1] = binBoundaries[d-1][b+1];
+                }
+                callback->reportRefinedCell(&lowerCorner.front(), &upperCorner.front());
+            }
         }
         samplesPerCell *= 2;
         
         integValue = avg.mean() * sampleCoords.numRows();
         integError = sqrt(avg.disp() * sampleCoords.numRows());
-        std::cout << "Integral = "<<integValue<<" +- "<<integError<<
-        " after refining "<<numRefinedCells<<
-        " cells because of "<<numOverflows<<" overweight samples\n";
+        
+        if(callback)
+            callback->reportIteration(nIter+1, integValue, integError, numCallsFnc);
     } while(++nIter<16);
     throw std::runtime_error("Error in sampleNdim: refinement procedure did not converge in 16 iterations");
 }
@@ -367,12 +389,12 @@ void Sampler::drawSamples(const unsigned int numOutputSamples, Matrix<double>& o
         }
     }
     outputSamples.resize(outputIndex, Ndim);
-    std::cout << outputIndex << " points sampled out of " << numCallsFnc << " internal ones\n";
 }
 
 void sampleNdim(const IFunctionNdim& fnc, const double xlower[], const double xupper[], 
     const unsigned int numSamples, const unsigned int* numBinsInput,
-    Matrix<double>& samples, int* numTrialPoints, double* integral, double* interror)
+    Matrix<double>& samples, int* numTrialPoints, double* integral, double* interror,
+    SamplingProgressReportCallback* callback)
 {
     // determine number of sample points and bins
     const double NUM_POINTS_PER_BIN = 10.;  // default # of sampling points per N-dimensional bin
@@ -391,9 +413,9 @@ void sampleNdim(const IFunctionNdim& fnc, const double xlower[], const double xu
             pow(numSamples*1.0/NUM_POINTS_PER_BIN, 1./fnc.numVars()), 1.) );
         numBins.assign(fnc.numVars(), numBinsPerDim);
     }
-    Sampler sampler(fnc, xlower, xupper, &numBins.front());
+    Sampler sampler(fnc, xlower, xupper, &numBins.front(), callback);
 
-    // first warmup run to collect statistics and adjust bins
+    // first warmup run (actually, two) to collect statistics and adjust bins
     const unsigned int numWarmupSamples = std::max<unsigned int>(numSamples*0.2, 10000);
     sampler.runPass(numWarmupSamples);
     sampler.readjustBins();

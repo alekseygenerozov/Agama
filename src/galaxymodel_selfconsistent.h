@@ -15,7 +15,7 @@ class ProgressReportCallback {
 public:
     virtual ~ProgressReportCallback() {};
     
-    virtual void generalMessage(const char* msg) {};
+    virtual void generalMessage(const char* /*msg*/) {};
 
     virtual void reportDensityAtPoint(unsigned int /*componentIndex*/,
         const coord::PosCyl& /*point*/, double /*densityValue*/) {};
@@ -42,9 +42,10 @@ struct Component {
         distrFunc(NULL), rmin(0), rmax(0),
         numCoefsRadial(0), numCoefsAngular(0), density(NULL) {};
 
-    /// create a component with the given distribution function and parameters of density profile,
+    /// create a component with the given distribution function and parameters of density profile
     Component(const df::BaseDistributionFunction* _df, double _rmin, double _rmax, 
-        unsigned int _numCoefsRadial, unsigned int _numCoefsAngular);
+        unsigned int _numCoefsRadial, unsigned int _numCoefsAngular,
+        const potential::BaseDensity* initDens=NULL);
 };
 
 class SelfConsistentModel {

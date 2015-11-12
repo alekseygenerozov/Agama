@@ -9,7 +9,7 @@
 #include "math_core.h"
 #include "math_fit.h"
 #include <cmath>
-#include <iostream>
+#include <ostream>
 
 // Coordinate tools
 namespace coord {
