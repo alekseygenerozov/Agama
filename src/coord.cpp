@@ -276,49 +276,48 @@ PosProlSph toPosDeriv(const PosCyl& from, const ProlSph& cs,
     PosDerivT<Cyl, ProlSph>* derivs, PosDeriv2T<Cyl, ProlSph>* derivs2)
 {
     // lambda and mu are roots "t" of equation  R^2/(t-delta) + z^2/t = 1
-    double R2 = pow_2(from.R), z2 = pow_2(from.z);
-    double sign = from.z>=0 ? 1 : -1;
-    double sum = R2+z2+cs.delta;
-    double dif = R2+z2-cs.delta;
-    double sqD = sqrt(pow_2(dif) + 4*R2*cs.delta);      // determinant is always non-negative
+    double R2     = pow_2(from.R), z2 = pow_2(from.z);
+    double signz  = from.z>=0 ? 1 : -1;   // nu will have the same sign as z
+    double sum    = R2+z2+cs.delta;
+    double dif    = R2+z2-cs.delta;
+    double sqD    = sqrt(pow_2(dif) + 4*R2*cs.delta);   // determinant is always non-negative
     if(z2==0) sqD = sum;
     if(R2==0) sqD = fabs(dif);
-    double lambda = fmax(cs.delta, 0.5 * (sum + sqD));  // prevent roundoff errors
-    double nu     = fmin(cs.delta, 2 * cs.delta / (sum + sqD) * z2 ) * sign;
-    if(R2==0) {
-        if(z2>=cs.delta) { 
-            lambda = z2; 
-            nu = cs.delta * sign; 
-        } else { 
-            lambda = cs.delta; 
-            nu = z2 * sign;
-        }
+    double lmd, dmn;      // lambda-delta, delta-|nu| - separately from lambda and nu, to avoid roundoffs
+    if(dif >= 0) {
+        lmd       = 0.5 * (sqD + dif);
+        dmn       = R2>0 ? cs.delta * R2 / lmd : 0;
+    } else {
+        dmn       = 0.5 * (sqD - dif);
+        lmd       = cs.delta * R2 / dmn;
     }
+    double lambda = cs.delta + lmd;
+    double absnu  = 2 * cs.delta / (sum + sqD) * z2;
+    if(absnu*2 > cs.delta)             // compare |nu| and delta-|nu|
+        absnu     = cs.delta - dmn;    // avoid roundoff errors when delta-|nu| is small
+    else
+        dmn       = cs.delta - absnu;  // same in the opposite case, when |nu| is small
     if(derivs!=NULL || derivs2!=NULL) {
         if(sqD==0)
             throw std::runtime_error("Error in coordinate conversion Cyl=>ProlSph: "
                 "the special case lambda = nu = delta is not implemented");
-        // intermediate coefs
-        double sumD = sum/sqD;
-        double difD = dif/sqD;
-        if(derivs!=NULL) {
-            derivs->dlambdadR = from.R * (1+sumD);
-            derivs->dlambdadz = from.z * (1+difD);
-            derivs->dnudR     = from.R * (1-sumD) * sign;
-            derivs->dnudz     = from.z * (1-difD) * sign;
+        if(derivs!=NULL) {  // accurate expressions valid for arbitrary large/small values (no cancellations)
+            derivs->dlambdadR = from.R * 2*lambda / sqD;
+            derivs->dlambdadz = from.z * 2*lmd    / sqD;
+            derivs->dnudR     = from.R * 2*-absnu / sqD * signz;
+            derivs->dnudz     = from.z * 2*dmn    / sqD * signz;
         }
-        if(derivs2!=NULL) {
-            double kR = 2*R2 * (1-pow_2(sumD))/sqD + sumD;
-            double kz = 2*z2 * (1-pow_2(difD))/sqD + difD;
-            derivs2->d2lambdadR2 = 1+kR;
-            derivs2->d2lambdadz2 = 1+kz;
-            derivs2->d2nudR2     =(1-kR) * sign;
-            derivs2->d2nudz2     =(1-kz) * sign;
-            derivs2->d2lambdadRdz= 2*from.R*from.z * (1-sumD*difD)/sqD;
-            derivs2->d2nudRdz    = -derivs2->d2lambdadRdz * sign;
+        if(derivs2!=NULL) {  // here no attempts were made to avoid cancellation errors
+            double common = 8 * cs.delta * R2 * z2 / pow_3(sqD);
+            derivs2->d2lambdadR2 = 1 + sum/sqD - common;
+            derivs2->d2lambdadz2 = 1 + dif/sqD + common;
+            derivs2->d2nudR2     =(1 - sum/sqD + common) * signz;
+            derivs2->d2nudz2     =(1 - dif/sqD - common) * signz;
+            derivs2->d2lambdadRdz= 2 * from.R * from.z * (1 - sum * dif / pow_2(sqD)) / sqD;
+            derivs2->d2nudRdz    = -derivs2->d2lambdadRdz * signz;
         }
     }
-    return PosProlSph(lambda, nu, from.phi, cs);
+    return PosProlSph(lambda, absnu*signz, from.phi, cs);
 }
 
 template PosCyl toPosDeriv(const PosCar&, PosDerivT<Car, Cyl>*, PosDeriv2T<Car, Cyl>*);

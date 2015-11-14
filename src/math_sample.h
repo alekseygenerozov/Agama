@@ -23,7 +23,8 @@ public:
     
     virtual void reportOverweightSample(const double[] /*sampleCoords*/, double /*fncValue*/) {};
     
-    virtual void reportRefinedCell(const double[] /*lowerCorner*/, const double[] /*upperCorner*/) {};
+    virtual void reportRefinedCell(const double[] /*lowerCorner*/, const double[] /*upperCorner*/,
+        double /*refineFactor*/) {};
 };
 
 /** Sample points from an N-dimensional probability distribution function F.
@@ -37,11 +38,6 @@ public:
     \param[in]  xlower  is the lower boundary of sampling volume (array of length N);
     \param[in]  xupper  is the upper boundary of sampling volume;
     \param[in]  numSamples  is the required number of sampling points (M);
-    \param[in]  numBins (optional) is the array of numbers of bins per dimension,
-                if set to NULL then a default binning scheme is assumed.
-                Useful in the case when the function is known to have little variation in
-                some of its variables, in which case the number of bins in the corresponding
-                dimension may be set to 1 or another small number, saving some memory.
     \param[out] samples  will be filled by samples, i.e. contain the matrix of M rows and N columns;
     \param[out] numTrialPoints (optional) if not NULL, will store the actual number of function
                 evaluations (so that the efficiency of sampling is estimated as the ratio
@@ -53,7 +49,7 @@ public:
     \param      callback (optional) may provide the progress reporting interface
  */
 void sampleNdim(const IFunctionNdim& F, const double xlower[], const double xupper[],
-    const unsigned int numSamples, const unsigned int* numBins,
+    const unsigned int numSamples,
     Matrix<double>& samples, int* numTrialPoints=0, double* integral=0, double* interror=0,
     SamplingProgressReportCallback* callback=NULL);
 

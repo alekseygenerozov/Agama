@@ -84,7 +84,7 @@ void sampleActions(const BaseDistributionFunction& DF, const int numSamples,
     double xupper[3] = {1, 1, 1};
     math::Matrix<double> result;   // the result array of actions
     DFIntegrandNdim fnc(DF);
-    math::sampleNdim(fnc, xlower, xupper, numSamples, 0, result, 0, totalMass, totalMassErr);
+    math::sampleNdim(fnc, xlower, xupper, numSamples, result, 0, totalMass, totalMassErr);
     samples.resize(result.numRows());
     for(unsigned int i=0; i<result.numRows(); i++) {
         const double point[3] = {result(i,0), result(i,1), result(i,2)};

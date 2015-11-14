@@ -26,7 +26,7 @@ public:
     virtual void reportDensityAtPoint(unsigned int /*componentIndex*/,
         const coord::PosCyl& point, double densityValue)
     {
-        std::cout << point.R <<'\t'<< point.z <<'\t'<< densityValue <<'\n';
+        //std::cout << point.R <<'\t'<< point.z <<'\t'<< densityValue <<'\n';
     }
     
     virtual void reportDensityUpdate(unsigned int /*componentIndex*/,
@@ -63,8 +63,9 @@ int main()
     const df::DoublePowerLaw distrFunc(paramDPL);
     galaxymodel::Component comp(&distrFunc, 0.01, 100, 49, 6, new potential::Dehnen(1,1,1,1,1));
     ProgRep progressReporter;
-    galaxymodel::SelfConsistentModel model(std::vector<galaxymodel::Component>(1, comp), &progressReporter);
-    for(int iter=0; iter<1; iter++) {
+    galaxymodel::SelfConsistentModel model(
+        std::vector<galaxymodel::Component>(1, comp), &progressReporter, 1e-3, 1e5);
+    for(int iter=0; iter<10; iter++) {
         std::cout << "Starting iteration #"<<iter<<'\n';
         model.doIteration();
     }

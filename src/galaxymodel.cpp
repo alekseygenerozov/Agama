@@ -9,6 +9,7 @@
 // this is a temporary measure
 #include "debug_utils.h"
 #include <iostream>
+const bool VERBOSE_REPORT = false;
 
 namespace galaxymodel{
 
@@ -341,16 +342,6 @@ private:
         strm << msg << std::endl;
     }
     
-    virtual void reportBins(const std::vector<double> binBoundaries[])
-    {
-        for(unsigned int d=0; d<fnc.numVars(); d++) {
-            strm << "bins for D=" << d << ':';
-            for(unsigned int k=0; k<binBoundaries[d].size(); k++)
-                strm << ' ' << binBoundaries[d][k];
-            strm << std::endl;
-        }
-    }
-    
     virtual void reportIteration(int numIter, 
         double integralValue, double integralError, unsigned int numCallsFnc)
     {
@@ -363,22 +354,35 @@ private:
         numSamplesReported = numCellsReported = 0;
     }
     
+    virtual void reportBins(const std::vector<double> binBoundaries[])
+    {
+        if(!VERBOSE_REPORT) return;
+        for(unsigned int d=0; d<fnc.numVars(); d++) {
+            strm << "bins for D=" << d << ':';
+            for(unsigned int k=0; k<binBoundaries[d].size(); k++)
+                strm << ' ' << binBoundaries[d][k];
+            strm << std::endl;
+        }
+    }
+
     virtual void reportOverweightSample(const double sampleCoords[], double fncValue)
     {
-        if(++numSamplesReported <= 4) {
+        if(++numSamplesReported <= 4 && VERBOSE_REPORT) {
             double jac;
             coord::PosVelCyl posvel = fnc.unscaleVars(sampleCoords, &jac);
             strm << "f= " << (fncValue/jac) << " *Jac= " << jac << " at " << posvel << std::endl;
         }
     }
     
-    virtual void reportRefinedCell(const double lowerCorner[], const double upperCorner[])
+    virtual void reportRefinedCell(const double lowerCorner[], const double upperCorner[],
+        double refineFactor)
     {
-        if(++numCellsReported <= 4) {
+        if(++numCellsReported <= 4 && VERBOSE_REPORT) {
             std::vector<double> center(fnc.numVars());
             for(unsigned int d=0; d<fnc.numVars(); d++)
                 center[d] = (lowerCorner[d] + upperCorner[d]) / 2;
-            strm << "Refining cell centered at " << fnc.unscaleVars(&center.front()) << std::endl;
+            strm << "Refining cell centered at " << fnc.unscaleVars(&center.front()) <<
+                " by factor of " << refineFactor << std::endl;
         }
     }
 };
@@ -531,12 +535,8 @@ void generatePosVelSamples(const GalaxyModel& model, const unsigned int numSampl
     double totalMass, errorMass;      // total normalization of the distribution function and its estimated error
     double xlower[6] = {0,0,0,0,0,0}; // boundaries of sampling region in scaled coordinates
     double xupper[6] = {1,1,1,1,1,1};
-    // determine optimal binning scheme: 6 dimensions is too much to let it go uniformly
-    unsigned int NB = static_cast<unsigned int>(pow(numSamples*0.1, 1./3))+1;  // # of bins per dimension
-    // use adaptive binning in R, z and |v| dimensions only, and leave the other three unbinned
-    unsigned int numBins[6] = {NB, NB, 1, NB, 1, 1};
     ProgressReport callback(fnc, std::cerr);
-    math::sampleNdim(fnc, xlower, xupper, numSamples, numBins,
+    math::sampleNdim(fnc, xlower, xupper, numSamples,
         result, NULL, &totalMass, &errorMass, &callback);
     const double pointMass = totalMass / result.numRows();
     points.data.clear();
@@ -559,7 +559,7 @@ void generateDensitySamples(const potential::BaseDensity& dens, const unsigned i
     double totalMass, errorMass;      // total mass and its estimated error
     double xlower[3] = {0,0,0};       // boundaries of sampling region in scaled coordinates
     double xupper[3] = {1,1,1};
-    math::sampleNdim(fnc, xlower, xupper, numPoints, NULL, result, NULL, &totalMass, &errorMass);
+    math::sampleNdim(fnc, xlower, xupper, numPoints, result, NULL, &totalMass, &errorMass);
     const double pointMass = totalMass / result.numRows();
     points.data.clear();
     for(unsigned int i=0; i<result.numRows(); i++) {

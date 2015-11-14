@@ -313,14 +313,14 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
         } 
         if(pn_lambda.fder<=0){
             lim.lambda_max = fnc.point.lambda;
+            if(fnc.point.lambda == delta)
+                lim.lambda_min = delta;
         }
     }
 
     // due to roundoff errors, it may actually happen that f(lambda) is a very small negative number
     // in this case we need to estimate the value of lambda at which it is strictly positive (for root-finder)
     double lambda_pos = fnc.point.lambda + pn_lambda.dxToPositive();
-    if(lambda_pos<delta)
-        lambda_pos = delta;
     /*  now two more problems may occur:
         1. lambda_pos = NaN means that it could not be found, i.e., 
         f(lambda)<0, f'(lambda) is very small and f''(lambda)<0, we are near the top of inverse parabola 

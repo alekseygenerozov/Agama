@@ -5,7 +5,11 @@
 #include <algorithm>
 #include <cassert>
 #include <stdexcept>
+
+#define VERBOSE_REPORT
+#ifdef VERBOSE_REPORT
 #include <iostream>
+#endif
 
 namespace potential {
 
@@ -1119,13 +1123,15 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
             log(gridRadii[numCoefsRadial-1] / gridRadii[numCoefsRadial-2]);
         if(!math::isFinite(deriv_inner))
             deriv_inner = 0;
-        if(deriv_inner <= -2.8)
-            deriv_inner = -2.8;
+        if(deriv_inner <= -2.5)
+            deriv_inner = -2.5;
         if(!math::isFinite(deriv_outer))
             deriv_outer = 0;
-        if(deriv_outer >= -3.2)
-            deriv_outer = -3.2;
+        if(deriv_outer >= -2.5)
+            deriv_outer = -2.5;
+#ifdef VERBOSE_REPORT
         std::cout << l<<','<<deriv_inner<<','<<deriv_outer<<'\n';
+#endif
         splines[l] = math::CubicSpline(gridRadii, rhol[l], 
             deriv_inner / gridRadii.front() * rhol[l].front(),
             deriv_outer / gridRadii.back()  * rhol[l].back());
