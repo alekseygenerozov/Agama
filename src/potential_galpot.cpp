@@ -254,6 +254,8 @@ Multipole::Multipole(const BaseDensity& source_density,
                      const double Rmin, const double Rmax,
                      const int gridSizeR, const int numCoefsAngular)
 {
+    if(gridSizeR<=2 || numCoefsAngular<0 || Rmin<=0 || Rmax<=Rmin)
+        throw std::invalid_argument("Error in Multipole expansion: invalid grid parameters");
     if(!isAxisymmetric(source_density))
         throw std::invalid_argument("Error in Multipole expansion: source density must be axially symmetric");
     const int numMultipoles = numCoefsAngular/2+1;   // number of multipoles (only even-l terms are used)
@@ -466,30 +468,36 @@ std::vector<const BasePotential*> createGalaxyPotentialComponents(
     if(componentsDens.size()==0)
         throw std::invalid_argument("Empty parameters in GalPot");
     // create an composite density object to be passed to Multipole;
-    // the temporary density objects will be destroyed once this gets out of scope
     const CompositeDensity dens(componentsDens);
+    // and delete the temporary density objects that have been duplicated by the composite
+    for(unsigned int i=0; i<componentsDens.size(); i++)
+        delete componentsDens[i];
 
     // create multipole potential from this combined density
     double rmin = GALPOT_RMIN * lengthMin;
     double rmax = GALPOT_RMAX * lengthMax;
-    const BasePotential* mult=new Multipole(dens, rmin, rmax, GALPOT_NRAD, GALPOT_LMAX);
+    const BasePotential* mult = new Multipole(dens, rmin, rmax, GALPOT_NRAD, GALPOT_LMAX);
 
     // now create a composite potential from the multipole and non-residual part of disk potential
     std::vector<const BasePotential*> componentsPot;
     componentsPot.push_back(mult);
-    for(unsigned int i=0; i<DiskParams.size(); i++)  // note that we create another class of objects than above
+    // note that we create a different class of objects from the `DiskResidual` class above
+    for(unsigned int i=0; i<DiskParams.size(); i++)
         componentsPot.push_back(new DiskAnsatz(DiskParams[i]));
     // this array should be passed to the constructor of CompositeCyl potential;
-    // instances of potential components created here are taken over by the composite
-    // and will be deallocated when the latter is destroyed, so we don't do it here
+    // and its components should be deallocated thereafter, because the Composite makes copies of them
     return componentsPot;
 }
 
-const potential::BasePotential* createGalaxyPotential(
+const BasePotential* createGalaxyPotential(
     const std::vector<DiskParam>& DiskParams,
     const std::vector<SphrParam>& SphrParams)
 {
-    return new CompositeCyl(createGalaxyPotentialComponents(DiskParams, SphrParams));
+    std::vector<const BasePotential*> comps = createGalaxyPotentialComponents(DiskParams, SphrParams);
+    const BasePotential* pot = new CompositeCyl(comps);
+    for(unsigned int i=0; i<comps.size(); i++)
+        delete comps[i];
+    return pot;
 }
 
 } // namespace

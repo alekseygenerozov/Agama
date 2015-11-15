@@ -39,6 +39,12 @@ enum SymmetryType{
     implement the actual computation in one of them (in the most suitable coordinate system), 
     and provide a 'redirection' to it in the other two functions, by converting the input 
     coordinates to the most suitable system.
+    Note that this class and its derivative BasePotential should represent constant objects,
+    i.e. once created, they cannot be modified, and all their methods are const.
+    These objects also cannot be copied by value, only through the `clone()` method 
+    that returns a pointer to a newly-allocated object of the same derived class.
+    Thus one may create and use variables of derived classes:  const DerivedPotential pot1;
+    or pointers or references to base class (density or potential):  const BaseDensity& dens = pot1;
 */
 class BaseDensity{
 public:
@@ -56,10 +62,10 @@ public:
         return densitySph(pos); }
 
     /// returns the symmetry type of this density or potential
-    virtual SymmetryType symmetry() const=0;
+    virtual SymmetryType symmetry() const = 0;
 
     /// return the name of density or potential model
-    virtual const char* name() const=0;
+    virtual const char* name() const = 0;
 
     /** estimate the mass enclosed within a given spherical radius;
         default implementation integrates density over volume, but derived classes
@@ -73,23 +79,39 @@ public:
     */
     virtual double totalMass() const;
 
+    /** derived classes implement this method to emulate a 'virtual copy constructor',
+        i.e. each object can create a new copy of itself.
+        Typically this method may be implemented as simply as 
+        virtual BaseDensity* MyClass::clone() const { return new MyClass(*this); }
+        i.e. using the default copy constructor for this particular class,
+        because most data fields are copyable in this way (both primitive types
+        and more advanced objects such as vectors of primitive types);
+        however, if it contains data fields that are not simply copyable
+        (like pointers that were created and are owned by the object),
+        then it needs to be implemented manually.
+    */
+    virtual BaseDensity* clone() const = 0;
+
 protected:
-//  Protected members: virtual methods for `density` in different coordinate systems
     /** evaluate density at the position specified in cartesian coordinates */
-    virtual double densityCar(const coord::PosCar &pos) const=0;
+    virtual double densityCar(const coord::PosCar &pos) const = 0;
 
     /** evaluate density at the position specified in cylindrical coordinates */
-    virtual double densityCyl(const coord::PosCyl &pos) const=0;
+    virtual double densityCyl(const coord::PosCyl &pos) const = 0;
 
     /** Evaluate density at the position specified in spherical coordinates */
-    virtual double densitySph(const coord::PosSph &pos) const=0;
+    virtual double densitySph(const coord::PosSph &pos) const = 0;
 
+/** Copy constructor and assignment operators are not allowed to be used outside the class
+    hierarchy, because their inadvertent application (slicing) would lead to a complex 
+    derived class being assigned to a variable of base class, thus destroying its internal state.
+    Instead, one should use the `clone()` method that is reimplemented in each sub-class.
+    For this method to work, one still needs the base class to have a (trivial) copy constructor,
+    but it is declared protected to prevent its general usage outside the context of `clone()`.
+*/
+    BaseDensity(const BaseDensity& /*src*/) {};
 private:
-/** Copy constructor and assignment operators are not allowed, because 
-    their inadvertent application (slicing) would lead to a complex derived class 
-    being assigned to a variable of base class, thus destroying its internal state. */
-    BaseDensity(const BaseDensity& src);
-    BaseDensity& operator=(const BaseDensity&);
+    BaseDensity& operator=(const BaseDensity&);  // this is not allowed at all
 };  // class BaseDensity
 
 ///@}
@@ -143,20 +165,23 @@ public:
         eval(point, &val);
         return val;
     }
-    
+
+    /** create a copy of potential object (redefined the return type to be BasePotential) */
+    virtual BasePotential* clone() const = 0;
+
 protected:
     /** evaluate potential and up to two its derivatives in cartesian coordinates;
         must be implemented in derived classes */
     virtual void evalCar(const coord::PosCar &pos,
-        double* potential, coord::GradCar* deriv, coord::HessCar* deriv2) const=0;
+        double* potential, coord::GradCar* deriv, coord::HessCar* deriv2) const = 0;
 
     /** evaluate potential and up to two its derivatives in cylindrical coordinates */
     virtual void evalCyl(const coord::PosCyl &pos,
-        double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const=0;
+        double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const = 0;
 
     /** evaluate potential and up to two its derivatives in spherical coordinates */
     virtual void evalSph(const coord::PosSph &pos,
-        double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const=0;
+        double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const = 0;
 
     /** Default implementation computes the density from Laplacian of the potential,
         but the derived classes may instead provide an explicit expression for it. */
@@ -171,7 +196,8 @@ protected:
 
 /** Parent class for potentials that are evaluated in cartesian coordinates.
     It leaves the implementation of `evalCar` member function for cartesian coordinates undefined, 
-    but provides the conversion from cartesian to cylindrical and spherical coordinates in evalCyl and evalSph. */
+    but provides the conversion from cartesian to cylindrical and spherical coordinates
+    in `evalCyl` and `evalSph`. */
 class BasePotentialCar: public BasePotential, coord::IScalarFunction<coord::Car>{
 public:
     BasePotentialCar() : BasePotential() {}
@@ -368,7 +394,8 @@ double L_circ(const BasePotential& potential, double energy);
 /** Compute cylindrical radius of a circular orbit in equatorial plane for a given value of energy */
 double R_circ(const BasePotential& potential, double energy);
 
-/** Compute cylindrical radius of an orbit in equatorial plane for a given z-component of angular momentum */
+/** Compute cylindrical radius of an orbit in equatorial plane for a given z-component
+    of angular momentum */
 double R_from_Lz(const BasePotential& potential, double L_z);
 
 /** Interpolator for L_circ(E) */

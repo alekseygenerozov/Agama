@@ -113,6 +113,8 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Direct"; };
     virtual SymmetryType symmetry() const { return mysymmetry; }
+    virtual BasePotential* clone() const {   // not needed
+        throw std::runtime_error("DirectPotential: clone not implemented"); }
 
     /// compute m-th azimuthal harmonic of potential
     double Rho_m(double R, double z, int m) const;
@@ -126,7 +128,7 @@ public:
     virtual double totalMass() const;
 
 private:
-    /// input density model (if provided)
+    /// input density model (if provided);
     const BaseDensity* density;
 
     /// input discrete point mass set (if provided)
@@ -135,7 +137,8 @@ private:
     /// symmetry type of the input density model (axisymmetric or not)
     SymmetryType mysymmetry;
 
-    /// interpolating splines for Fourier harmonics Rho_m(R,z), in case that the input density is not axisymmetric
+    /// interpolating splines for Fourier harmonics Rho_m(R,z), 
+    /// in case that the input density is not axisymmetric
     std::vector<math::CubicSpline2d> splines;
 
     /// objects that compute a particular integral involving Bessel fncs
@@ -175,15 +178,19 @@ DirectPotential::DirectPotential(const BaseDensity& _density, unsigned int _mmax
         gridz[grid.size()-1+i] = grid[i];
     }
     math::Matrix<double> values(grid.size(), gridz.size());
-    bool zsymmetry = (density->symmetry()&ST_PLANESYM)==ST_PLANESYM;      // whether densities at z and -z are different
-    int mmin = (density->symmetry() & ST_PLANESYM)==ST_PLANESYM ? 0 :-1;  // if triaxial symmetry, do not use sine terms which correspond to m<0
-    int mstep= (density->symmetry() & ST_PLANESYM)==ST_PLANESYM ? 2 : 1;  // if triaxial symmetry, use only even m
+    // whether densities at z and -z are different
+    bool zsymmetry = (density->symmetry()&ST_PLANESYM)==ST_PLANESYM;
+    // if triaxial symmetry, do not use sine terms which correspond to m<0
+    int mmin = (density->symmetry() & ST_PLANESYM)==ST_PLANESYM ? 0 :-1;
+    // if triaxial symmetry, use only even m
+    int mstep= (density->symmetry() & ST_PLANESYM)==ST_PLANESYM ? 2 : 1;
     for(int m=mmax*mmin; m<=mmax; m+=mstep) {
         for(unsigned int iR=0; iR<grid.size(); iR++)
             for(unsigned int iz=0; iz<grid.size(); iz++) {
                 double val = computeRho_m(*density, grid[iR], grid[iz], m);
                 if(!math::isFinite(val)) {
-                    if(iR==0 && iz==0)  // may have a singularity at origin, substitute the infinite density with something reasonable
+                    if(iR==0 && iz==0)  // may have a singularity at origin,
+                                        // substitute the infinite density with something reasonable
                         val = std::max<double>(computeRho_m(*density, grid[1], grid[0], m), 
                                                computeRho_m(*density, grid[0], grid[1], m));
                     else val=0;
@@ -265,7 +272,8 @@ double DirectPotential::Rho_m(double R, double z, int m) const
         return 0;
     if( R<splines[mmax+m].xmin() || R>splines[mmax+m].xmax() || 
         z<splines[mmax+m].ymin() || z>splines[mmax+m].ymax() )
-        return computeRho_m(*density, R, z, m);  // outside interpolating grid -- compute directly by integration
+        // outside interpolating grid -- compute directly by integration
+        return computeRho_m(*density, R, z, m);
     else
         return splines[mmax+m].value(R, z);
 }
@@ -415,7 +423,9 @@ double CylSplineExp::computePhi_m(double R, double z, int m, const BasePotential
 {
     if(potential.name()==DirectPotential::myName()) {
         return dynamic_cast<const DirectPotential&>(potential).Phi_m(R, z, m);
-    } else {  // compute azimuthal Fourier harmonic coefficient for the given m by averaging the input potential over phi
+    } else {  
+        // compute azimuthal Fourier harmonic coefficient for the given m
+        // by averaging the input potential over phi
         if(R==0 && m!=0) return 0;
         double phimax=(potential.symmetry() & ST_PLANESYM)==ST_PLANESYM ? M_PI_2 : 2*M_PI;
         return math::integrate(PotentialAzimuthalAverageIntegrand(potential, R, z, m),
@@ -431,9 +441,11 @@ void CylSplineExp::initPot(unsigned int _Ncoefs_R, unsigned int _Ncoefs_z, unsig
         _Ncoefs_phi>CYLSPLINE_MAX_ANGULAR_HARMONIC)
         throw std::invalid_argument("CylSplineExp: invalid grid size");
     mysymmetry = potential.symmetry();
-    bool zsymmetry= (mysymmetry & ST_PLANESYM)==ST_PLANESYM;  // whether we need to compute potential at z<0 independently from z>0
+    // whether we need to compute potential at z<0 independently from z>0
+    bool zsymmetry= (mysymmetry & ST_PLANESYM)==ST_PLANESYM;
     int mmax = (mysymmetry & ST_AXISYMMETRIC) == ST_AXISYMMETRIC ? 0 : _Ncoefs_phi;
-    int mmin = (mysymmetry & ST_PLANESYM)==ST_PLANESYM ? 0 :-1;  // if triaxial symmetry, do not use sine terms which correspond to m<0
+    // if triaxial symmetry, do not use sine terms which correspond to m<0
+    int mmin = (mysymmetry & ST_PLANESYM)==ST_PLANESYM ? 0 :-1;
     int mstep= (mysymmetry & ST_PLANESYM)==ST_PLANESYM ? 2 : 1;  // if triaxial symmetry, use only even m
     if(radius_max==0 || radius_min==0) {
         double totalmass = potential.totalMass();
@@ -485,7 +497,8 @@ void CylSplineExp::initPot(unsigned int _Ncoefs_R, unsigned int _Ncoefs_z, unsig
                 }
                 coefs[mmax+m][(Ncoefs_z/2+iz)*Ncoefs_R+iR] = val;
                 if(!zsymmetry && iz>0)   // no symmetry about x-y plane
-                    val=computePhi_m(grid_R[iR], grid_z[Ncoefs_z/2-iz], m, potential);  // compute potential at -z independently
+                    // compute potential at -z independently
+                    val=computePhi_m(grid_R[iR], grid_z[Ncoefs_z/2-iz], m, potential);
                 coefs[mmax+m][(Ncoefs_z/2-iz)*Ncoefs_R+iR] = val;
             }
         }
@@ -520,7 +533,8 @@ void CylSplineExp::initSplines(const std::vector< std::vector<double> > &coefs)
         X0(i, 0) = oneoverr;
         X0(i, 1) = pow(oneoverr,5.0) * (2*z*z-R*R);
         X0(i, 2) = pow(oneoverr,9.0) * (8*pow(z,4.0)-24*z*z*R*R+3*pow(R,4.0));
-        // weight proportionally to the value of potential itself (so that we minimize sum of squares of relative differences)
+        // weight proportionally to the value of potential itself
+        // (so that we minimize sum of squares of relative differences)
         W0[i] = 1.0/pow_2(coefs[mmax][iz*Ncoefs_R+iR]);
         if(fitm2) {
             X2[i] = R*R*pow(oneoverr,5.0);
@@ -542,7 +556,9 @@ void CylSplineExp::initSplines(const std::vector< std::vector<double> > &coefs)
         throw std::runtime_error("CylSplineExp: cannot determine scaling factor");
         //Rscale=std::min<double>(grid_R.back(), grid_z.back())*0.5; // shouldn't occur?
 #ifdef DEBUGPRINT
-    my_message(FUNCNAME,  "Rscale="+convertToString(Rscale)+", C00="+convertToString(C00)+", C20="+convertToString(C20)+", C22="+convertToString(C22)+", C40="+convertToString(C40));
+    my_message(FUNCNAME,  "Rscale="+convertToString(Rscale)+
+        ", C00="+convertToString(C00)+", C20="+convertToString(C20)+
+        ", C22="+convertToString(C22)+", C40="+convertToString(C40));
 #endif
 
     std::vector<double> grid_Rscaled(Ncoefs_R);
@@ -568,11 +584,13 @@ void CylSplineExp::initSplines(const std::vector< std::vector<double> > &coefs)
             }
         }
         if(!allzero)
-            splines[m] = math::CubicSpline2d(grid_Rscaled, grid_zscaled, values, 0, NAN, NAN, NAN);  // specify derivative at R=0 to be zero
+            // specify derivative at R=0 to be zero
+            splines[m] = math::CubicSpline2d(grid_Rscaled, grid_zscaled, values, 0, NAN, NAN, NAN);
     }
 }
 
-void CylSplineExp::getCoefs(std::vector<double>& gridR, std::vector<double>& gridz, std::vector< std::vector<double> >& coefs) const
+void CylSplineExp::getCoefs(std::vector<double>& gridR,
+    std::vector<double>& gridz, std::vector< std::vector<double> >& coefs) const
 {
     gridR = grid_R;
     gridz = grid_z;
@@ -646,9 +664,11 @@ void CylSplineExp::evalCyl(const coord::PosCyl &pos,
         if(!splines[m+mmax].isEmpty()) {
             double cosmphi = m>=0 ? cos(m*pos.phi) : sin(-m*pos.phi);
             double sinmphi = m>=0 ? sin(m*pos.phi) : cos(-m*pos.phi);
-            double Phi_m, dPhi_m_dRscaled, dPhi_m_dzscaled, d2Phi_m_dRscaled2, d2Phi_m_dRscaleddzscaled, d2Phi_m_dzscaled2;
+            double Phi_m, dPhi_m_dRscaled, dPhi_m_dzscaled,
+            d2Phi_m_dRscaled2, d2Phi_m_dRscaleddzscaled, d2Phi_m_dzscaled2;
             splines[m+mmax].evalDeriv(Rscaled, zscaled, &Phi_m, 
-                &dPhi_m_dRscaled, &dPhi_m_dzscaled, &d2Phi_m_dRscaled2, &d2Phi_m_dRscaleddzscaled, &d2Phi_m_dzscaled2);
+                &dPhi_m_dRscaled, &dPhi_m_dzscaled, &d2Phi_m_dRscaled2,
+                &d2Phi_m_dRscaleddzscaled, &d2Phi_m_dzscaled2);
             Phi_tot += Phi_m*cosmphi;
             if(grad!=NULL || hess!=NULL) {
                 sGrad.dR   += dPhi_m_dRscaled*cosmphi;

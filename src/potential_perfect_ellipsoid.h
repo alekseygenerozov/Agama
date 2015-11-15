@@ -29,6 +29,7 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "OblatePerfectEllipsoid"; };
     virtual double totalMass() const { return mass; }
+    virtual BasePotential* clone() const { return new OblatePerfectEllipsoid(*this); }
 
     /** evaluates the function G(tau) and up to two its derivatives,
         if the supplied output arguments are not NULL 

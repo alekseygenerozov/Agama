@@ -152,7 +152,7 @@ void AxisymFunctionFudge::evalDeriv(const double tau,
         double dPhidtau = (tau >= point.coordsys.delta) ? gradProl.dlambda : gradProl.dnu;
         if(der)
             *der = E * (tau+tauminusdelta) - pow_2(Lz)/2 - I 
-                 - (mult+tauminusdelta) * Phi - tauminusdelta * mult * dPhidtau;
+                 - (mult+tauminusdelta) * Phi - (tauminusdelta!=0 ? tauminusdelta * mult * dPhidtau : 0);
         if(der2) {
             double d2Phidtau2 = (tau >= point.coordsys.delta) ?
                 // d2Phi/dlambda^2
@@ -177,10 +177,10 @@ void AxisymFunctionFudge::evalDeriv(const double tau,
 */
 class AxisymIntegrand: public math::IFunctionNoDeriv {
 public:
-    const AxisymFunctionBase& fnc;          ///< parameters of aux.fnc.: may be either AxisymFunctionStaeckel or AxisymFunctionFudge
-    enum { nplus1, nminus1 } n;             ///< power of p: +1 or -1
-    enum { azero, aminus1, aminus2 } a;     ///< power of (tau-delta): 0, -1, -2
-    enum { czero, cminus1 } c;              ///< power of tau: 0 or -1
+    const AxisymFunctionBase& fnc;      ///< parameters of aux.fnc. (AxisymFunctionStaeckel or AxisymFunctionFudge)
+    enum { nplus1, nminus1 } n;         ///< power of p: +1 or -1
+    enum { azero, aminus1, aminus2 } a; ///< power of (tau-delta): 0, -1, -2
+    enum { czero, cminus1 } c;          ///< power of tau: 0 or -1
     explicit AxisymIntegrand(const AxisymFunctionBase& d) : fnc(d) {};
 
     /** integrand for the expressions for actions and their derivatives 
@@ -277,59 +277,67 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
 
     // figure out the value of function at and around some important points
     double fnc_zero = fnc(0);
-    const math::PointNeighborhood pn_delta (fnc, delta);
-    assert(pn_delta.f0<=0);  // this is -0.5 Lz^2 so may not be positive
-    const math::PointNeighborhood pn_lambda(fnc, fnc.point.lambda);
     lim.nu_min = 0;
     lim.nu_max = lim.lambda_min = lim.lambda_max = NAN;  // means not yet determined
     double nu_upper = delta;     // upper bound on the interval to locate the root for nu_max
     double lambda_lower = delta; // lower bound on the interval for lambda_min
 
-    if(pn_delta.f0==0) {         // special case: L_z==0, may have either tube or box orbit in the meridional plane
-        if(pn_delta.fder>0) {    // box orbit: f(delta)=0 and f'(delta)>0, so f<0 at some interval left of delta
+    if(fnc.Lz==0) {
+        // special case: f(delta) = -0.5 Lz^2 = 0, may have either tube or box orbit in the meridional plane
+        double deltaminus = delta*(1-1e-15), deltaplus = delta*(1+1e-15);
+        if(fnc(deltaminus)<0) {  // box orbit: f<0 at some interval left of delta
             if(fnc_zero>0)       // there must be a range of nu where the function is positive
-                nu_upper = fmax(delta*0.9, delta + pn_delta.dxToNegative());
+                nu_upper = deltaminus;
             else 
                 lim.nu_max = lim.nu_min;
-            lim.lambda_min = delta;
-        } else {      // tube orbit: f(delta)=0, f'(delta)<0, f must be negative on some interval right of delta
-            lambda_lower = delta + fmin((fnc.point.lambda-delta)*0.1, pn_delta.dxToNegative());
+        } else
             lim.nu_max = delta;
-        }
+        if(fnc(deltaplus)<0)     // tube orbit: f must be negative on some interval right of delta
+            lambda_lower = deltaplus;
+        else
+            lim.lambda_min = delta;
     }
 
     if(!math::isFinite(lim.nu_max)) 
     {   // find range for J_nu = J_z if it has not been determined at the previous stage
         if(fnc_zero>0)
             lim.nu_max = math::findRoot(fnc, fabs(fnc.point.nu), nu_upper, ACCURACY_RANGE);
-        if(!math::isFinite(lim.nu_max))       // means that the value f(nu) was just very slightly negative, or that f(0)<=0
+        if(!math::isFinite(lim.nu_max))
+            // means that the value f(nu) was just very slightly negative, or that f(0)<=0
             lim.nu_max = fabs(fnc.point.nu);  // i.e. this is a clear upper boundary of the range of allowed nu
     }
 
-    // range for J_lambda = J_r
+    // range for J_lambda = J_r.
+    // due to roundoff errors, it may actually happen that f(lambda) is a very small negative number
+    // in this case we need to estimate the value of lambda at which it is strictly positive (for root-finder)
+    double lambda_pos = fnc.point.lambda;
+    const math::PointNeighborhood pn_lambda(fnc, fnc.point.lambda);
     if(pn_lambda.f0<=0) {   // it could be slightly smaller than zero due to roundoff errors
+        lambda_pos += pn_lambda.dxToPositive();
         if(pn_lambda.fder>=0) {
             lim.lambda_min = fnc.point.lambda;
+            // it may still happen that lambda is large and dx is small, i.e. lambda+dx == lambda due to roundoff
+            if(lambda_pos == fnc.point.lambda)
+                lambda_pos *= 1+1e-15;     // add a tiny bit, in the hope that it fixes the problem...
         } 
         if(pn_lambda.fder<=0){
             lim.lambda_max = fnc.point.lambda;
-            if(fnc.point.lambda == delta)
+            if(fnc.point.lambda == delta)  // can't be lower than that! means that the range is zero
                 lim.lambda_min = delta;
+            else if(lambda_pos == fnc.point.lambda)
+                lambda_pos *= 1-1e-15;     // subtract a tiny bit
         }
     }
-
-    // due to roundoff errors, it may actually happen that f(lambda) is a very small negative number
-    // in this case we need to estimate the value of lambda at which it is strictly positive (for root-finder)
-    double lambda_pos = fnc.point.lambda + pn_lambda.dxToPositive();
     /*  now two more problems may occur:
         1. lambda_pos = NaN means that it could not be found, i.e., 
-        f(lambda)<0, f'(lambda) is very small and f''(lambda)<0, we are near the top of inverse parabola 
-        that does not cross zero. This means that within roundoff errors the range of lambda with positive f()
-        is negligibly small, so we discard it.
-        2. we are still near the top of parabola that crosses zero in two points which are very close to each other.
-        Then again the range of lambda with positive f() is too small to be tracked accurately.
-        Note that dxBetweenRoots() may be NaN in a perfectly legitimate case that f(lambda)>0 and f''>0, so that
-        the parabola is curved upward and never crosses zero; thus we test an inverse condition which is valid for NaN.
+        f(lambda)<0, f'(lambda) is very small and f''(lambda)<0, we are near the top of
+        inverse parabola that does not cross zero. This means that within roundoff errors 
+        the range of lambda with positive f() is negligibly small, so we discard it.
+        2. we are still near the top of parabola that crosses zero in two points which are
+        very close to each other. Then again the range of lambda with positive f() is too small
+        to be tracked accurately. Note that dxBetweenRoots() may be NaN in a perfectly legitimate
+        case that f(lambda)>0 and f''>0, so that the parabola is curved upward and never crosses zero; 
+        thus we test an inverse condition which is valid for NaN.
     */
     if(math::isFinite(lambda_pos) && !(pn_lambda.dxBetweenRoots() < fnc.point.lambda * ACCURACY_RANGE)) {
         if(!math::isFinite(lim.lambda_min)) {  // not yet determined 

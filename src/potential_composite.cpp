@@ -1,6 +1,17 @@
 #include "potential_composite.h"
+#include <stdexcept>
 
 namespace potential{
+
+CompositeDensity::CompositeDensity(const std::vector<const BaseDensity*>& _components) : 
+    BaseDensity()
+{
+    if(_components.empty())
+        throw std::invalid_argument("List of density components cannot be empty");
+    components.resize(_components.size());
+    for(unsigned int i=0; i<_components.size(); i++)
+        components[i] = _components[i]->clone();
+}
 
 double CompositeDensity::densityCar(const coord::PosCar &pos) const {
     double sum=0; 
@@ -27,6 +38,17 @@ SymmetryType CompositeDensity::symmetry() const {
         sym &= static_cast<int>(components[index]->symmetry());
     return static_cast<SymmetryType>(sym);
 };
+
+
+CompositeCyl::CompositeCyl(const std::vector<const BasePotential*>& _components) : 
+    BasePotentialCyl()
+{
+    if(_components.empty())
+        throw std::invalid_argument("List of potential components cannot be empty");
+    components.resize(_components.size());
+    for(unsigned int i=0; i<_components.size(); i++)
+        components[i] = _components[i]->clone();
+}
 
 void CompositeCyl::evalCyl(const coord::PosCyl &pos,
     double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const

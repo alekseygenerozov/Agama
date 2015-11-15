@@ -7,6 +7,7 @@
 #include "potential_galpot.h"
 #include <cmath>
 #include <stdexcept>
+#include <cassert>
 
 namespace galaxymodel{
 
@@ -26,7 +27,9 @@ public:
     virtual potential::SymmetryType symmetry() const { return potential::ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensityFromDF"; };
-    
+    // needs not be used
+    virtual BaseDensity* clone() const { throw std::runtime_error("DensityFromDF is not copyable"); }
+
 private:
     const galaxymodel::GalaxyModel model;
     double relError;
@@ -55,12 +58,30 @@ Component::Component(const df::BaseDistributionFunction* _distrFunc,
     unsigned int _numCoefsRadial, unsigned int _numCoefsAngular,
     const potential::BaseDensity* initDens):
     distrFunc(_distrFunc), rmin(_rmin), rmax(_rmax),
-    numCoefsRadial(_numCoefsRadial), numCoefsAngular(_numCoefsAngular),
+    numCoefsRadial(_numCoefsRadial), numCoefsAngular(_numCoefsAngular)
+{
+    if(distrFunc == NULL && initDens == NULL)
+        throw std::invalid_argument("Either DF or density profile should be provided");
+    if(distrFunc == NULL || initDens != NULL) {
+        density = initDens->clone();
+        return;
+    }
     // if the first guess for density is not provided, it is initialized as 
-    // a simple Plummer model with the correct total mass and a reasonable scale radius
-    density(initDens ? initDens : new potential::Plummer(distrFunc->totalMass(), sqrt(rmin*rmax)))
+    // a simple Plummer model with the correct total mass and a (hopefully) reasonable scale radius
+    density = new potential::Plummer(distrFunc->totalMass(), sqrt(rmin*rmax));
+}
+
+Component::Component(const Component& src) :
+    distrFunc(src.distrFunc), rmin(src.rmin), rmax(src.rmax),
+    numCoefsRadial(src.numCoefsRadial), numCoefsAngular(src.numCoefsAngular),
+    density(src.density == NULL ? NULL : src.density->clone())
 {}
 
+Component& Component::operator= (Component src)
+{
+    std::swap(*this, src);
+    return *this;
+}
 
 SelfConsistentModel::SelfConsistentModel(
     const std::vector<Component>& _components,
@@ -75,10 +96,25 @@ SelfConsistentModel::SelfConsistentModel(
     updateTotalPotential();
 }
 
+SelfConsistentModel::~SelfConsistentModel()
+{
+    delete actionFinder;
+    delete totalPotential;
+    // density profiles of components are deleted automatically by their destructors
+}
+
+const potential::BaseDensity* SelfConsistentModel::getComponentDensity(unsigned int index) const
+{
+    if(index>=components.size())
+        throw std::invalid_argument("Component index out of range");
+    return components[index].density;
+}
+
 void SelfConsistentModel::updateTotalPotential()
 {
+    assert(components.size()>=1);
     // temporary array of density objects
-    std::vector<const potential::BaseDensity*> comp_array(components.size());
+    std::vector<const potential::BaseDensity*> comp_array;
     
     // determine the grid parameters for the overall potential expansion
     int numCoefsRadial  = 0;
@@ -140,7 +176,8 @@ void SelfConsistentModel::updateComponentDensity(unsigned int index)
 void SelfConsistentModel::doIteration()
 {
     for(unsigned int index=0; index<components.size(); index++)
-        updateComponentDensity(index);
+        if(components[index].distrFunc != NULL)  // update only 'live' components (with specified DF)
+            updateComponentDensity(index);
     updateTotalPotential();
 }
 

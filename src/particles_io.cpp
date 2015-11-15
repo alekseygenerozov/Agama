@@ -270,23 +270,6 @@ void IOSnapshotNemo::writeSnapshot(const PointMassArrayCar& points)
         throw std::runtime_error("IOSnapshotNEMO: cannot write to file "+fileName);
 };
 
-#if 0
-/// create a list of all IO snapshot formats available at compile time
-std::vector< std::string > initFormatsIOSnapshot()
-{
-    std::vector< std::string > formats;
-    formats.push_back("Text");
-    formats.push_back("Nemo");
-#ifdef HAVE_UNSIO
-    formats.push_back("Gadget");
-#endif
-    return formats;
-};
-
-// list of all available IO snapshot formats, initialized at module start 
-// according to the file formats supported at compile time
-std::vector< std::string > formatsIOSnapshot = initFormatsIOSnapshot();
-#endif
 
 // creates an instance of appropriate snapshot reader, according to the file format 
 // determined by reading first few bytes, or throw an exception if a file doesn't exist
@@ -320,8 +303,8 @@ BaseIOSnapshot* createIOSnapshotRead (const std::string &fileName,
 
 // creates an instance of snapshot writer for a given format name, 
 // or throw an exception if the format name string is incorrect
-BaseIOSnapshot* createIOSnapshotWrite(const std::string &fileFormat, const std::string &fileName, 
-    const units::ExternalUnits& unitConverter, 
+BaseIOSnapshot* createIOSnapshotWrite(const std::string &fileName, 
+    const units::ExternalUnits& unitConverter, const std::string &fileFormat,
     const std::string& header, const double time, const bool append)
 {
     if(fileFormat.empty() || fileName.empty())
@@ -339,5 +322,23 @@ BaseIOSnapshot* createIOSnapshotWrite(const std::string &fileFormat, const std::
     else
         throw std::runtime_error("Snapshot file format not recognized");   // error - format name not found
 };
+
+#if 0
+/// create a list of all IO snapshot formats available at compile time
+std::vector< std::string > initFormatsIOSnapshot()
+{
+    std::vector< std::string > formats;
+    formats.push_back("Text");
+    formats.push_back("Nemo");
+#ifdef HAVE_UNSIO
+    formats.push_back("Gadget");
+#endif
+    return formats;
+};
+
+// list of all available IO snapshot formats, initialized at module start 
+// according to the file formats supported at compile time
+std::vector< std::string > formatsIOSnapshot = initFormatsIOSnapshot();
+#endif
 
 };  // namespace

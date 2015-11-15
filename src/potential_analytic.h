@@ -18,6 +18,7 @@ public:
     static const char* myName() { return "Plummer"; }
     virtual double enclosedMass(const double radius) const;
     virtual double totalMass() const { return mass; }
+    virtual BasePotential* clone() const { return new Plummer(*this); }
 private:
     const double mass;         ///< total mass  (M)
     const double scaleRadius;  ///< scale radius of the Plummer model  (b)
@@ -36,6 +37,7 @@ public:
     virtual const char* name() const { return myName(); }
     static const char* myName() { return "NFW"; }
     virtual double totalMass() const { return INFINITY; }
+    virtual BasePotential* clone() const { return new NFW(*this); }
 private:
     const double mass;         ///< normalization factor  (M);  equals to mass enclosed within ~5.3r_s
     const double scaleRadius;  ///< scale radius of the NFW model  (r_s)
@@ -54,6 +56,7 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "MiyamotoNagai"; };
     virtual double totalMass() const { return mass; }
+    virtual BasePotential* clone() const { return new MiyamotoNagai(*this); }
 private:
     const double mass;         ///< total mass  (M)
     const double scaleRadiusA; ///< first scale radius  (A),  determines the extent in the disk plane
@@ -75,6 +78,7 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Logarithmic"; };
     virtual double totalMass() const { return INFINITY; }
+    virtual BasePotential* clone() const { return new Logarithmic(*this); }
 private:
     const double sigma2;       ///< squared asymptotic circular velocity (sigma)
     const double coreRadius2;  ///< squared core radius (r_c)
@@ -96,6 +100,7 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Harmonic"; };
     virtual double totalMass() const { return INFINITY; }
+    virtual BasePotential* clone() const { return new Harmonic(*this); }
 private:
     const double Omega2;       ///< squared oscillation frequency (Omega)
     const double q2;           ///< squared y/x axis ratio (q)

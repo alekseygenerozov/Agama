@@ -105,9 +105,10 @@ public:
         }
 
         double dfval;
+        actions::Actions acts(NAN, NAN, NAN);
         try{
             // 2. determine the actions
-            actions::Actions acts = model.actFinder.actions(posvel);
+            acts = model.actFinder.actions(posvel);
 
             // 3. compute the value of distribution function times the jacobian
             dfval = model.distrFunc.value(acts) * jac;
@@ -117,7 +118,7 @@ public:
         }
         catch(std::exception& e) {
             //!!! this is a temporary measure, should replace with a more sophisticated error reporting
-            std::cerr << e.what() << " at "<<posvel<<"\n";
+            std::cerr << e.what() <<" at "<<posvel<<" ("<<acts<<")\n";
             dfval = 0;
         }
 

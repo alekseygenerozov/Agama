@@ -2,11 +2,6 @@
     \brief   Composite density and potential classes
     \author  Eugene Vasiliev
     \date    2014-2015
- 
-\note: the semantics of creating a composite density and potential classes
-is far from ideal because the user needs to create each component manually,
-then create the composite, and _do_not_ delete the components - this will 
-be done by the composite's destructor. A better design approach is needed.
 */
 #pragma once
 #include "potential_base.h"
@@ -17,10 +12,8 @@ namespace potential{
 /** A trivial collection of several density objects */
 class CompositeDensity: public BaseDensity{
 public:
-    /** Construct from the provided array of components; 
-        note that they are 'taken over' and will be deleted in the destructor */
-    CompositeDensity(const std::vector<const BaseDensity*>& _components) : 
-        BaseDensity(), components(_components) {};
+    /** Construct from the provided array of components by making copies of them */
+    CompositeDensity(const std::vector<const BaseDensity*>& _components);
 
     virtual ~CompositeDensity() {
         for(unsigned int i=0; i<components.size(); i++) delete components[i]; }
@@ -30,6 +23,9 @@ public:
 
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "CompositeDensity"; };
+
+    /** clone the density by cloning each of its components individually */
+    virtual BaseDensity* clone() const { return new CompositeDensity(components); }
 
 private:
     std::vector<const BaseDensity*> components;
@@ -41,11 +37,10 @@ private:
 /** A trivial collection of several potential objects, evaluated in cylindrical coordinates */
 class CompositeCyl: public BasePotentialCyl{
 public:
-    /** Construct from the provided array of components; 
-        note that they are 'taken over' and will be deleted in the destructor */
-    CompositeCyl(const std::vector<const BasePotential*>& _components) : 
-        BasePotentialCyl(), components(_components) {};
+    /** construct from the provided array of components by making copies of them */ 
+    CompositeCyl(const std::vector<const BasePotential*>& _components);
 
+    /** delete the sub-components */
     virtual ~CompositeCyl() {
         for(unsigned int i=0; i<components.size(); i++) delete components[i]; }
 
@@ -54,6 +49,9 @@ public:
 
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "CompositePotential"; };
+
+    /** clone the potential by cloning each of its components individually */
+    virtual BasePotential* clone() const { return new CompositeCyl(components); }
 
 private:
     std::vector<const BasePotential*> components;

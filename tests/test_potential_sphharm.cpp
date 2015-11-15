@@ -56,10 +56,7 @@ const potential::BasePotential* create_from_file(
     const particles::PointMassArrayCar& points, const std::string& potType)
 {
     const std::string fileName = "test.txt";
-    particles::BaseIOSnapshot* snap = particles::createIOSnapshotWrite(
-        "Text", fileName, units::ExternalUnits());
-    snap->writeSnapshot(points);
-    delete snap;
+    particles::writeSnapshot(fileName, units::ExternalUnits(), points, "Text");
     const potential::BasePotential* newpot = NULL;
 
     // illustrates two possible ways of creating a potential from points

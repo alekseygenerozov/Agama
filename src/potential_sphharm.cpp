@@ -1116,6 +1116,9 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
     
     //  establish splines for rho_lm(r)
     splines.resize(lmax+1);
+    // min inner and min outer (negative) density slopes;
+    // the l>0 components must not have steeper/shallower slopes than the l=0 component
+    double deriv_inner_l0=-2.5, deriv_outer_l0=-2.5;
     for(int l=0; l<=lmax; l+=lstep) {
         //  determine asymptotic slopes of density profile at large and small r
         double deriv_inner = log(rhol[l][1] / rhol[l][0]) / log(gridRadii[1] / gridRadii[0]);
@@ -1123,12 +1126,14 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
             log(gridRadii[numCoefsRadial-1] / gridRadii[numCoefsRadial-2]);
         if(!math::isFinite(deriv_inner))
             deriv_inner = 0;
-        if(deriv_inner <= -2.5)
-            deriv_inner = -2.5;
+        deriv_inner = fmax(deriv_inner, deriv_inner_l0);
         if(!math::isFinite(deriv_outer))
             deriv_outer = 0;
-        if(deriv_outer >= -2.5)
-            deriv_outer = -2.5;
+        deriv_outer = fmin(deriv_outer, deriv_outer_l0);
+        if(l==0) {
+            deriv_inner_l0 = deriv_inner;
+            deriv_outer_l0 = deriv_outer;
+        }
 #ifdef VERBOSE_REPORT
         std::cout << l<<','<<deriv_inner<<','<<deriv_outer<<'\n';
 #endif

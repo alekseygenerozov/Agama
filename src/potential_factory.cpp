@@ -818,13 +818,14 @@ const BasePotential* createPotential(
         assert(components.size()>0);
         if(components.size() == 1)
             return components[0];
-        // otherwise we create a composite potential, and the "ownership" of 
-        // the newly created instances is transferred to the composite potential,
-        // i.e. we don't need to delete them here
-        return new CompositeCyl(components);
+        // otherwise we create a composite potential, and delete the temporary components
+        const BasePotential* result = new CompositeCyl(components);
+        for(unsigned int i=0; i<components.size(); i++)
+            delete components[i];
+        return result;
     }
     catch(std::exception&) {
-        // on the contrary, if potential creation failed, we delete all temporary components
+        // if potential creation failed, we delete all temporary components
         for(unsigned int i=0; i<components.size(); i++)
             delete components[i];
         throw;
