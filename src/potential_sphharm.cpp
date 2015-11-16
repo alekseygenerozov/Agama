@@ -1116,20 +1116,28 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
     
     //  establish splines for rho_lm(r)
     splines.resize(lmax+1);
-    // min inner and min outer (negative) density slopes;
-    // the l>0 components must not have steeper/shallower slopes than the l=0 component
-    double deriv_inner_l0=-2.5, deriv_outer_l0=-2.5;
+    // min inner and max outer (negative) density slopes;
+    // the l>0 components must not have steeper/shallower slopes than the l=0 component.
+    // Note that the inner slope less than -2 leads to a divergent potential at origin,
+    // but the enclosed mass is still finite if slope is greater than -3;
+    // similarly, outer slope greater than -3 leads to a divergent total mass,
+    // but the potential tends to a finite limit as long as the slope is less than -2.
+    // Both these 'dangerous' semi-infinite regimes are allowed here, but likely may result
+    // in problems elsewhere.
+    double deriv_inner_l0=-2.8, deriv_outer_l0=-2.2;
     for(int l=0; l<=lmax; l+=lstep) {
         //  determine asymptotic slopes of density profile at large and small r
         double deriv_inner = log(rhol[l][1] / rhol[l][0]) / log(gridRadii[1] / gridRadii[0]);
         double deriv_outer = log(rhol[l][numCoefsRadial-1] / rhol[l][numCoefsRadial-2]) /
             log(gridRadii[numCoefsRadial-1] / gridRadii[numCoefsRadial-2]);
-        if(!math::isFinite(deriv_inner))
+        if(!math::isFinite(deriv_inner))  // likely 0/0 - i.e. density is zero at origin
             deriv_inner = 0;
-        deriv_inner = fmax(deriv_inner, deriv_inner_l0);
+        else
+            deriv_inner = fmax(deriv_inner, deriv_inner_l0);
         if(!math::isFinite(deriv_outer))
             deriv_outer = 0;
-        deriv_outer = fmin(deriv_outer, deriv_outer_l0);
+        else
+            deriv_outer = fmin(deriv_outer, deriv_outer_l0);
         if(l==0) {
             deriv_inner_l0 = deriv_inner;
             deriv_outer_l0 = deriv_outer;

@@ -12,6 +12,7 @@
 #include <cmath>
 #include "torus/Torus.h"
 #include "potential_factory.h"
+#include "potential_utils.h"
 #include "math_core.h"
 #include "orbit.h"
 

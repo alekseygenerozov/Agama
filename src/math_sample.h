@@ -34,7 +34,7 @@ public:
     of points in the neighborhood of any location X is proportional to the value of F(X).
 
     \param[in]  F  is the probability distribution, the dimensionality N of the problem
-                is given by F->numVars();
+                is given by F.numVars();
     \param[in]  xlower  is the lower boundary of sampling volume (array of length N);
     \param[in]  xupper  is the upper boundary of sampling volume;
     \param[in]  numSamples  is the required number of sampling points (M);
@@ -51,6 +51,6 @@ public:
 void sampleNdim(const IFunctionNdim& F, const double xlower[], const double xupper[],
     const unsigned int numSamples,
     Matrix<double>& samples, int* numTrialPoints=0, double* integral=0, double* interror=0,
-    SamplingProgressReportCallback* callback=NULL);
+    SamplingProgressReportCallback* callback=0);
 
 }  // namespace

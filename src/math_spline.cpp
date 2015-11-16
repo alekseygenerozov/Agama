@@ -488,7 +488,8 @@ void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* 
         double dx  =  xval[1]-xval[0];
         double der = (yval[1]-yval[0]) / dx - dx * (1./6 * cval[1] + 1./3 * cval[0]);
         if(val)
-            *val   = yval[0] + der*(x-xval[0]);
+            *val   = yval[0] +
+            (der==0 ? 0 : der*(x-xval[0]));  // if der==0, correct result even for infinite x
         if(deriv)
             *deriv = der;
         if(deriv2)
@@ -500,7 +501,7 @@ void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* 
         double dx  =  xval[size-1]-xval[size-2];
         double der = (yval[size-1]-yval[size-2]) / dx + dx * (1./6 * cval[size-2] + 1./3 * cval[size-1]);
         if(val)
-            *val   = yval[size-1] + der*(x-xval[size-1]);
+            *val   = yval[size-1] + (der==0 ? 0 : der*(x-xval[size-1]));
         if(deriv)
             *deriv = der;
         if(deriv2)

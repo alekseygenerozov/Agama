@@ -51,8 +51,8 @@ struct Component {
 
     /// empty constructor needed for placing this structure into std::vector
     Component():
-        distrFunc(NULL), rmin(0), rmax(0),
-        numCoefsRadial(0), numCoefsAngular(0), density(NULL) {};
+        distrFunc(0), rmin(0), rmax(0),
+        numCoefsRadial(0), numCoefsAngular(0), density(0) {};
 
     /** create a component with the given distribution function and parameters of density profile.
         Two variants are possible: 
@@ -75,7 +75,7 @@ struct Component {
     */
     Component(const df::BaseDistributionFunction* df, double rmin, double rmax, 
         unsigned int numCoefsRadial, unsigned int numCoefsAngular,
-        const potential::BaseDensity* initDens=NULL);
+        const potential::BaseDensity* initDens=0);
 
     /** delete the internally created density model */
     ~Component() { delete density; }
@@ -107,7 +107,7 @@ public:
     /// Construct the model and initialize the first guesses for density profiles and the total potential
     SelfConsistentModel(
         const std::vector<Component>& _components,  ///< array of model components
-        ProgressReportCallback* _callback=NULL,     ///< optional pointer to the progress reporting routine
+        ProgressReportCallback* _callback=0,        ///< optional pointer to the progress reporting routine
         double _relError=1e-3,                      ///< relative accuracy of density computation
         unsigned int _maxNumEval=10000              ///< max # of DF evaluations per density computation
     );

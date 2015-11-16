@@ -43,6 +43,7 @@ SOURCES   = \
             potential_galpot.cpp \
             potential_perfect_ellipsoid.cpp \
             potential_sphharm.cpp \
+            potential_utils.cpp \
             utils.cpp \
             utils_config.cpp
 
@@ -80,7 +81,8 @@ TESTSRCS  = test_math_core.cpp \
             test_actions_nbody.cpp \
             test_torus.cpp \
             test_torus_new.cpp \
-            test_distributionfunction.cpp \
+            test_df_disk.cpp \
+            test_df_halo.cpp \
             test_df_fit.cpp \
             test_selfconsistentmodel.cpp \
 

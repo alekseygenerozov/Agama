@@ -73,9 +73,10 @@ struct DiskParam{
     ///< and for h=0 the disk is infinitesimal thin
     double innerCutoffRadius;   ///< if nonzero, specifies the radius of a hole at the center R_0
     double modulationAmplitude; ///< a term eps*cos(R/R_d) is added to the exponent
-    DiskParam() :
-        surfaceDensity(0), scaleRadius(0), scaleHeight(0),
-        innerCutoffRadius(0), modulationAmplitude(0) {};
+    DiskParam(double _surfaceDensity=0, double _scaleRadius=0, double _scaleHeight=0,
+        double _innerCutoffRadius=0, double _modulationAmplitude=0) :
+        surfaceDensity(_surfaceDensity), scaleRadius(_scaleRadius), scaleHeight(_scaleHeight),
+        innerCutoffRadius(_innerCutoffRadius), modulationAmplitude(_modulationAmplitude) {};
 };
 
 /// parameters describing a spheroidal component
@@ -86,9 +87,10 @@ struct SphrParam{
     double beta;                ///< outer power slope beta 
     double scaleRadius;         ///< transition radius r_0 [kpc] 
     double outerCutoffRadius;   ///< outer cut-off radius r_t [kpc] 
-    SphrParam() :
-        densityNorm(0), axisRatio(1), gamma(0), beta(0),
-        scaleRadius(0), outerCutoffRadius(0) {};
+    SphrParam(double _densityNorm=0, double _axisRatio=1, double _gamma=0, double _beta=0,
+        double _scaleRadius=0, double _outerCutoffRadius=0) :
+        densityNorm(_densityNorm), axisRatio(_axisRatio), gamma(_gamma), beta(_beta),
+        scaleRadius(_scaleRadius), outerCutoffRadius(_outerCutoffRadius) {};
 };
 ///@}
 /// \name  Disk components

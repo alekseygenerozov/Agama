@@ -8,7 +8,7 @@
 
 /** Classes and auxiliary routines related to creation and manipulation of 
     density models and gravitational potential models.
-    
+
     These two concepts are related in such a way that a density model does not need 
     to provide potential and forces, while a potential model does. 
     Thus the latter is derived from the former.
@@ -72,10 +72,10 @@ public:
         may provide a cheaper alternative (not necessarily a very precise one)
     */
     virtual double enclosedMass(const double radius) const;
-    
+
     /** return the total mass of the density model (possibly infinite);
         default implementation estimates the asymptotic behaviour of density at large radii,
-        but derived classes may instead return a specific value. 
+        but derived classes may instead return a specific value.
     */
     virtual double totalMass() const;
 
@@ -340,7 +340,7 @@ private:
 /// \name   Non-member functions for all potential classes
 ///@{
 
-/** Convenience functions for evaluating total energy of a given position/velocity pair */
+/** Convenience functions for evaluating the total energy of a given position/velocity pair */
 inline double totalEnergy(const BasePotential& potential, const coord::PosVelCar& p)
 {  return potential.value(p) + 0.5*(p.vx*p.vx+p.vy*p.vy+p.vz*p.vz); }
 
@@ -356,7 +356,7 @@ inline bool isSpherical(const BaseDensity& dens) {
     return (dens.symmetry() & ST_SPHERICAL) == ST_SPHERICAL;
 }
 
-/** check if the density model is 'commonly axisymmetric' 
+/** check if the density model is axisymmetric in the 'common definition'
     (i.e., invariant under rotation about z axis and under change of sign in z) */
 inline bool isAxisymmetric(const BaseDensity& dens) {
     return (dens.symmetry() & ST_AXISYMMETRIC) == ST_AXISYMMETRIC;
@@ -367,7 +367,7 @@ inline bool isZRotSymmetric(const BaseDensity& dens) {
     return (dens.symmetry() & ST_ZROTSYM) == ST_ZROTSYM;
 }
 
-/** check if the density model is triaxial 
+/** check if the density model is triaxial
     (symmetric under reflection about any of the three principal planes) */
 inline bool isTriaxial(const BaseDensity& dens) {
     return (dens.symmetry() & ST_TRIAXIAL) == ST_TRIAXIAL;
@@ -383,45 +383,6 @@ double getInnerDensitySlope(const BaseDensity& dens);
 /** Compute m-th azimuthal harmonic of density profile by averaging the density over angle phi 
     with weight factor cos(m phi) or sin(m phi), at the given point in (R,z) plane */
 double computeRho_m(const BaseDensity& dens, double R, double z, int m);
-    
-
-/** Compute circular velocity at a given (cylindrical) radius R in equatorial plane */
-double v_circ(const BasePotential& potential, double R);
-
-/** Compute angular momentum of a circular orbit in equatorial plane for a given value of energy */
-double L_circ(const BasePotential& potential, double energy);
-
-/** Compute cylindrical radius of a circular orbit in equatorial plane for a given value of energy */
-double R_circ(const BasePotential& potential, double energy);
-
-/** Compute cylindrical radius of an orbit in equatorial plane for a given z-component
-    of angular momentum */
-double R_from_Lz(const BasePotential& potential, double L_z);
-
-/** Interpolator for L_circ(E) */
-class InterpLcirc: public math::IFunction {
-public:
-    explicit InterpLcirc(const BasePotential& potential);
-    ~InterpLcirc();
-    /// return L_circ(E)
-    virtual void evalDeriv(const double E, double* value=0, double* deriv=0, double* deriv2=0) const;
-    virtual unsigned int numDerivs() const { return 1; }
-private:
-    InterpLcirc(const InterpLcirc& src);        // disallow copy
-    InterpLcirc& operator=(const InterpLcirc&); // and assignment
-    const void* interp;  ///< interpolator implementation
-    double Ein, Eout;    ///< boundaries of energy interval
-};
-
-/** Compute epicycle frequencies for a circular orbit in the equatorial plane with radius R.
-    \param[in]  potential is the instance of potential (must have axial symmetry)
-    \param[in]  R     is the cylindrical radius 
-    \param[out] kappa is the epicycle frequency of radial oscillations
-    \param[out] nu    is the frequency of vertical oscillations
-    \param[out] Omega is the azimuthal angular frequency (essentially v_circ/R)
-*/
-void epicycleFreqs(const BasePotential& potential, const double R,
-    double& kappa, double& nu, double& Omega);
 
 
 /** Scaling transformation for 3-dimensional integration over volume:
@@ -439,7 +400,7 @@ public:
 
     /// integrand for the density at a given point (R,z,phi) with appropriate coordinate scaling
     virtual void eval(const double vars[], double values[]) const;
-    
+
     /// dimensions of integration: only integrate in phi if density is not axisymmetric
     virtual unsigned int numVars() const { return axisym ? 2 : 3; }
 
@@ -455,6 +416,6 @@ private:
     const bool axisym;        ///< flag determining if the density is axisymmetric
     const bool nonnegative;   ///< flag determining whether to return zero if density was negative
 };
-    
+
 ///@}
 }  // namespace potential

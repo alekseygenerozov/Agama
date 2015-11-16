@@ -270,8 +270,6 @@ public:
 */
 AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
 {
-    /*if(fnc.E>=0)
-        throw std::invalid_argument("Error in Axisymmetric Staeckel/Fudge action finder: E>=0");*/
     AxisymIntLimits lim;
     const double delta=fnc.point.coordsys.delta;
 

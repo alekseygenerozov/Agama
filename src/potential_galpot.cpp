@@ -396,12 +396,15 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
         spl.evalDeriv(valR, valC, &Phi);
     PhiC  *= sign(ct);
     PhiRC *= sign(ct);
-    if(lr < lRmin) {  // extrapolation at small radii
+    if(lr < lRmin) {  // extrapolation at small radii - ANGULAR PART IS NOT QUITE CORRECT!!!
         if(twominusgamma>0) {
-            Phi   = (Phi-Phi0)*exp(twominusgamma*(lr-valR));
+            double coef = exp(twominusgamma*(lr-valR));
+            Phi   = (Phi-Phi0)*coef;
             PhiR  = twominusgamma*Phi;
             PhiRR = pow_2(twominusgamma)*Phi;
             Phi  += Phi0;
+            PhiC *= coef;
+            PhiCC*= coef;
         } else if(twominusgamma==0) {
             PhiR  = Phi/lRmin;
             PhiRR = 0.;

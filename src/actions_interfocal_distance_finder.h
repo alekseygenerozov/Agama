@@ -18,6 +18,7 @@
 */
 #pragma once
 #include "potential_base.h"
+#include "potential_utils.h"
 #include "math_spline.h"
 
 namespace actions {
@@ -75,17 +76,17 @@ double estimateInterfocalDistanceShellOrbit(
 
 
 /** Class that provides a faster evaluation of interfocal distance via smooth interpolation 
-    over pre-computed grid in energy (E) and z-component of angular momentum (L_z) plane */
+    over pre-computed grid in energy (E) and z-component of angular momentum (L_z) plane. */
 class InterfocalDistanceFinder {
 public:
+    /// Initialize the internal interpolation table (the potential is not used thereafter)
     explicit InterfocalDistanceFinder(
         const potential::BasePotential& potential, const unsigned int gridSize=50);
 
     /// Return an estimate of interfocal distance for the given point, based on the values of E and L_z
-    double value(const coord::PosVelCyl& point) const;
+    double value(double E, double Lz) const;
 
 private:
-    const potential::BasePotential& potential;  ///< reference to the potential
     const potential::InterpLcirc interpLcirc;   ///< interpolator for Lcirc(E)
     /// 2d interpolator for interfocal distance on the grid in E, Lz/Lcirc(E) plane
     math::LinearInterpolator2d interp;

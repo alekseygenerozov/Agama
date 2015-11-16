@@ -101,16 +101,16 @@ AxisymFunctionStaeckel findIntegralsOfMotionOblatePerfectEllipsoid(
     SPECIALIZED for the Axisymmetric Fudge action finder */
 class AxisymFunctionFudge: public AxisymFunctionBase {
 public:
-    const double Ilambda, Inu;              ///< approximate integrals of motion for two quasi-separable directions
+    const double Ilambda, Inu;  ///< approximate integrals of motion for two quasi-separable directions
     const potential::BasePotential& poten;  ///< gravitational potential
     AxisymFunctionFudge(const coord::PosVelProlSph& _point, double _E, double _Lz,
         double _Ilambda, double _Inu, const potential::BasePotential& _poten) :
         AxisymFunctionBase(_point, _E, _Lz), Ilambda(_Ilambda), Inu(_Inu), poten(_poten) {};
 
     /** Auxiliary function F analogous to that of Staeckel action finder:
-        namely, the momentum is given by  p_tau^2 = F(tau) / (2*(tau+alpha)^2*(tau+gamma)),
-        where  -gamma<=tau<=-alpha  for the  nu-component of momentum, 
-        and   -alpha<=tau<infinity  for the  lambda-component of momentum.
+        namely, the momentum is given by  p_tau^2 = F(tau) / [2 tau (tau-delta)^2],
+        where    0 <= tau < delta    for the  nu-component of momentum, 
+        and  delta <= tau < infinity for the  lambda-component of momentum.
         For numerical convenience, tau is replaced by x=tau+gamma. */
     virtual void evalDeriv(const double tauplusgamma, 
         double* value=0, double* deriv=0, double* deriv2=0) const;
@@ -140,11 +140,13 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc);
 /** Compute the derivatives of integrals of motion (E, Lz, I3) over actions (Jr, Jz, Jphi),
     using the expressions A4-A9 in Sanders(2012).  These quantities are independent of angles,
     and in particular, the derivatives of energy w.r.t. the three actions are the frequencies. */
-AxisymIntDerivatives computeIntDerivatives(const AxisymFunctionBase& fnc, const AxisymIntLimits& lim);
+AxisymIntDerivatives computeIntDerivatives(
+    const AxisymFunctionBase& fnc, const AxisymIntLimits& lim);
 
 /** Compute the derivatives of generating function S over integrals of motion (E, Lz, I3),
     using the expressions A10-A12 in Sanders(2012).  These quantities do depend on angles. */
-AxisymGenFuncDerivatives computeGenFuncDerivatives(const AxisymFunctionBase& fnc, const AxisymIntLimits& lim);
+AxisymGenFuncDerivatives computeGenFuncDerivatives(
+    const AxisymFunctionBase& fnc, const AxisymIntLimits& lim);
 
 /** Compute actions by integrating the momentum over the range of tau on which it is positive,
     separately for the "nu" and "lambda" branches (equation A1 in Sanders 2012). */
@@ -227,7 +229,10 @@ ActionAngles axisymFudgeActionAngles(
 /// \name  ------- Class interface to action/angle finders  -------
 ///@{
 
-/// Action/angle finder for an Oblate Perfect Ellipsoid potential
+/** Action/angle finder for an Oblate Perfect Ellipsoid potential.
+    The reference to the potential is stored in this object, is used
+    in computing the actions, and must be valid throughout its lifetime.
+*/
 class ActionFinderAxisymStaeckel: public BaseActionFinder {
 public:
     ActionFinderAxisymStaeckel(const potential::OblatePerfectEllipsoid& potential) :
@@ -238,7 +243,7 @@ public:
     virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const {
         return axisymStaeckelActionAngles(pot, point, freq); }
 private:
-    const potential::OblatePerfectEllipsoid& pot;
+    const potential::OblatePerfectEllipsoid& pot;  ///< the potential in which actions are computed
 };
 
 /** Action/angle finder for a generic axisymmetric potential, based on Staeckel Fudge approximation.
@@ -246,6 +251,8 @@ private:
     the standalone routines, because it estimates the interfocal distance using a pre-computed 
     interpolation grid, rather than doing it individually for each point. This results in 
     a considerable speedup in action computation, for a negligible overhead during initialization.
+    The reference to the potential provided to the constructor is stored internally in this object,
+    thus it must exist during its lifetime and will be used when the actions need to be computed.
 */
 class ActionFinderAxisymFudge: public BaseActionFinder {
 public:
@@ -253,11 +260,13 @@ public:
         pot(potential), finder(potential) {};
     virtual ~ActionFinderAxisymFudge() {};
     virtual Actions actions(const coord::PosVelCyl& point) const {
-        return axisymFudgeActions(pot, point, finder.value(point)); }
+        return axisymFudgeActions(pot, point, 
+            finder.value(totalEnergy(pot, point), point.R*point.vphi)); }
     virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const {
-        return axisymFudgeActionAngles(pot, point, finder.value(point), freq); }
+        return axisymFudgeActionAngles(pot, point,
+            finder.value(totalEnergy(pot, point), point.R*point.vphi), freq); }
 private:
-    const potential::BasePotential& pot;    ///< the generic axisymmetric potential in which actions are computed
+    const potential::BasePotential& pot;    ///< the potential in which actions are computed
     const InterfocalDistanceFinder finder;  ///< fast estimator of interfocal distance
 };
 

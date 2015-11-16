@@ -2,6 +2,7 @@
 #include "potential_factory.h"
 #include "potential_dehnen.h"
 #include "potential_ferrers.h"
+#include "potential_utils.h"
 #include "units.h"
 #include "math_core.h"
 #include "debug_utils.h"

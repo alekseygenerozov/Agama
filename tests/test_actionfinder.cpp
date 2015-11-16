@@ -174,7 +174,8 @@ int main(int argc, const char* argv[]) {
             for(int a=0; a<8; a++) {   // explore the range of third integral by varying the direction
                 double ang=(a+0.01)/7.02 * M_PI/2;  // of velocity in the meridional plane
                 coord::PosVelCar ic(R, 0, 0, vmer*cos(ang), vphi, vmer*sin(ang));
-                double ifd = ifdFinder.value(coord::toPosVelCyl(ic));   // interfocal distance to be used in Fudge
+                // interfocal distance to be used in Fudge
+                double ifd = ifdFinder.value(totalEnergy(*pot, ic), coord::Lz(ic));
                 allok &= test_actions(*pot, ic, totalTime, timeStep, ifd);
                 std::cout << " "<<IFD<<"\n";
             }

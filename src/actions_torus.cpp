@@ -1,5 +1,6 @@
 #include "actions_torus.h"
 #include "math_core.h"
+#include "potential_utils.h"
 #include "torus/Torus.h"
 #include "torus/Potential.h"
 #include <stdexcept>

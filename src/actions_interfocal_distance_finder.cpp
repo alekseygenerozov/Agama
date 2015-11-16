@@ -460,8 +460,8 @@ double estimateInterfocalDistanceShellOrbit(
 
 // ----------- Interpolation of interfocal distance in E,Lz plane ------------ //
 InterfocalDistanceFinder::InterfocalDistanceFinder(
-    const potential::BasePotential& _potential, const unsigned int gridSizeE) :
-    potential(_potential), interpLcirc(_potential)
+    const potential::BasePotential& potential, const unsigned int gridSizeE) :
+    interpLcirc(potential)
 {
     if(!isAxisymmetric(potential))
         throw std::invalid_argument("Potential is not axisymmetric, "
@@ -502,13 +502,11 @@ InterfocalDistanceFinder::InterfocalDistanceFinder(
     interp = math::LinearInterpolator2d(gridE, gridLzrel, grid2d);
 }
 
-double InterfocalDistanceFinder::value(const coord::PosVelCyl& point) const
+double InterfocalDistanceFinder::value(double E, double Lz) const
 {
-    double E  = totalEnergy(potential, point);
     E = fmin(fmax(E, interp.xmin()), interp.xmax());
-    double Lz = fabs(point.R*point.vphi);
     double Lc = interpLcirc(E);
-    double Lzrel = fmin(fmax(Lz/Lc, interp.ymin()), interp.ymax());
+    double Lzrel = fmin(fmax(fabs(Lz)/Lc, interp.ymin()), interp.ymax());
     return interp.value(E, Lzrel);
 }
 
