@@ -193,9 +193,6 @@ private:
     density profile (which may well be an instance of a CompositeDensity class).
 */
 class Multipole: public BasePotentialCyl{
-private:
-    double twominusgamma, Phi0;  ///< parameters for extrapolating the potential at small radii
-    math::QuinticSpline2d spl;   ///< 2d spline in meridional plane for interpolating the potential
 public:
     /** Compute the potential using the multi expansion and approximate it 
         by a two-dimensional spline in (R,z) plane. 
@@ -203,10 +200,8 @@ public:
                     to the potential approximation, a std::runtime_error exception 
                     is raised if it is not axisymmetric;
         \param[in]  r_min, r_max    give the radial grid extent;
-        \param[in]  gridSizeR  is the size of logarithmic spline grid in R;
-        \param[in]  gridSizeC  is the size of grid in (z/r)
-        \param[in]  gamma  is the power-law index of density extrapolation at small r;
-        \param[in]  beta   is the slope of density profile at large radii;
+        \param[in]  gridSizeR       is the size of logarithmic spline grid in R;
+        \param[in]  numCoefsAngular is the order of multipole expansion (l_max)
     */
     Multipole (const BaseDensity& source_density,
                const double r_min, const double r_max,
@@ -216,7 +211,14 @@ public:
     static const char* myName() { return "AxisymmetricMultipole"; };
     virtual BasePotential* clone() const { return new Multipole(*this); }
 private:
-    bool isSpherical;
+    math::QuinticSpline2d spl;   ///< 2d spline in meridional plane for interpolating the potential
+    bool isSpherical;            ///< degree of symmetry of the original density profile
+    double Phi0;                 ///< value of potential at origin
+    double betaminustwo;
+    /// power-law slopes of multipole components at small and large radii
+    std::vector<double> innerSlopes, outerSlopes;
+    /// values of multipole components at the inner and outer radii of the grid
+    std::vector<double> innerValues, outerValues;
     virtual void evalCyl(const coord::PosCyl &pos,
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
 };

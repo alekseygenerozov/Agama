@@ -38,10 +38,10 @@ namespace potential{
 
 inline double sign(double x) { return x>0?1.:x<0?-1.:0; }
 
-const int    GALPOT_LMAX=78;     ///< maximum l for the Multipole expansion 
-const int    GALPOT_NRAD=201;    ///< DEFAULT number of radial points in Multipole 
-const double GALPOT_RMIN=1.e-4,  ///< DEFAULT min radius of logarithmic radial grid in Multipole
-             GALPOT_RMAX=1.e3;   ///< DEFAULT max radius of logarithmic radial grid
+static const int    GALPOT_LMAX=78;     ///< maximum l for the Multipole expansion 
+static const int    GALPOT_NRAD=201;    ///< DEFAULT number of radial points in Multipole 
+static const double GALPOT_RMIN=1.e-4,  ///< DEFAULT min radius of logarithmic radial grid in Multipole
+                    GALPOT_RMAX=1.e3;   ///< DEFAULT max radius of logarithmic radial grid
 
 //----- disk density and potential -----//
 
@@ -265,11 +265,11 @@ Multipole::Multipole(const BaseDensity& source_density,
     std::vector<double> gridR(gridSizeR), gridC(gridSizeC);
     std::vector<double> r(gridSizeR);
     const double
-        lRmin = log(Rmin),
-        lRmax = log(Rmax), 
-        dlr = (lRmax-lRmin)/double(gridSizeR-1);
+        logRmin = log(Rmin),
+        logRmax = log(Rmax), 
+        dlr = (logRmax-logRmin)/double(gridSizeR-1);
     for(int k=0; k<gridSizeR; k++) {
-        gridR[k] = k<gridSizeR-1? lRmin+dlr*k : lRmax;
+        gridR[k] = k<gridSizeR-1? logRmin+dlr*k : logRmax;
         r[k]     = exp(gridR[k]);
     }
 
@@ -292,6 +292,11 @@ Multipole::Multipole(const BaseDensity& source_density,
     // Finally, \Phi_l(r) is computed as -4\pi ( P1_l(r) + P2_l(r) ), and similarly its derivative.
     math::Matrix<double> Phil(gridSizeR, numMultipoles), dPhil(gridSizeR, numMultipoles);
     std::vector<double>  P1(gridSizeR), P2(gridSizeR);
+    innerSlopes.assign(numMultipoles, 0);
+    outerSlopes.assign(numMultipoles, 0);
+    innerValues.assign(numMultipoles, 0);
+    outerValues.assign(numMultipoles, 0);
+
     for(int l=0; l<=numCoefsAngular; l+=2) {
         // inner part
         P1[0] = densh->integrate(0, Rmin, l, l+2, Rmin) * Rmin;
@@ -299,6 +304,7 @@ Multipole::Multipole(const BaseDensity& source_density,
             double s = densh->integrate(r[k-1], r[k], l, l+2, r[k]);
             P1[k] = P1[k-1] * math::powInt(r[k-1]/r[k], l+1) + s * r[k];
         }
+
         // outer part
         P2[gridSizeR-1] = densh->integrate(Rmax, INFINITY, l, 1-l, Rmax) * Rmax;
         if(!math::isFinite(P2[gridSizeR-1]))
@@ -307,28 +313,47 @@ Multipole::Multipole(const BaseDensity& source_density,
             double s = densh->integrate(r[k], r[k+1], l, 1-l, r[k]);
             P2[k] = P2[k+1] * math::powInt(r[k]/r[k+1], l) + s * r[k];
         }
+
         // put together inner and outer parts to compute the potential and its radial derivative,
         // for each spherical-harmonic term
         for(int k=0; k<gridSizeR; k++) {
             Phil (k, l/2) = -4*M_PI * (P1[k] + P2[k]);           // Phi_l
             dPhil(k, l/2) =  4*M_PI * ( (l+1)*P1[k] - l*P2[k]);  // dPhi_l/dlogr
         }
-        // analyze the behaviour of potential at small radii
+
+        // store the values and derivatives of multipole terms
+        // used for extrapolating to large and small radii (beyond the grid definition region)
         if(l==0) {
             // determine the central value of potential
-            double deltaPhi = 4*M_PI * (densh->integrate(0, r[0], 0, 1) - P1[0]);
-            Phi0 = Phil(0, 0) - deltaPhi;  // deltaPhi is Phi(rmin)-Phi(0)
+            innerValues[0] = 4*M_PI * (densh->integrate(0, r[0], 0, 1) - P1[0]);
+            Phi0 = Phil(0, 0) - innerValues[0];   // innerValues[0] is Phi(rmin)-Phi(0)
             // if the central value is finite, we derive the value of inner density slope gamma
             // assuming that Phi(r) = Phi(0) + (Phi(rmin) - Phi(0)) * (r/rmin)^(2-gamma)
-            if(math::isFinite(deltaPhi) && deltaPhi!=0)
-                twominusgamma = dPhil(0, 0) / deltaPhi;
-            else
+            if(math::isFinite(innerValues[0]) && innerValues[0]!=0)
+                innerSlopes[0] = dPhil(0, 0) / innerValues[0];
+            else {
                 // otherwise we take the ratio between enclosed mass within rmin, given by P1(rmin),
                 // and the value of density at this radius, assuming that it varies as 
                 // rho(r) = rho(rmin) * (r/rmin)^(-gamma)  for r<rmin
-                twominusgamma = densh->rho_l(Rmin, 0) * pow_2(Rmin) / P1[0] - 1;
-            if(!math::isFinite(twominusgamma) || twominusgamma<-0.5)
-                twominusgamma=-0.5;  // rather arbitrary..
+                innerSlopes[0] = densh->rho_l(Rmin, 0) * pow_2(Rmin) / P1.front() - 1.;
+                innerValues[0];
+            }
+            if(!math::isFinite(innerSlopes[0]) || innerSlopes[0] < -0.5)
+                innerSlopes[0] = 0;  // rather arbitrary..
+
+            // determine the outer slope of density profile rho ~ r^-beta
+            betaminustwo = densh->rho_l(Rmax, 0) * pow_2(Rmax) / P2.back();
+            if(!math::isFinite(betaminustwo) || betaminustwo<0.5 || fabs(betaminustwo-1.)<0.01)
+                betaminustwo = 1.1;  // beta=3 would need a different treatment of the asymptotic law
+            outerValues[0] = 4*M_PI * (P1.back() + P2.back() * betaminustwo / (betaminustwo-1));
+            outerSlopes[0] = 4*M_PI * P2.back() / (betaminustwo-1);
+        } else {
+            innerValues[l/2] = Phil(0, l/2);
+            if(Phil(0, l/2) != 0)
+                innerSlopes[l/2] = dPhil(0, l/2) / Phil(0, l/2);
+            outerValues[l/2] = Phil(gridSizeR-1, l/2);
+            if(Phil(gridSizeR-1, l/2) != 0)
+                outerSlopes[l/2] = fmin(-1, dPhil(gridSizeR-1, l/2) / Phil(gridSizeR-1, l/2));
         }
     }
 
@@ -381,47 +406,71 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
     double r=hypot(pos.R, pos.z);
     double ct=pos.z/r, st=pos.R/r;  // cos(theta), sin(theta)
     if(r==0 || r==INFINITY) {ct=st=0;}
-    double lr = log(r);
+    double logr = log(r);
     // coordinates on the scaled grid
-    const double lRmin = spl.xmin(), lRmax = spl.xmax();
-    double valR = fmin(lRmax,fmax(lRmin,lr));
+    const double logRmin = spl.xmin(), logRmax = spl.xmax();
+    double valR = fmin(logRmax, fmax(logRmin, logr));
     double valC = fabs(ct);
     // value and derivatives of spline by its arguments (log r, z/r)
     double Phi=0, PhiR=0, PhiC=0, PhiRR=0, PhiRC=0, PhiCC=0;
-    if(deriv2)
-        spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC, &PhiRR, &PhiRC, &PhiCC);
-    else if(deriv || lr > lRmax)
-        spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC);
-    else
-        spl.evalDeriv(valR, valC, &Phi);
-    PhiC  *= sign(ct);
-    PhiRC *= sign(ct);
-    if(lr < lRmin) {  // extrapolation at small radii - ANGULAR PART IS NOT QUITE CORRECT!!!
-        if(twominusgamma>0) {
-            double coef = exp(twominusgamma*(lr-valR));
-            Phi   = (Phi-Phi0)*coef;
-            PhiR  = twominusgamma*Phi;
-            PhiRR = pow_2(twominusgamma)*Phi;
-            Phi  += Phi0;
-            PhiC *= coef;
-            PhiCC*= coef;
-        } else if(twominusgamma==0) {
-            PhiR  = Phi/lRmin;
-            PhiRR = 0.;
-            Phi  *= lr/lRmin;
-        } else {
-            Phi  *= exp(twominusgamma*(lr-valR));
-            PhiR  = twominusgamma*Phi;
-            PhiRR = pow_2(twominusgamma)*Phi;
+
+    if(logr > logRmax) {  // extrapolation at large radii
+        double Pl[GALPOT_LMAX+1], dPl[GALPOT_LMAX+1];
+        math::legendrePolyArray(outerValues.size()*2-2, 0, ct, Pl, dPl);
+        // special treatment for l==0: we assume that the density falls off
+        // as a power law in radius, and potential then behaves as
+        // Phi(r)
+        double V1 = -outerValues[0] * exp(logRmax-logr);
+        double V2 =  outerSlopes[0] * exp(betaminustwo * (logRmax-logr));
+        Phi   += V1 + V2;
+        PhiR  -= V1 + V2 * betaminustwo;          ///!!! update notation
+        PhiRR += V1 + V2 * pow_2(betaminustwo);
+        // and standard spherical-harmonic expansion with power-law coefficients for l>0
+        for(unsigned int l2=1; l2<outerValues.size(); l2++) {
+            // assume that Phi_l(r) = Phi_l(Rmax) * (r/Rmax)^alpha_l
+            int l = l2*2;
+            double alpha = outerSlopes[l2];
+            double rfact = outerValues[l2] * exp( (logr-logRmax) * alpha );
+            Phi  += rfact * Pl[l];          // Phi
+            PhiR += rfact * Pl[l] * alpha;  // d Phi / d log(r)
+            PhiC += rfact * dPl[l];         // d Phi / d cos(theta)
+            if(deriv2) {
+                PhiRR += rfact * Pl[l] * pow_2(alpha);
+                PhiRC += rfact * dPl[l] * alpha;
+                double d2Pl = valC<1 ? 
+                    (2*valC*dPl[l] - l*(l+1)*Pl[l]) / (1-pow_2(valC)) :
+                    (l-1)*l*(l+1)*(l+2) / 8.;  // limiting value for |cos(theta)|==1
+                PhiCC += rfact * d2Pl;
+            }
         }
-    } else if(lr > lRmax)  // extrapolation at large radii
-    {  // use monopole+quadrupole terms; more accurate than in the original code
-        double Rmax = exp(lRmax);
-        double M = (1.5*Phi + 0.5*PhiR) * Rmax/r;      // compute them from the spline value
-        double Q = -0.5*(Phi + PhiR) * pow_3(Rmax/r);  // and derivative at r=Rmax
-        Phi   = M+Q;
-        PhiR  = -M-3*Q;
-        PhiRR = M+9*Q;
+    } else {
+        if(deriv2)
+            spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC, &PhiRR, &PhiRC, &PhiCC);
+        else if(deriv)
+            spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC);
+        else
+            spl.evalDeriv(valR, valC, &Phi);
+        PhiC  *= sign(ct);
+        PhiRC *= sign(ct);
+        if(logr < logRmin) {  // extrapolation at small radii -- NEEDS UPDATE!!!
+            if(innerSlopes[0]>0) {
+                double coef = exp(innerSlopes[0]*(logr-valR));
+                Phi   = (Phi-Phi0)*coef;
+                PhiR  = innerSlopes[0]*Phi;
+                PhiRR = pow_2(innerSlopes[0])*Phi;
+                Phi  += Phi0;
+                PhiC *= coef;
+                PhiCC*= coef;
+            } else if(innerSlopes[0]==0) {
+                PhiR  = Phi/logRmin;
+                PhiRR = 0.;
+                Phi  *= logr/logRmin;
+            } else {
+                Phi  *= exp(innerSlopes[0]*(logr-valR));
+                PhiR  = innerSlopes[0]*Phi;
+                PhiRR = pow_2(innerSlopes[0])*Phi;
+            }
+        }
     }
     if(potential)
         *potential = Phi;

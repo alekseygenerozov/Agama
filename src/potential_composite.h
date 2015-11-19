@@ -12,9 +12,10 @@ namespace potential{
 /** A trivial collection of several density objects */
 class CompositeDensity: public BaseDensity{
 public:
-    /** Construct from the provided array of components by making copies of them */
+    /** construct from the provided array of components by making copies of them */
     CompositeDensity(const std::vector<const BaseDensity*>& _components);
 
+    /** destroy all internally created copies of components */
     virtual ~CompositeDensity() {
         for(unsigned int i=0; i<components.size(); i++) delete components[i]; }
 
@@ -40,7 +41,7 @@ public:
     /** construct from the provided array of components by making copies of them */ 
     CompositeCyl(const std::vector<const BasePotential*>& _components);
 
-    /** delete the sub-components */
+    /** delete the internally copied sub-components */
     virtual ~CompositeCyl() {
         for(unsigned int i=0; i<components.size(); i++) delete components[i]; }
 

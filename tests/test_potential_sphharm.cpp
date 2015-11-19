@@ -245,7 +245,7 @@ int main() {
     const potential::BasePotential* p=0;
 
     //test_axi_dens();
-
+#if 0
     // spherical, cored
     const potential::Plummer plum(10., 5.);
     p = new potential::BasisSetExp(0., 30, 2, plum);
@@ -291,7 +291,7 @@ int main() {
     p = create_from_file(points, potential::CylSplineExp::myName());
     ok &= test_suite(*p, hernq, 2e-2);
     delete p;
-
+#endif
     // axisymmetric
     const potential::Dehnen hernqa(1., 1., 1., .5, 0.);
     //p = new OldGalpotWrapper();
