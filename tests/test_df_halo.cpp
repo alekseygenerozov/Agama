@@ -140,6 +140,11 @@ int main(){
         ok &= testDFmoments(galmodH, point, dfExact, densExact, sigmaExact);
     }
 
+    // create an N-body model by sampling from DF
+    particles::PointMassArrayCar points;
+    galaxymodel::generatePosVelSamples(galmodH, 1e5, points);
+    particles::writeSnapshot("sampled_model.nemo", units::ExternalUnits(), points, "Nemo");
+
     if(ok)
         std::cout << "ALL TESTS PASSED\n";
     return 0;

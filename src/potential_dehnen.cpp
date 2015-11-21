@@ -6,9 +6,19 @@
 namespace potential {
 
 /// relative accuracy of potential computation (integration tolerance parameter)
-static const double EPSREL_POTENTIAL_INT = 1e-6;    
+static const double EPSREL_POTENTIAL_INT = 1e-6;
+
+// Note that we use an integration rule with fixed maximum order, so it may not always achieve
+// the required relative accuracy (in particular, at large radii the error is fairly large).
+// There are several possible ways out:
+// 1) use an adaptive-order rule (replace 'integrate' with 'integrateAdaptive') -
+//    would considerably slow down calculations that are already not too fast;
+// 2) replace the integration with a spherical-harmonic expansion up to l=2 at large radii
+//    (like in Ferrers potential, but will need to take into account that density is non-zero
+//    at all radii) - possible but would require extra work;
+// 3) use a multipole expansion implemented in SplineExp or Multipole potential instead -
+//    a preferred solution.
     
-// Dehnen potential
 Dehnen::Dehnen(double _mass, double _scalerad, double _q, double _p, double _gamma): 
     BasePotentialCar(), mass(_mass), scalerad(_scalerad), q(_q), p(_p), gamma(_gamma)
 {

@@ -6,7 +6,7 @@
 #include <cassert>
 #include <stdexcept>
 
-#define VERBOSE_REPORT
+//#define VERBOSE_REPORT
 #ifdef VERBOSE_REPORT
 #include <iostream>
 #endif
@@ -470,6 +470,12 @@ void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin,
             for(size_t c=0; c<=Ncoefs_radial; c++) {
                 coefsArray[c][l*(l+1) + m] = ((c>0 ? coefsInner[c]*pow(radii[c], -l-1.0) : 0) + coefsOuter[c]*pow(radii[c], l*1.0)) *
                     -4*M_PI/(2*l+1) * (m==0 ? 1 : M_SQRT2);
+#ifdef VERBOSE_REPORT
+                std::cout << l<<'\t' << radii[c] << '\t' << 
+                (sqrt(2*l+1)*coefsArray[c][l*(l+1) + m]/(m==0 ? 1 : M_SQRT2)) << '\t' << 
+                (4*M_PI*sqrt(2*l+1)*coefsInner[c]*pow(radii[c],-l-1.0)/(m==0 ? 1 : M_SQRT2)) << '\t' << 
+                (4*M_PI*sqrt(2*l+1)*coefsOuter[c]*pow(radii[c], l*1.0)/(m==0 ? 1 : M_SQRT2)) << '\n';
+#endif
             }
 #ifdef DEBUGPRINT
             my_message(FUNCNAME, "l="+convertToString(l)+",m="+convertToString(m));

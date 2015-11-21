@@ -214,11 +214,12 @@ private:
     math::QuinticSpline2d spl;   ///< 2d spline in meridional plane for interpolating the potential
     bool isSpherical;            ///< degree of symmetry of the original density profile
     double Phi0;                 ///< value of potential at origin
-    double betaminustwo;
+    double outerValueMain;       ///< main contribution to the potential at large r (scales as 1/r)
     /// power-law slopes of multipole components at small and large radii
     std::vector<double> innerSlopes, outerSlopes;
     /// values of multipole components at the inner and outer radii of the grid
     std::vector<double> innerValues, outerValues;
+
     virtual void evalCyl(const coord::PosCyl &pos,
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
 };

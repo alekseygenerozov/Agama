@@ -112,7 +112,7 @@ void test_average_error(const potential::BasePotential& p1, const potential::Bas
             f2 = sqrt(pow_2(g2.dx)+pow_2(g2.dy)+pow_2(g2.dz));
             difPhi  .add((v1-v2)/(v1+v2)*2);
             difForce.add((f1-f2)/(f1+f2)*2);
-            difDens .add((d1-d2)/(d1+d2)*2);
+            difDens .add((d1-d2)/(fabs(d1)+d2)*2);
         }
         strm << pow(10., logR+0.5*dlogR) << '\t' <<
             sqrt(pow_2(difPhi  .mean())+difPhi  .disp()) << '\t' <<
@@ -293,9 +293,9 @@ int main() {
     delete p;
 #endif
     // axisymmetric
-    const potential::Dehnen hernqa(1., 1., 1., .5, 0.);
+    const potential::Dehnen hernqa(1., 1., 1., .5, 1.2);
     //p = new OldGalpotWrapper();
-    p = new potential::Multipole(hernqa, 1e-3, 1e3, 201, 40);
+    p = new potential::Multipole(hernqa, 1e-3, 1e3, 100, 16);
     test_average_error(*p, hernqa);
     delete p;
     p = new potential::SplineExp(100, 16, hernqa, 1e-3, 1e3);

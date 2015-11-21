@@ -64,6 +64,10 @@ double unwrapAngle(double x, double xprev);
     \throws std::invalid_argument exception if the point is outside the interval */
 unsigned int binSearch(const double x, const double arr[], const unsigned int size);
 
+/** linearly interpolate the value y(x) between y1 and y2, for x between x1 and x2 */
+inline double linearInterp(double x, double x1, double x2, double y1, double y2) {
+    return ((x-x1)*y2 + (x2-x)*y1) / (x2-x1); }
+
 /** Class for computing running average and dispersion for a sequence of numbers */
 class Averager {
 public:

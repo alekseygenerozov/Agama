@@ -9,7 +9,7 @@
 // this is a temporary measure
 #include "debug_utils.h"
 #include <iostream>
-const bool VERBOSE_REPORT = false;
+const bool VERBOSE_REPORT = true;
 
 namespace galaxymodel{
 
@@ -368,7 +368,7 @@ private:
 
     virtual void reportOverweightSample(const double sampleCoords[], double fncValue)
     {
-        if(++numSamplesReported <= 4 && VERBOSE_REPORT) {
+        if(++numSamplesReported <= 0 && VERBOSE_REPORT) {
             double jac;
             coord::PosVelCyl posvel = fnc.unscaleVars(sampleCoords, &jac);
             strm << "f= " << (fncValue/jac) << " *Jac= " << jac << " at " << posvel << std::endl;
@@ -378,7 +378,7 @@ private:
     virtual void reportRefinedCell(const double lowerCorner[], const double upperCorner[],
         double refineFactor)
     {
-        if(++numCellsReported <= 4 && VERBOSE_REPORT) {
+        if(++numCellsReported <= 0 && VERBOSE_REPORT) {
             std::vector<double> center(fnc.numVars());
             for(unsigned int d=0; d<fnc.numVars(); d++)
                 center[d] = (lowerCorner[d] + upperCorner[d]) / 2;

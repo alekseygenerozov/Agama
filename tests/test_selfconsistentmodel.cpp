@@ -155,12 +155,12 @@ int main()
     const df::PseudoIsothermalParam paramInner = {dnorm,Rdisk,L0,Sigma0,sigmar0,sigmaz0,sigmamin};
     // parameters of disk density profile should be in rough agreement with the DF params
     const potential::DiskParam      paramPot(Sigma0, Rdisk, -Hdisk, 0, 0);
-    
+
     // parameters of the outer component (halo)
     double hnorm = 10.;  // approximately equals the total mass
-    double alpha = 1.1;   // determines the inner density slope
-    double beta  = 4.5;   // same for the outer slope
-    double j0    = 10.;   // determines the break radius in density profile
+    double alpha = 1.4;   // determines the inner density slope
+    double beta  = 5.0;   // same for the outer slope: rho ~ r^-(3+beta)/2
+    double j0    = 20.;   // determines the break radius in density profile
     double jcore = 0.0;   // inner plateau in density (disabled here)
     double ar    = 1.3;   // determines the velocity anisotropy in the inner region
     double az    = 1.1;   // the ratio between these two
@@ -214,12 +214,12 @@ int main()
     // obtained at the previous stage
     components.clear();
     components.push_back(
-        new galaxymodel::ComponentWithDisklikeDF(dfInner, 1e-2, 40., 30, 8, paramPot));
+        new galaxymodel::ComponentWithDisklikeDF(dfInner, 1e-2, 40., 40, 10, paramPot));
     components.push_back(
-        new galaxymodel::ComponentWithDF(dfOuter, 0.01, 500., 40, 8, *guessForDensityOuter));
+        new galaxymodel::ComponentWithDF(dfOuter, 0.01, 500., 50, 8, *guessForDensityOuter));
     delete guessForDensityOuter;  // not needed anymore
 
-    model = new galaxymodel::SelfConsistentModel(components, 1e-3, 1e3, 100, 8, &progressReporter);
+    model = new galaxymodel::SelfConsistentModel(components, 1e-3, 1e3, 100, 10, &progressReporter);
     for(int i=0; i<5; i++) {
         std::cout << "Starting iteration #" << progressReporter.iteration << '\n';
         model->doIteration();
@@ -257,13 +257,13 @@ int main()
 
     // now create genuinely self-consistent models of both components,
     // by drawing positions and velocities from the DF in the given (self-consistent) potential
-#if 0
+    storeNbodyModel("model_outer_iter"+
+        utils::convertToString(progressReporter.iteration), *totalPotential, dfOuter);
+#if 1
     storeNbodyModel("model_inner_iter"+
         utils::convertToString(progressReporter.iteration), *totalPotential, dfInner);
 #endif
-    storeNbodyModel("model_outer_iter"+
-        utils::convertToString(progressReporter.iteration), *totalPotential, dfOuter);
-    
+
     delete totalPotential;
     return 0;
 }

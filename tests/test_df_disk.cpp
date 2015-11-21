@@ -83,6 +83,7 @@ int main(){
 
     double massExact = Sigma0 * 2*M_PI * pow_2(Rdisk);
     testTotalMass(galmod, massExact);
+#if 0
     for(double R=0; R<=20; R<10 ? R+=0.5 : R+=1)
         for(double z=0; z<=1.0; z<0.5 ? z+=0.125 : z+=0.25)
             points.push_back(coord::PosCyl(R, z, 0));
@@ -106,29 +107,30 @@ int main(){
         strm << '\n';
     }
     strm.close();
+#endif
 
-    if(0) {
-        // test sampling of DF in 3d action space
-        particles::PointMassArrayCar points_car;
-        galaxymodel::generateActionSamples(galmod, 1e5, points_car);
-        particles::writeSnapshot("sampled_actions.txt", units::ExternalUnits(), points_car);
+#if 1
+    // test sampling of DF in 3d action space
+    particles::PointMassArrayCar points_car;
+    //galaxymodel::generateActionSamples(galmod, 1e5, points_car);
+    //particles::writeSnapshot("sampled_actions.txt", units::ExternalUnits(), points_car);
 
-        // test sampling of DF in 6d phase space
-        galaxymodel::generatePosVelSamples(galmod, 1e5, points_car);
-        particles::writeSnapshot("sampled_posvel.txt", units::ExternalUnits(), points_car);
+    // test sampling of DF in 6d phase space
+    galaxymodel::generatePosVelSamples(galmod, 1e5, points_car);
+    particles::writeSnapshot("sampled_posvel.txt", units::ExternalUnits(), points_car);
 
-        std::vector<actions::Actions> actsamples;
-        double val, err;
-        df::sampleActions(df, 1e5, actsamples, &val, &err);
-        std::cout << "Sampled mass: "<<val<<" +- "<<err<<"\n";
-        strm.open("actions_disk.txt");
-        for(unsigned int i=0; i<actsamples.size(); i++) 
-            strm<<actsamples[i].Jr<<"\t"<<actsamples[i].Jz<<"\t"<<actsamples[i].Jphi<<"\n";
+    std::vector<actions::Actions> actsamples;
+    double val, err;
+    df::sampleActions(df, 1e5, actsamples, &val, &err);
+    std::cout << "Sampled mass: "<<val<<" +- "<<err<<"\n";
+    std::ofstream strm1("actions_disk.txt");
+    for(unsigned int i=0; i<actsamples.size(); i++) 
+        strm1<<actsamples[i].Jr<<"\t"<<actsamples[i].Jz<<"\t"<<actsamples[i].Jphi<<"\n";
 
-        // test sampling of 3d density
-        particles::PointMassArray<coord::PosCyl> points_cyl;
-        galaxymodel::generateDensitySamples(galmod.potential, 1e5, points_cyl);
-        particles::writeSnapshot("sampled_density.txt", units::ExternalUnits(), points_cyl);
-    }
+    // test sampling of 3d density
+    particles::PointMassArray<coord::PosCyl> points_cyl;
+    galaxymodel::generateDensitySamples(galmod.potential, 1e5, points_cyl);
+    particles::writeSnapshot("sampled_density.txt", units::ExternalUnits(), points_cyl);
+#endif
     return 0;
 }

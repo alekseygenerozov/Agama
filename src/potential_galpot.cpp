@@ -34,9 +34,11 @@ Version 0.8    24. June      2005
 #include <cmath>
 #include <stdexcept>
 
-namespace potential{
+#ifdef VERBOSE_REPORT
+#include <iostream>
+#endif
 
-inline double sign(double x) { return x>0?1.:x<0?-1.:0; }
+namespace potential{
 
 static const int    GALPOT_LMAX=78;     ///< maximum l for the Multipole expansion 
 static const int    GALPOT_NRAD=201;    ///< DEFAULT number of radial points in Multipole 
@@ -106,9 +108,9 @@ private:
     virtual void evalDeriv(double z, double* H=NULL, double* Hprime=NULL, double* Hpprime=NULL) const {
         double      x        = fabs(z/scaleHeight);
         double      h        = exp(-x);
-        if(H)       *H       = scaleHeight/2*(h-1+x);
-        if(Hprime)  *Hprime  = sign(z)*(1.-h)/2;
-        if(Hpprime) *Hpprime = h/(2*scaleHeight);
+        if(H)       *H       = 0.5 * scaleHeight * (h-1+x);
+        if(Hprime)  *Hprime  = 0.5 * math::sign(z) * (1.-h);
+        if(Hpprime) *Hpprime = h / (2*scaleHeight);
     }
     virtual unsigned int numDerivs() const { return 2; }
 };
@@ -123,10 +125,10 @@ private:
     virtual void evalDeriv(double z, double* H=NULL, double* Hprime=NULL, double* Hpprime=NULL) const {
         double      x        = fabs(z/scaleHeight);
         double      h        = exp(-x);
-        double      sh1      = 1.+h;
-        if(H)       *H       = scaleHeight*(0.5*x+log(0.5*sh1));
-        if(Hprime)  *Hprime  = 0.5*sign(z)*(1.-h)/sh1;
-        if(Hpprime) *Hpprime = h/(sh1*sh1*scaleHeight);
+        double      sh1      = 1 + h;
+        if(H)       *H       = scaleHeight * (0.5*x + log(0.5*sh1));
+        if(Hprime)  *Hprime  = 0.5 * math::sign(z) * (1.-h) / sh1;
+        if(Hpprime) *Hpprime = h / (sh1*sh1*scaleHeight);
     }
     virtual unsigned int numDerivs() const { return 2; }
 };
@@ -139,7 +141,7 @@ private:
     /**  evaluate  H(z) and optionally its two derivatives, if these arguments are not NULL  */
     virtual void evalDeriv(double z, double* H=NULL, double* Hprime=NULL, double* Hpprime=NULL) const {
         if(H)       *H       = fabs(z)/2;
-        if(Hprime)  *Hprime  = sign(z)/2;
+        if(Hprime)  *Hprime  = math::sign(z)/2;
         if(Hpprime) *Hpprime = 0;
     }
     virtual unsigned int numDerivs() const { return 2; }
@@ -272,13 +274,18 @@ Multipole::Multipole(const BaseDensity& source_density,
         gridR[k] = k<gridSizeR-1? logRmin+dlr*k : logRmax;
         r[k]     = exp(gridR[k]);
     }
-
+#if 0
+    math::createNonuniformGrid(gridSizeR, Rmin, Rmax, false, r); 
+    for(int k=0; k<gridSizeR; k++)
+        gridR[k] = log(r[k]);
+#endif
+    
     // construct spherical-harmonic expansion of density
     const DensitySphericalHarmonic* densh = NULL;
     if(source_density.name() == DensitySphericalHarmonic::myName())   // use existing sph.-harm. expansion
         densh = static_cast<const DensitySphericalHarmonic*>(&source_density);
-    else    // create new spherical-harmonic expansion
-        densh = new DensitySphericalHarmonic(gridSizeR, numCoefsAngular, source_density, Rmin, Rmax);
+    else    // create new spherical-harmonic expansion with a higher density of grid points in radius
+        densh = new DensitySphericalHarmonic(gridSizeR*5, numCoefsAngular, source_density, Rmin, Rmax);
 
     // accumulate the 'inner' (P1) and 'outer' (P2) parts of the potential at radial grid points:
     // P1_l(r) = r^{-l-1} \int_0^r \rho_l(s) s^{l+2} ds,
@@ -319,6 +326,9 @@ Multipole::Multipole(const BaseDensity& source_density,
         for(int k=0; k<gridSizeR; k++) {
             Phil (k, l/2) = -4*M_PI * (P1[k] + P2[k]);           // Phi_l
             dPhil(k, l/2) =  4*M_PI * ( (l+1)*P1[k] - l*P2[k]);  // dPhi_l/dlogr
+#ifdef VERBOSE_REPORT
+            std::cout << l << '\t' << r[k] << '\t' << Phil(k,l/2) << '\t' << (4*M_PI*P1[k]) << '\t' << (4*M_PI*P2[k]) << '\n';
+#endif
         }
 
         // store the values and derivatives of multipole terms
@@ -342,11 +352,12 @@ Multipole::Multipole(const BaseDensity& source_density,
                 innerSlopes[0] = 0;  // rather arbitrary..
 
             // determine the outer slope of density profile rho ~ r^-beta
-            betaminustwo = densh->rho_l(Rmax, 0) * pow_2(Rmax) / P2.back();
+            double betaminustwo = densh->rho_l(Rmax, 0) * pow_2(Rmax) / P2.back();
             if(!math::isFinite(betaminustwo) || betaminustwo<0.5 || fabs(betaminustwo-1.)<0.01)
                 betaminustwo = 1.1;  // beta=3 would need a different treatment of the asymptotic law
-            outerValues[0] = 4*M_PI * (P1.back() + P2.back() * betaminustwo / (betaminustwo-1));
-            outerSlopes[0] = 4*M_PI * P2.back() / (betaminustwo-1);
+            outerValueMain = -4*M_PI * (P1.back() + P2.back() * betaminustwo / (betaminustwo-1));
+            outerValues[0] =  4*M_PI * P2.back() / (betaminustwo-1);
+            outerSlopes[0] = -betaminustwo;
         } else {
             innerValues[l/2] = Phil(0, l/2);
             if(Phil(0, l/2) != 0)
@@ -418,16 +429,14 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
         double Pl[GALPOT_LMAX+1], dPl[GALPOT_LMAX+1];
         math::legendrePolyArray(outerValues.size()*2-2, 0, ct, Pl, dPl);
         // special treatment for l==0: we assume that the density falls off
-        // as a power law in radius, and potential then behaves as
-        // Phi(r)
-        double V1 = -outerValues[0] * exp(logRmax-logr);
-        double V2 =  outerSlopes[0] * exp(betaminustwo * (logRmax-logr));
-        Phi   += V1 + V2;
-        PhiR  -= V1 + V2 * betaminustwo;          ///!!! update notation
-        PhiRR += V1 + V2 * pow_2(betaminustwo);
-        // and standard spherical-harmonic expansion with power-law coefficients for l>0
-        for(unsigned int l2=1; l2<outerValues.size(); l2++) {
-            // assume that Phi_l(r) = Phi_l(Rmax) * (r/Rmax)^alpha_l
+        // as a power law in radius, and potential then behaves as 
+        // V * (rmax/r) + \sum_{l=0}^{lmax} V_l * (r/rmax)^{\alpha_l}
+        // here V_l and \alpha_l are 'outerValues' and 'outerSlopes'
+        double V = outerValueMain * exp(logRmax-logr);
+        Phi   += V;
+        PhiR  -= V;
+        PhiRR += V;
+        for(unsigned int l2=0; l2<outerValues.size(); l2++) {
             int l = l2*2;
             double alpha = outerSlopes[l2];
             double rfact = outerValues[l2] * exp( (logr-logRmax) * alpha );
@@ -438,7 +447,7 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
                 PhiRR += rfact * Pl[l] * pow_2(alpha);
                 PhiRC += rfact * dPl[l] * alpha;
                 double d2Pl = valC<1 ? 
-                    (2*valC*dPl[l] - l*(l+1)*Pl[l]) / (1-pow_2(valC)) :
+                    (2*ct*dPl[l] - l*(l+1)*Pl[l]) / (1-pow_2(ct)) :
                     (l-1)*l*(l+1)*(l+2) / 8.;  // limiting value for |cos(theta)|==1
                 PhiCC += rfact * d2Pl;
             }
@@ -450,8 +459,8 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
             spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC);
         else
             spl.evalDeriv(valR, valC, &Phi);
-        PhiC  *= sign(ct);
-        PhiRC *= sign(ct);
+        PhiC  *= math::sign(ct);
+        PhiRC *= math::sign(ct);
         if(logr < logRmin) {  // extrapolation at small radii -- NEEDS UPDATE!!!
             if(innerSlopes[0]>0) {
                 double coef = exp(innerSlopes[0]*(logr-valR));
@@ -476,8 +485,8 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
         *potential = Phi;
     if(r==0) r = 1e-100;  // safety measure to avoid 0/0
     if(deriv) {
-        deriv->dR   = (PhiR-PhiC*ct)*st/r;
-        deriv->dz   = (PhiR*ct+PhiC*st*st)/r;
+        deriv->dR   = (PhiR - PhiC*ct) * st / r;
+        deriv->dz   = (PhiR*ct + PhiC*st*st) / r;
         deriv->dphi = 0;
     }
     if(deriv2) {
@@ -488,7 +497,7 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
             + PhiR*(R2-z2) - PhiC*3*R2*ct) / (r*r);       // d2/dz2
         deriv2->dRdz= (PhiRR*ct*st - PhiCC*ct*st*R2 + PhiRC*st*(R2-z2)
             - PhiR*2*ct*st + PhiC*st*(2*z2-R2)) / (r*r);  // d2/dRdz
-        deriv2->dRdphi=deriv2->dzdphi=deriv2->dphi2=0;
+        deriv2->dRdphi = deriv2->dzdphi = deriv2->dphi2 = 0;
     }
 }
 

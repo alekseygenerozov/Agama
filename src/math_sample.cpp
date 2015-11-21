@@ -199,25 +199,15 @@ private:
     void refineCellByAddingSamples(CellEnum indexCell, double refineFactor, 
         const std::vector<unsigned int>& listOfPointsInCell);
 
-// disabled as untested
-#if 0
-    /** refine a cell by iterative subdivision */
-    void refineCellBySubdivision(CellEnum indexCell, double refineFactor, 
-        const std::vector<unsigned int>& listOfPointsInCell);
-#endif
-
     /** update the estimate of integral and its error, using all collected samples */
     void computeIntegral();
 };
 
-/// limit the total number of cells so that each cell has at least that many sampling points
+/// limit the total number of cells so that each cell has, on average, at least that many sampling points
 static const unsigned int MIN_SAMPLES_PER_CELL = 5;
 
-/// each bin in one dimension should contain at least this number of sampling points
-static const unsigned int MIN_SAMPLES_PER_BIN = 10;
-
 /// maximum number of bins in each dimension (MUST be a power of two)
-static const unsigned int MAX_BINS_PER_DIM = 32;
+static const unsigned int MAX_BINS_PER_DIM = 16;
 
 Sampler::Sampler(const IFunctionNdim& _fnc, const double xlower[], const double xupper[],
     SamplingProgressReportCallback* _callback) :
@@ -354,13 +344,14 @@ void Sampler::readjustBins()
     assert(sampleCoords.numRows() == numSamples);
     assert(numSamples>0);
 
-    // determine maximum number of bins per dimension, should be a power of two
-    unsigned int numBins = MAX_BINS_PER_DIM;
-    while(numBins > 1 && numSamples < MIN_SAMPLES_PER_BIN*numBins)
-        numBins /= 2;
-
     // draw bin boundaties in each dimension separately
-    std::vector< std::pair<double,double> > projection(numSamples);
+    const unsigned int MIN_SAMPLES_PER_BIN =
+        std::max<unsigned int>(MIN_SAMPLES_PER_CELL*2,
+        std::min<unsigned int>(100, numSamples/MAX_BINS_PER_DIM/10));
+    numCells = 1;
+    std::vector<std::pair<double,double> > projection(numSamples);
+    std::vector<double> cumSumValues(numSamples);
+    std::vector<std::vector<double> > binIntegrals(Ndim);
     for(unsigned int d=0; d<Ndim; d++) {
         // create a projection onto d-th coordinate axis
         for(unsigned int i=0; i<numSamples; i++) {
@@ -373,54 +364,65 @@ void Sampler::readjustBins()
 
         // replace the point value by the cumulative sum of all values up to this one
         double cumSum = 0;
-        for(unsigned int i=0; i<numSamples; i++)
-            projection[i].second = (cumSum += projection[i].second);
-
-        // divide the grid so that each bin contains approx.equal fraction of the total sum
-        // but no less than a certain minimum number of points
-        double xupper = binBoundaries[d].back();
-        binBoundaries[d].resize(1);  // clear all existing bin boundaries except the leftmost one
-        unsigned int pointInd = 0, binInd = 1, pointsInBin = 0;
-        while(pointInd < numSamples) {
-            pointsInBin++;
-            if( (projection[pointInd].second > cumSum * (binInd*1.0/numBins) && 
-                 pointsInBin >= MIN_SAMPLES_PER_BIN && binInd < numBins) ||
-                pointInd >= numSamples - MIN_SAMPLES_PER_BIN*(numBins-binInd) )
-            {
-                binBoundaries[d].push_back(projection[pointInd].first);
-                binInd++;
-                pointsInBin = 0;
-            }
-            pointInd++;
+        for(unsigned int i=0; i<numSamples; i++) {
+            cumSumValues[i] = (cumSum += projection[i].second);
         }
-        binBoundaries[d].push_back(xupper);  // restore the original rightmost boundary
-        assert(binBoundaries[d].size() == numBins+1);
+
+        std::vector<double> newBinBoundaries(2);
+        std::vector<unsigned int> newBinIndices(2);
+        newBinBoundaries[0] = binBoundaries[d].front();
+        newBinBoundaries[1] = binBoundaries[d].back();
+        newBinIndices[0] = 0;
+        newBinIndices[1] = numSamples-1;
+        unsigned int nbins = 1;
+        do{
+            // split each existing bin in two halves
+            for(unsigned int b=0; b<nbins; b++) {
+                // locate the center of the bin (in terms of cumulative weight)
+                double cumSumCenter = (b+0.5) * cumSum / nbins;
+                unsigned int indLeft = binSearch(cumSumCenter, &cumSumValues.front(), numSamples);
+                assert(indLeft<numSamples-1);
+                // determine the x-coordinate that splits the bin into two equal halves
+                double binHalf = linearInterp(cumSumCenter,
+                    cumSumValues[indLeft], cumSumValues[indLeft+1],
+                    projection[indLeft].first, projection[indLeft+1].first);
+                newBinIndices.insert(newBinIndices.begin() + b*2+1, indLeft);
+                newBinBoundaries.insert(newBinBoundaries.begin() + b*2+1, binHalf);
+            }
+            // check if bins are large enough
+            nbins = newBinBoundaries.size()-1;  // now twice as large as before
+            bool valid = true;
+            for(unsigned int b=0; b<nbins; b++)
+                valid &= newBinIndices[b+1] - newBinIndices[b] >= MIN_SAMPLES_PER_BIN;
+            if(valid)  // commit results
+                binBoundaries[d] = newBinBoundaries;
+            else       // discard this level of refinement because some bins contain too few points
+                break;
+        } while(nbins<MAX_BINS_PER_DIM);
+        numCells *= binBoundaries[d].size()-1;
+        binIntegrals[d].assign(binBoundaries[d].size()-1, cumSum/(binBoundaries[d].size()-1));
     }
 
     // now the total number of cells is probably quite large;
     // we reduce it by halving the number of bins in a dimension that demonstrates the least
     // variation in bin widths, repeatedly until the total number of cells becomes reasonably small
-    numCells = pow(1.*numBins, Ndim);
     const CellEnum maxNumCells = std::max<unsigned int>(1, numSamples / MIN_SAMPLES_PER_CELL);
     while(numCells > maxNumCells) {
-        if(callback)
-            callback->reportBins(&binBoundaries.front());
-
         // determine the dimension with the lowest variation in widths of adjacent bins
         unsigned int dimToMerge = Ndim;
-        double minBinWidthVariation = INFINITY;  // minimum variation among all dimensions
+        double minOverhead = INFINITY;  // minimum variation among all dimensions
         for(unsigned int d=0; d<Ndim; d++) {
-            if(binBoundaries[d].size()>2) {
-                double maxBinWidthVariation = 0; // maximum variation among bins in the given dimension
-                for(unsigned int b=1; b<binBoundaries[d].size()-1; b+=2) {
+            unsigned int nbins = binBoundaries[d].size()-1;
+            if(nbins>1) {
+                double overhead = 0;
+                for(unsigned int b=1; b<nbins; b+=2) {
                     double width1 = binBoundaries[d][b] - binBoundaries[d][b-1];
                     double width2 = binBoundaries[d][b+1] - binBoundaries[d][b];
-                    maxBinWidthVariation =
-                        fmax( maxBinWidthVariation, fabs(width1-width2) / (width1+width2) );
+                    overhead += fmax(binIntegrals[d][b-1]/width1, binIntegrals[d][b]/width2) * (width1+width2);
                 }
-                if(maxBinWidthVariation < minBinWidthVariation) {
+                if(overhead < minOverhead) {
                     dimToMerge = d;
-                    minBinWidthVariation = maxBinWidthVariation;
+                    minOverhead = overhead;
                 }
             }
         }
@@ -430,14 +432,18 @@ void Sampler::readjustBins()
         // merge pairs of adjacent bins in the given dimension
         unsigned int newNumBins = (binBoundaries[dimToMerge].size()-1) / 2;
         assert(newNumBins>=1);
-        for(std::vector<double>::iterator iter = binBoundaries[dimToMerge].begin()+1; 
-            iter != binBoundaries[dimToMerge].end(); ++iter)
-            // erase every other boundary, i.e. between 0 and 1, between 2 and 3, and so on
-            binBoundaries[dimToMerge].erase(iter);
-
+        // erase every other boundary, i.e. between 0 and 1, between 2 and 3, and so on
+        for(unsigned int i=0; i<newNumBins; i++) {
+            binIntegrals[dimToMerge][i] = fmax(
+                binIntegrals[dimToMerge][i]/(binBoundaries[dimToMerge][i+1] - binBoundaries[dimToMerge][i]),
+                binIntegrals[dimToMerge][i+1]/(binBoundaries[dimToMerge][i+2] - binBoundaries[dimToMerge][i+1])) *
+                (binBoundaries[dimToMerge][i+2] - binBoundaries[dimToMerge][i]);
+            binIntegrals[dimToMerge].erase(binIntegrals[dimToMerge].begin()+i+1);
+            binBoundaries[dimToMerge].erase(binBoundaries[dimToMerge].begin()+i+1);
+        }
+        
         numCells /= 2;
     }
-
     if(callback)
         callback->reportBins(&binBoundaries.front());
 }
@@ -484,59 +490,6 @@ void Sampler::refineCellByAddingSamples(CellEnum indexCell, double refineFactor,
     // now evaluate function
     evalFncLoop(numPrevSamples, numNewSamples);
 }
-
-#if 0
-void Sampler::refineCellBySubdivision(CellEnum indexCell, double refineFactor, 
-    const std::vector<unsigned int>& listOfPointsInCell)
-{
-    if(callback)
-        callback->generalMessage("*** SPLITTING CELL ***");
-
-    assert(refineFactor>1);
-    const unsigned int numSamples = listOfPointsInCell.size();
-
-    // obtain the boundaries of the current cell in each dimension
-    std::vector<double> lowerCorner(Ndim), upperCorner(Ndim);
-    getBinBoundaries(indexCell, &lowerCorner.front(), &upperCorner.front());
-
-    // create a nested Sampler object for this cell
-    Sampler sampler(fnc, &lowerCorner.front(), &upperCorner.front(), callback);
-    sampler.weightedFncValues.resize(numSamples);
-    sampler.sampleCoords.resize(numSamples, Ndim);
-
-    // upload the existing samples that belong to the current cell to the nested sampler
-    double maxWeight = 0;
-    for(unsigned int i=0; i<numSamples; i++) {
-        unsigned int p=listOfPointsInCell[i];
-        sampler.weightedFncValues[i] = weightedFncValues[p];
-        for(unsigned int d=0; d<Ndim; d++)
-            sampler.sampleCoords(i, d) = sampleCoords(p, d);
-        maxWeight = fmax(maxWeight, weightedFncValues[p] / refineFactor);
-    }
-
-    sampler.readjustBins();
-    sampler.runPass(numSamples);
-    sampler.ensureEnoughSamples(static_cast<unsigned int>(sampler.integValue/maxWeight));
-
-    int numNewSamples = sampler.weightedFncValues.size() - numSamples;
-    // we have asked to collect at least as many replacement samples as existed before in this cell
-    assert(numNewSamples>=0);
-    unsigned int numPrevSamples = sampleCoords.numRows();
-    assert(weightedFncValues.size() == numPrevSamples);
-    sampleCoords.resize(numPrevSamples + numNewSamples, Ndim);  // extend the matrix
-    weightedFncValues.resize(numPrevSamples + numNewSamples);   // and the array of fnc values
-
-    // copy back samples from the nested sampler into this object, replacing the existing ones
-    for(unsigned int i=0; i<numSamples+numNewSamples; i++) {
-        // index of sample to be stored: either replace one of previous samples, or append at the end
-        unsigned int p = i<numSamples ? listOfPointsInCell[i] : numPrevSamples+i-numSamples;
-        weightedFncValues[p] = sampler.weightedFncValues[i];
-        for(unsigned int d=0; d<Ndim; d++)
-            sampleCoords(p, d) = sampler.sampleCoords(i, d);
-    }
-    numCallsFnc += sampler.numCallsFnc;
-}
-#endif
 
 void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
 {
@@ -585,18 +538,12 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
         for(CellMap::const_iterator iter = cellsForRefinement.begin();
             iter != cellsForRefinement.end(); ++iter) {
             CellEnum indexCell  = iter->first;
-            double refineFactor = iter->second*1.2;  // safety margin
+            double refineFactor = iter->second*1.25;  // safety margin
             if(callback) {
                 getBinBoundaries(indexCell, &lowerCorner.front(), &upperCorner.front());
                 callback->reportRefinedCell(&lowerCorner.front(), &upperCorner.front(), refineFactor);
             }
-            const std::vector<unsigned int>& samples = samplesInCell[indexCell];
-#if 0
-            if(refineFactor > 2. && samples.size() >= 2*MIN_SAMPLES_PER_BIN)
-                refineCellBySubdivision(indexCell, refineFactor, samples);
-            else
-#endif
-                refineCellByAddingSamples(indexCell, refineFactor, samples);
+            refineCellByAddingSamples(indexCell, refineFactor, samplesInCell[indexCell]);
         }
 
         computeIntegral();
