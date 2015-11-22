@@ -5,6 +5,7 @@
 #include <cassert>
 #include <stdexcept>
 #include <gsl/gsl_bspline.h>
+#include <gsl/gsl_version.h>
 
 namespace math {
 
@@ -27,8 +28,10 @@ private:
     std::vector<double> MTz;           ///< pre-computed M^T z
     gsl_bspline_workspace*
         bsplineWorkspace;              ///< workspace for b-spline evaluation
+#if GSL_MAJOR_VERSION < 2
     gsl_bspline_deriv_workspace*
         bsplineDerivWorkspace;         ///< workspace for derivative computation
+#endif
     double ynorm2;                     ///< |y|^2 - used to compute residual sum of squares (RSS)
 
 public:
@@ -76,9 +79,6 @@ private:
 SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const std::vector<double> &_knots) :
     numDataPoints(_xvalues.size()), numKnots(_knots.size())
 {
-    bsplineWorkspace=NULL;
-    bsplineDerivWorkspace=NULL;
-
     // first check for validity of input range
     bool range_ok = (numDataPoints>2 && numKnots>2);
     for(size_t k=1; k<numKnots; k++)
@@ -101,11 +101,20 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const st
     zRHS         .resize(numKnots+2);                // z = C^T y, RHS of the linear system
     MTz          .resize(numKnots+2);
     bsplineWorkspace      = gsl_bspline_alloc(4, numKnots);
+#if GSL_MAJOR_VERSION < 2
     bsplineDerivWorkspace = gsl_bspline_deriv_alloc(4);
+#endif
     gsl_vector* bsplineValues = gsl_vector_alloc(numKnots+2);
-    if(bsplineWorkspace==NULL || bsplineDerivWorkspace==NULL || bsplineValues==NULL) {
+    if(bsplineWorkspace==NULL ||
+#if GSL_MAJOR_VERSION < 2
+        bsplineDerivWorkspace==NULL ||
+#endif
+        bsplineValues==NULL)
+    {
         gsl_bspline_free(bsplineWorkspace);
+#if GSL_MAJOR_VERSION < 2
         gsl_bspline_deriv_free(bsplineDerivWorkspace);
+#endif
         gsl_vector_free(bsplineValues);
         throw std::bad_alloc();
     }
@@ -133,7 +142,9 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const st
 SplineApproxImpl::~SplineApproxImpl()
 {
     gsl_bspline_free(bsplineWorkspace);
+#if GSL_MAJOR_VERSION < 2
     gsl_bspline_deriv_free(bsplineDerivWorkspace);
+#endif
 }
 
 void SplineApproxImpl::loadyvalues(const std::vector<double> &_yvalues)
@@ -163,13 +174,21 @@ void SplineApproxImpl::initRoughnessMatrix()
     // init matrix with roughness penalty (integrals of product of second derivatives of basis functions)
     MMatrix = Matrix<double>(numKnots+2, numKnots+2, 0.);   // matrix R_pq
     Matrix<double> derivs(3, numKnots, 0.);
+    gsl_matrix* bsplineDerivValues = gsl_matrix_alloc(4, 3);
     for(size_t k=0; k<numKnots; k++)
     {
         size_t istart, iend;
-        gsl_bspline_deriv_eval_nonzero(knots[k], 2, bsplineDerivWorkspace->dB, &istart, &iend, bsplineWorkspace, bsplineDerivWorkspace);
+#if GSL_MAJOR_VERSION >= 2
+        gsl_bspline_deriv_eval_nonzero(knots[k], 2, bsplineDerivValues, 
+            &istart, &iend, bsplineWorkspace);
+#else
+        gsl_bspline_deriv_eval_nonzero(knots[k], 2, bsplineDerivValues, 
+            &istart, &iend, bsplineWorkspace, bsplineDerivWorkspace);
+#endif
         for(size_t b=0; b<3; b++)
-            derivs(b, k) = gsl_matrix_get(bsplineDerivWorkspace->dB, b+k-istart, 2);
+            derivs(b, k) = gsl_matrix_get(bsplineDerivValues, b+k-istart, 2);
     }
+    gsl_matrix_free(bsplineDerivValues);
     for(size_t p=0; p<numKnots+2; p++)
     {
         size_t kmin = p>3 ? p-3 : 0;
@@ -282,7 +301,7 @@ void SplineApproxImpl::computeYvalues(std::vector<double>& splineValues, double&
 {
     splineValues.assign(numKnots, 0);
     gsl_vector* bsplineValues = gsl_vector_alloc(numKnots+2);
-    gsl_matrix* bsplineDerivValues = gsl_matrix_alloc(numKnots+2, 3);
+    gsl_matrix* bsplineDerivValues = gsl_matrix_alloc(numKnots+2, 2);
     for(size_t k=1; k<numKnots-1; k++) {  // loop over interior nodes
         gsl_bspline_eval(knots[k], bsplineValues, bsplineWorkspace);
         double val=0;
@@ -291,7 +310,11 @@ void SplineApproxImpl::computeYvalues(std::vector<double>& splineValues, double&
         splineValues[k] = val;
     }
     for(size_t k=0; k<numKnots; k+=numKnots-1) {  // two endpoints: values and derivatives
+#if GSL_MAJOR_VERSION >= 2
+        gsl_bspline_deriv_eval(knots[k], 1, bsplineDerivValues, bsplineWorkspace);
+#else
         gsl_bspline_deriv_eval(knots[k], 1, bsplineDerivValues, bsplineWorkspace, bsplineDerivWorkspace);
+#endif
         double val=0, der=0;
         for(size_t p=0; p<numKnots+2; p++) {
             val += gsl_matrix_get(bsplineDerivValues, p, 0) * weightCoefs[p];

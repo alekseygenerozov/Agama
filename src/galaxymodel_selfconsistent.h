@@ -115,7 +115,7 @@ public:
                     used to compute the density profile of this component.
         \param[in]  numCoefsRadial -- number of grid points in this radial grid.
         \param[in]  numCoefsAngular -- max order of spherical-harmonic expansion (l_max).
-        \param[in]  initDens -- the initial guess for the density profile of this component;
+        \param[in]  initDensity -- the initial guess for the density profile of this component;
                     a copy of it is created internally.
         \param[in]  relError -- relative accuracy of density computation.
         \param[in]  maxNumEval -- max # of DF evaluations per single density computation.

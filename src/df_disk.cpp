@@ -18,7 +18,7 @@ PseudoIsothermal::PseudoIsothermal(
 
 double PseudoIsothermal::value(const actions::Actions &J) const {
     double kappa, nu, Omega;   // characteristic epicyclic freqs
-    freq.eval(J.Jphi, kappa, nu, Omega);
+    freq.eval(fmax(par.Jphimin, J.Jphi), kappa, nu, Omega);
     double Rcirc     = J.Jphi!=0 ? sqrt(fabs(J.Jphi) / Omega) : 0;
     double exp_rad   = exp( -Rcirc / par.Rdisk );      // exponential profile in radius
     if(exp_rad<1e-100)   // we're too far out

@@ -10,6 +10,7 @@
 #include <gsl/gsl_sf_psi.h>
 #include <gsl/gsl_sf_ellint.h>
 #include <gsl/gsl_sf_bessel.h>
+#include <gsl/gsl_version.h>
 
 /* Most of the functions here are implemented by calling corresponding routines from GSL,
    but having library-independent wrappers makes it possible to switch the back-end if necessary */
@@ -24,10 +25,19 @@ void legendrePolyArray(const int lmax, const int m, const double x,
     double* result_array, double* deriv_array)
 {
     assert(result_array!=NULL);
+#if GSL_MAJOR_VERSION < 2
     if(deriv_array)
         gsl_sf_legendre_Plm_deriv_array(lmax, m, x, result_array, deriv_array);
     else
         gsl_sf_legendre_Plm_array(lmax, m, x, result_array);
+#else
+    if(m!=0)
+        throw std::runtime_error("m!=0 is not supported anymore in GSL Legendre API");
+    if(deriv_array)
+        gsl_sf_legendre_Pl_deriv_array(lmax, x, result_array, deriv_array);
+    else
+        gsl_sf_legendre_Pl_array(lmax, x, result_array);
+#endif
 }
 
 void sphHarmonicArray(const int lmax, const int m, const double theta,
@@ -37,12 +47,23 @@ void sphHarmonicArray(const int lmax, const int m, const double theta,
     double costheta = cos(theta), sintheta=0;
     // compute unnormalized polynomials and then normalize manually, which is faster than computing normalized ones.
     // This is not suitable for large l,m (when overflow may occur), but in our application we aren't going to have such large values.
+#if GSL_MAJOR_VERSION < 2
     if(deriv_array) {
         gsl_sf_legendre_Plm_deriv_array(lmax, m, costheta, result_array, deriv_array);
         sintheta = sin(theta);
     }
     else
         gsl_sf_legendre_Plm_array(lmax, m, costheta, result_array);
+#else
+    if(m!=0)
+        throw std::runtime_error("m!=0 is not supported anymore in GSL Legendre API");
+    if(deriv_array) {
+        gsl_sf_legendre_Pl_deriv_array(lmax, costheta, result_array, deriv_array);
+        sintheta = sin(theta);
+    }
+    else
+        gsl_sf_legendre_Pl_array(lmax, costheta, result_array);
+#endif    
     double prefact = 0.5/sqrt(M_PI*gsl_sf_fact(2*m));
     for(int l=m; l<=lmax; l++) {
         double prefactl=sqrt(2*l+1.)*prefact;

@@ -20,6 +20,7 @@ struct PseudoIsothermalParam{
     double sigmar0;  ///< normalization of radial velocity dispersion at Rdisk
     double sigmaz0;  ///< normalization of vertical velocity dispersion at Rdisk
     double sigmaMin; ///< lower limit on the radial velocity dispersion
+    double Jphimin;  ///< lower cutoff for evaluating epicyclic frequencies (take max(Jphi,Jphimin)
 };
 
 /** Distribution function for quasi-isothermal disk, used in Binney&McMillan 2011:

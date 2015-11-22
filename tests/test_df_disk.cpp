@@ -72,7 +72,7 @@ int main(){
     double Sigma0  = norm / (2*M_PI * pow_2(Rdisk));  // surface density normalization
     double sigmaz0 = sqrt(2*M_PI * Sigma0 * Hdisk);
     double sigmar0 = sigmaz0;
-    const df::PseudoIsothermalParam param = {norm,Rdisk,L0,Sigma0,sigmar0,sigmaz0,sigmar0*0.1};
+    const df::PseudoIsothermalParam param = {norm,Rdisk,L0,Sigma0,sigmar0,sigmaz0,sigmar0*0.1,0};
     const potential::DiskParam      paramPot(Sigma0, Rdisk, -Hdisk, 0, 0);
     const potential::BasePotential* pot   = potential::createGalaxyPotential(
         std::vector<potential::DiskParam>(1, paramPot),

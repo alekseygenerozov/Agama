@@ -82,7 +82,7 @@ double computeProjectedDF(const GalaxyModel& model,
 void computeProjectedMoments(const GalaxyModel& model, const double R,
     const double reqRelError, const int maxNumEval,
     double& surfaceDensity, double& losvdisp,
-    double* surfaceDensityErr=0, double* losvdispError=0, int* numEval=0);
+    double* surfaceDensityErr=0, double* losvdispErr=0, int* numEval=0);
 
 
 /** Generate N-body samples of the distribution function 

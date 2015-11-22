@@ -152,7 +152,8 @@ int main()
     double sigmaz0 = sqrt(2*M_PI * Sigma0 * Hdisk);
     double sigmar0 = sigmaz0;
     double sigmamin= sigmar0*0.1;
-    const df::PseudoIsothermalParam paramInner = {dnorm,Rdisk,L0,Sigma0,sigmar0,sigmaz0,sigmamin};
+    double Jphimin = 0.0;   // lower limit on azimuthal action used for computing epicyclic freqs
+    const df::PseudoIsothermalParam paramInner = {dnorm,Rdisk,L0,Sigma0,sigmar0,sigmaz0,sigmamin,Jphimin};
     // parameters of disk density profile should be in rough agreement with the DF params
     const potential::DiskParam      paramPot(Sigma0, Rdisk, -Hdisk, 0, 0);
 
