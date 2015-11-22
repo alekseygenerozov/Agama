@@ -13,60 +13,58 @@
 
 const double eps=1e-6;  // accuracy of comparison
 
-bool testPotential(const potential::BasePotential* potential)
+bool testPotential(const potential::BasePotential& potential)
 {
-    if(potential==NULL) return true;
     bool ok=true;
-    std::cout << potential->name();
-    double val0 = potential->value(coord::PosCar(0,0,0));
+    std::cout << potential.name();
+    double val0 = potential.value(coord::PosCar(0,0,0));
     std::cout << " at origin is "<<val0;
     ok &= math::isFinite(val0);
-    double mtot = potential->totalMass();
-    double minf = potential->enclosedMass(INFINITY);
+    double mtot = potential.totalMass();
+    double minf = potential.enclosedMass(INFINITY);
     std::cout << "; total mass is "<<mtot<<
         ", or enclosed mass M(r<inf) is "<<minf<<
-        ", M(r<=0) is "<<potential->enclosedMass(0)<<
-        ", M(r<1) is "<<potential->enclosedMass(1)<<
-        ", M(r<10) is "<<potential->enclosedMass(10)<<
-        ", M(r<1e9) is "<<potential->enclosedMass(1e9)<<"\n";
+        ", M(r<=0) is "<<potential.enclosedMass(0)<<
+        ", M(r<1) is "<<potential.enclosedMass(1)<<
+        ", M(r<10) is "<<potential.enclosedMass(10)<<
+        ", M(r<1e9) is "<<potential.enclosedMass(1e9)<<"\n";
     return ok;
 }
 
 template<typename coordSysT>
-bool testPotentialAtPoint(const potential::BasePotential* potential,
+bool testPotentialAtPoint(const potential::BasePotential& potential,
     const coord::PosVelT<coordSysT>& point)
 {
-    if(potential==NULL) return true;
     bool ok=true;
-    double E = potential::totalEnergy(*potential, point);
-    if((potential->symmetry() & potential::ST_ZROTSYM) == potential::ST_ZROTSYM) {  // test only axisymmetric potentials
+    double E = potential::totalEnergy(potential, point);
+    if(isAxisymmetric(potential)) {
         try{
-            double Rc  = R_circ(*potential, E);
-            double vc  = v_circ(*potential, Rc);
-            double E1  = potential->value(coord::PosCyl(Rc, 0, 0)) + 0.5*vc*vc;
-            double Lc1 = L_circ(*potential, E);
-            double Rc1 = R_from_Lz(*potential, Lc1);
+            double Rc  = R_circ(potential, E);
+            double vc  = v_circ(potential, Rc);
+            double E1  = potential.value(coord::PosCyl(Rc, 0, 0)) + 0.5*vc*vc;
+            double Lc1 = L_circ(potential, E);
+            double Rc1 = R_from_Lz(potential, Lc1);
             ok &= math::fcmp(Rc, Rc1, 2e-10)==0 && math::fcmp(E, E1, 1e-11)==0;
             if(!ok)
-                std::cout << potential->name()<<"  "<<coordSysT::name()<<"  " << point << "\033[1;31m ** \033[0m"
+                std::cout << potential.name()<<"  "<<coordSysT::name()<<"  " << point << "\033[1;31m ** \033[0m"
                 "E="<<E<<", Rc(E)="<<Rc<<", E(Rc)="<<E1<<", Lc(E)="<<Lc1<<", Rc(Lc)="<<Rc1 << "\n";
         }
         catch(std::exception &e) {
-            std::cout << potential->name()<<"  "<<coordSysT::name()<<"  " << point << e.what() << "\n";
+            std::cout << potential.name()<<"  "<<coordSysT::name()<<"  " << point << e.what() << "\n";
         }
     }
     return ok;
 }
 
-const potential::BasePotential* make_galpot(const char* params)
+potential::PtrPotential make_galpot(const char* params)
 {
     const char* params_file="test_galpot_params.pot";
     std::ofstream out(params_file);
     out<<params;
     out.close();
-    const potential::BasePotential* gp = potential::readGalaxyPotential(params_file, units::galactic_Myr);
+    potential::PtrPotential gp = potential::readGalaxyPotential(params_file, units::galactic_Myr);
     std::remove(params_file);
-    if(gp==NULL)
+    if(gp.get()==NULL)
         std::cout<<"Potential not created\n";
     return gp;
 }
@@ -112,32 +110,28 @@ const double posvel_sph[numtestpoints][6] = {   // order: R, theta, phi
     {1,3.14159, 2, 0.5, 0.3, 1e-4},   // point almost along z axis, vphi must be small, but vtheta is non-zero
     {0, 2,-1, 0.5, 0,   0  }};  // point at origin with nonzero velocity in R
 
-const int numpotentials=10;
-const potential::BasePotential* pots[numpotentials] = {NULL};
-
 int main() {
-    pots[0] = new potential::Plummer(10.,5.);
-    pots[1] = new potential::NFW(10.,10.);
-    pots[2] = new potential::MiyamotoNagai(5.,2.,0.2);
-    pots[3] = new potential::Logarithmic(1.,0.01,.8,.5);
-    pots[4] = new potential::Logarithmic(1.,.7,.5);
-    pots[5] = new potential::Ferrers(1.,0.9,.7,.5);
-    pots[6] = new potential::Dehnen(2.,1.,.7,.5,1.5);
-    pots[7] = make_galpot(test_galpot_params[0]);
-    pots[8] = make_galpot(test_galpot_params[1]);
+    std::vector<potential::PtrPotential> pots;
+    pots.push_back(potential::PtrPotential(new potential::Plummer(10.,5.)));
+    pots.push_back(potential::PtrPotential(new potential::NFW(10.,10.)));
+    pots.push_back(potential::PtrPotential(new potential::MiyamotoNagai(5.,2.,0.2)));
+    pots.push_back(potential::PtrPotential(new potential::Logarithmic(1.,0.01,.8,.5)));
+    pots.push_back(potential::PtrPotential(new potential::Logarithmic(1.,.7,.5)));
+    pots.push_back(potential::PtrPotential(new potential::Ferrers(1.,0.9,.7,.5)));
+    pots.push_back(potential::PtrPotential(new potential::Dehnen(2.,1.,.7,.5,1.5)));
+    pots.push_back(make_galpot(test_galpot_params[0]));
+    pots.push_back(make_galpot(test_galpot_params[1]));
     bool allok=true;
     std::cout << std::setprecision(10);
-    for(int ip=0; ip<numpotentials; ip++) {
-        allok &= testPotential(pots[ip]);
+    for(unsigned int ip=0; ip<pots.size(); ip++) {
+        allok &= testPotential(*pots[ip]);
         for(int ic=0; ic<numtestpoints; ic++) {
-            allok &= testPotentialAtPoint(pots[ip], coord::PosVelCar(posvel_car[ic]));
-            allok &= testPotentialAtPoint(pots[ip], coord::PosVelCyl(posvel_cyl[ic]));
-            allok &= testPotentialAtPoint(pots[ip], coord::PosVelSph(posvel_sph[ic]));
+            allok &= testPotentialAtPoint(*pots[ip], coord::PosVelCar(posvel_car[ic]));
+            allok &= testPotentialAtPoint(*pots[ip], coord::PosVelCyl(posvel_cyl[ic]));
+            allok &= testPotentialAtPoint(*pots[ip], coord::PosVelSph(posvel_sph[ic]));
         }
     }
     if(allok)
         std::cout << "ALL TESTS PASSED\n";
-    for(int ip=0; ip<numpotentials; ip++)
-        delete pots[ip];
     return 0;
 }

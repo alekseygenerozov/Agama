@@ -16,19 +16,80 @@ const double ACCURACY_RANGE = 1e-6;
 /** minimum range of variation of nu, lambda that is considered to be non-zero */
 const double MINIMUM_RANGE = 1e-12;
 
+// ------ Data structures for both Axisymmetric Staeckel and Fudge action-angle finders ------
+
+/** integration intervals for actions and angles
+    (shared between Staeckel and Fudge action finders). */
+struct AxisymIntLimits {
+    double lambda_min, lambda_max, nu_min, nu_max;
+};
+
+/** Derivatives of integrals of motion over actions (do not depend on angles).
+    Note that dE/dJ are the frequencies of oscillations in three directions, 
+    so that we reuse the `Frequencies` struct members (Omega***), 
+    and add other derivatives with a somewhat different naming convention. */
+struct AxisymIntDerivatives: public Frequencies {
+    double dI3dJr, dI3dJz, dI3dJphi, dLzdJr, dLzdJz, dLzdJphi;
+};
+
+/** Derivatives of generating function over integrals of motion (depend on angles) */
+struct AxisymGenFuncDerivatives {
+    double dSdE, dSdI3, dSdLz;
+};
+
+/** aggregate class that contains the point in prolate spheroidal coordinates,
+    integrals of motion, and reference to the potential,
+    shared between Axisymmetric Staeckel  and Axisymmetric Fudge action finders;
+    only the coordinates and the two classical integrals are in common between them.
+    It also implements the IFunction interface, providing the "auxiliary function" 
+    that is used in finding the integration limits and computing actions and angles;
+    this function F(tau) is related to the canonical momentum p(tau)  as 
+    \f$  p(tau)^2 = F(tau) / (2*(tau+alpha)^2*(tau+gamma))  \f$,
+    and the actual implementation of this function is specific to each descendant class.
+*/
+class AxisymFunctionBase: public math::IFunction {
+public:
+    coord::PosVelProlSph point; ///< position/derivative in prolate spheroidal coordinates
+    const double E;             ///< total energy
+    const double Lz;            ///< z-component of angular momentum
+    AxisymFunctionBase(const coord::PosVelProlSph& _point, double _E, double _Lz) :
+        point(_point), E(_E), Lz(_Lz) {};
+};
+
+
 // ------ SPECIALIZED functions for Staeckel action finder -------
 
+/** parameters of potential, integrals of motion, and prolate spheroidal coordinates 
+    SPECIALIZED for the Axisymmetric Staeckel action finder */
+class AxisymFunctionStaeckel: public AxisymFunctionBase {
+public:
+    const double I3;                        ///< third integral
+    const math::IFunction& fncG;       ///< single-variable function of a Staeckel potential
+    AxisymFunctionStaeckel(const coord::PosVelProlSph& _point, double _E, double _Lz,
+        double _I3, const math::IFunction& _fncG) :
+        AxisymFunctionBase(_point, _E, _Lz), I3(_I3), fncG(_fncG) {};
+
+    /** auxiliary function that enters the definition of canonical momentum for 
+        for the Staeckel potential: it is the numerator of eq.50 in de Zeeuw(1985);
+        the argument tau is replaced by tau+gamma >= 0. */    
+    virtual void evalDeriv(const double tauplusgamma, 
+        double* value=0, double* deriv=0, double* deriv2=0) const;
+    virtual unsigned int numDerivs() const { return 2; }
+};
+
 /** compute integrals of motion in the Staeckel potential of an oblate perfect ellipsoid, 
-    together with the coordinates in its prolate spheroidal coordinate system */
-AxisymFunctionStaeckel findIntegralsOfMotionOblatePerfectEllipsoid
-    (const potential::OblatePerfectEllipsoid& poten, const coord::PosVelCyl& point)
+    together with the coordinates in its prolate spheroidal coordinate system 
+*/
+AxisymFunctionStaeckel findIntegralsOfMotionOblatePerfectEllipsoid(
+    const potential::OblatePerfectEllipsoid& potential, 
+    const coord::PosVelCyl& point)
 {
-    double E = totalEnergy(poten, point);
+    double E = totalEnergy(potential, point);
     double Lz= coord::Lz(point);
-    const coord::ProlSph& coordsys = poten.coordsys();
+    const coord::ProlSph& coordsys = potential.coordsys();
     const coord::PosVelProlSph pprol = coord::toPosVel<coord::Cyl, coord::ProlSph>(point, coordsys);
     double Glambda;
-    poten.evalDeriv(pprol.lambda, &Glambda);
+    potential.evalDeriv(pprol.lambda, &Glambda);
     double I3;
     if(point.z==0)   // special case: nu=0
         I3 = 0.5 * pow_2(point.vz) * (pow_2(point.R) + coordsys.delta);
@@ -38,10 +99,7 @@ AxisymFunctionStaeckel findIntegralsOfMotionOblatePerfectEllipsoid
             (E - pow_2(Lz) / 2 / (pprol.lambda - coordsys.delta) + Glambda) -
             pow_2( pprol.lambdadot * (pprol.lambda - fabs(pprol.nu)) ) / 
             (8 * (pprol.lambda - coordsys.delta) * pprol.lambda) );
-    /*if(!math::isFinite(E+I3+Lz))
-        throw std::invalid_argument("Error in Axisymmetric Staeckel action finder: "
-            "cannot compute integrals of motion");*/
-    return AxisymFunctionStaeckel(pprol, E, Lz, I3, poten);
+    return AxisymFunctionStaeckel(pprol, E, Lz, I3, potential);
 }
 
 /** auxiliary function that enters the definition of canonical momentum for 
@@ -64,14 +122,37 @@ void AxisymFunctionStaeckel::evalDeriv(const double tau,
 
 // -------- SPECIALIZED functions for the Axisymmetric Fudge action finder --------
 
+/** parameters of potential, integrals of motion, and prolate spheroidal coordinates 
+    SPECIALIZED for the Axisymmetric Fudge action finder */
+class AxisymFunctionFudge: public AxisymFunctionBase {
+public:
+    const double Ilambda, Inu;  ///< approximate integrals of motion for two quasi-separable directions
+    const potential::BasePotential& poten;  ///< gravitational potential
+    AxisymFunctionFudge(const coord::PosVelProlSph& _point, double _E, double _Lz,
+        double _Ilambda, double _Inu, const potential::BasePotential& _poten) :
+        AxisymFunctionBase(_point, _E, _Lz), Ilambda(_Ilambda), Inu(_Inu), poten(_poten) {};
+
+    /** Auxiliary function F analogous to that of Staeckel action finder:
+        namely, the momentum is given by  p_tau^2 = F(tau) / [2 tau (tau-delta)^2],
+        where    0 <= tau < delta    for the  nu-component of momentum, 
+        and  delta <= tau < infinity for the  lambda-component of momentum.
+        For numerical convenience, tau is replaced by x=tau+gamma. */
+    virtual void evalDeriv(const double tauplusgamma, 
+        double* value=0, double* deriv=0, double* deriv2=0) const;
+    virtual unsigned int numDerivs() const { return 2; }
+};
+
 /** compute true (E, Lz) and approximate (Ilambda, Inu) integrals of motion in an arbitrary 
     potential used for the Staeckel Fudge, 
-    together with the coordinates in its prolate spheroidal coordinate system */
-AxisymFunctionFudge findIntegralsOfMotionAxisymFudge
-    (const potential::BasePotential& poten, const coord::PosVelCyl& point, const coord::ProlSph& coordsys)
+    together with the coordinates in its prolate spheroidal coordinate system 
+*/
+AxisymFunctionFudge findIntegralsOfMotionAxisymFudge(
+    const potential::BasePotential& potential, 
+    const coord::PosVelCyl& point, 
+    const coord::ProlSph& coordsys)
 {
     double Phi;
-    poten.eval(point, &Phi);
+    potential.eval(point, &Phi);
     double E = Phi+(pow_2(point.vR)+pow_2(point.vz)+pow_2(point.vphi))/2;
     double Lz= coord::Lz(point);
     const coord::PosVelProlSph pprol = coord::toPosVel<coord::Cyl, coord::ProlSph>(point, coordsys);
@@ -105,10 +186,7 @@ AxisymFunctionFudge findIntegralsOfMotionAxisymFudge
             (8 * (coordsys.delta - absnu) * absnu );
     const double Inu = absnu * (E - En) + (pprol.lambda - absnu) * Phi + addInu;
 
-    /*if(!math::isFinite(E+Ilambda+Inu+Lz))
-        throw std::invalid_argument("Error in Axisymmetric Fudge action finder: "
-            "cannot compute integrals of motion");*/
-    return AxisymFunctionFudge(pprol, E, Lz, Ilambda, Inu, poten);
+    return AxisymFunctionFudge(pprol, E, Lz, Ilambda, Inu, potential);
 }
 
 /** Auxiliary function F analogous to that of Staeckel action finder:
@@ -208,7 +286,7 @@ public:
             result=0;  // ad hoc fix to avoid problems at the boundaries of integration interval
         return result;
     }
-    
+
     /** limiting case of the integration interval collapsing to a single point tau,
         i.e. f(tau)~=0, f'(tau)~=0, and f''(tau)<0 (downward-curving parabola).
         In this case, if f(tau) is in the numerator, the integral is assumed to be zero,
@@ -489,7 +567,11 @@ Angles computeAngles(const AxisymIntDerivatives& derI, const AxisymGenFuncDeriva
 /** The sequence of operations needed to compute both actions and angles.
     Note that for a given orbit, only the derivatives of the generating function depend 
     on the angles (assuming that the actions are constant); in principle, this may be used 
-    to skip the computation of the derivatives matrix of integrals (not presently implemented). */
+    to skip the computation of the derivatives matrix of integrals (not presently implemented).
+    \param[in]  fnc  is the instance of `AxisymFunctionStaeckel` or `AxisymFunctionFudge`;
+    \param[in]  lim  are the limits of motion in auxiliary coordinate system;
+    \param[out] freq if not NULL, store frequencies of motion in this variable
+*/
 ActionAngles computeActionAngles(
     const AxisymFunctionBase& fnc, const AxisymIntLimits& lim, Frequencies* freq)
 {

@@ -44,13 +44,13 @@ int main() {
 
     // #3. Initialize potential approximations from these particles
     tbegin=std::clock();
-    const potential::BasePotential* halo = new potential::SplineExp
-        (20, 2, haloparticles, potential::ST_AXISYMMETRIC, 1.0 /*default smoothfactor*/);
+    potential::PtrPotential halo(new potential::SplineExp
+        (20, 2, haloparticles, potential::ST_AXISYMMETRIC, 1.0 /*default smoothfactor*/));
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init halo potential;  "
         "value at origin=" << halo->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     tbegin=std::clock();
-    const potential::BasePotential* disk = new potential::CylSplineExp
-        (20, 20, 0, diskparticles, potential::ST_AXISYMMETRIC);
+    potential::PtrPotential disk(new potential::CylSplineExp
+        (20, 20, 0, diskparticles, potential::ST_AXISYMMETRIC));
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init disk potential;  "
         "value at origin=" << disk->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     // not necessary, but we may store the potential coefs into a file and then load them back to speed up process
@@ -58,10 +58,10 @@ int main() {
     writePotentialCoefs(std::string("halo") + getCoefFileExtension(*halo), *halo);
 
     // #3a. Combine the two components
-    std::vector<const potential::BasePotential*> components(2);
+    std::vector<potential::PtrPotential> components(2);
     components[0] = halo;
     components[1] = disk;
-    const potential::CompositeCyl poten(components);
+    potential::PtrPotential poten(new potential::CompositeCyl(components));
 
     // #4. Compute actions
     tbegin=std::clock();
@@ -77,7 +77,7 @@ int main() {
             actions::Actions acts = actFinder.actions(point);
             strm << point.R*unit.to_Kpc << "\t" << point.z*unit.to_Kpc << "\t" <<
                 acts.Jr*unit.to_Kpc_kms << "\t" << acts.Jz*unit.to_Kpc_kms << "\t" << acts.Jphi*unit.to_Kpc_kms << "\t" << 
-                totalEnergy(poten, point)*pow_2(unit.to_kms) << "\n";
+                totalEnergy(*poten, point)*pow_2(unit.to_kms) << "\n";
         }
         catch(...){
             numBadPoints++;  // probably because energy is positive

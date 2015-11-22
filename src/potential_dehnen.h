@@ -17,7 +17,6 @@ public:
     virtual SymmetryType symmetry() const { 
         return (q==1 ? (p==1 ? ST_SPHERICAL : ST_AXISYMMETRIC) : ST_TRIAXIAL); };
     virtual double totalMass() const { return mass; }
-    virtual BasePotential* clone() const { return new Dehnen(*this); }
 private:
     const double mass;       ///< total mass of the model
     const double scalerad;   ///< scale radius

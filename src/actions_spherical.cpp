@@ -29,13 +29,11 @@ ActionAngles sphericalActionAngles(const potential::BasePotential& potential,
 
 // interpolated action finder
 
-ActionFinderSpherical::ActionFinderSpherical(
-    const potential::BasePotential& _potential, const unsigned int gridSizeE) :
-    potential(_potential), interpLcirc(_potential)
+static const math::LinearInterpolator2d createInterpJr(
+    const potential::BasePotential& potential,
+    const unsigned int gridSizeE,
+    const potential::InterpLcirc& interpLcirc)
 {
-    if(!isSpherical(potential))
-        throw std::invalid_argument("Potential is not spherically-symmetric");
-
     if(gridSizeE<10 || gridSizeE>500)
         throw std::invalid_argument("ActionFinderSpherical: incorrect grid size");
 
@@ -75,14 +73,23 @@ ActionFinderSpherical::ActionFinderSpherical(
         grid2d(gridSizeE-1, iL) = 1;
     
     // create a 2d interpolator
-    interpJr = math::LinearInterpolator2d(gridE, gridLrel, grid2d);
+    return math::LinearInterpolator2d(gridE, gridLrel, grid2d);
+}
+
+ActionFinderSpherical::ActionFinderSpherical(
+    const potential::PtrPotential& _potential, const unsigned int gridSizeE) :
+    potential(_potential), interpLcirc(*potential),
+    interpJr(createInterpJr(*potential, gridSizeE, interpLcirc))
+{
+    if(!isSpherical(*potential))
+        throw std::invalid_argument("Potential is not spherically-symmetric");
 }
 
 Actions ActionFinderSpherical::actions(const coord::PosVelCyl& point) const
 {
     Actions acts;
     double L  = Ltotal(point);
-    double E  = totalEnergy(potential, point);
+    double E  = totalEnergy(*potential, point);
     double Lc = std::max<double>(L, interpLcirc(E));
     acts.Jphi = Lz(point);
     acts.Jz   = L - fabs(acts.Jphi);

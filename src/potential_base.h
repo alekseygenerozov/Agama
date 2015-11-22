@@ -6,6 +6,12 @@
 #pragma once
 #include "coord.h"
 
+#ifdef HAVE_CXX11
+#include <memory>
+#else
+#include <tr1/memory>
+#endif
+
 /** Classes and auxiliary routines related to creation and manipulation of 
     density models and gravitational potential models.
 
@@ -41,15 +47,25 @@ enum SymmetryType{
     coordinates to the most suitable system.
     Note that this class and its derivative BasePotential should represent constant objects,
     i.e. once created, they cannot be modified, and all their methods are const.
-    These objects also cannot be copied by value, only through the `clone()` method 
-    that returns a pointer to a newly-allocated object of the same derived class.
-    Thus one may create and use variables of derived classes:  const DerivedPotential pot1;
-    or pointers or references to base class (density or potential):  const BaseDensity& dens = pot1;
+    These objects also cannot be copied by value, thus if one needs to pass them around,
+    one should use either references to the base class (density or potential):
+ 
+        const DerivedPotential pot1;     // statically typed object
+        const BaseDensity& dens = pot1;  // polymorphic reference, here downgraded to the base class
+        double mass = dens.totalMass();  // call virtual method of the base class
+        // call a non-member function that accepts a reference to the base class
+        double halfMassRadius = getRadiusByMass(dens, mass*0.5);
+
+    Now these usage rules break down if we do not simply pass these objects to
+    a call-and-return function, but rather create another object (e.g. an action finder
+    or a composite potential) that holds the reference to the object throughout its lifetime,
+    which may exceed that of the original object. In this case we must use dynamically
+    created objects wrapped into a shared_ptr (typedef'ed as PtrDensity and PtrPotential).
 */
 class BaseDensity{
 public:
 
-    BaseDensity() {};
+    /** Explicitly declare a virtual destructor in a class with virtual functions */
     virtual ~BaseDensity() {};
 
     /** Evaluate density at the position in a specified coordinate system (Car, Cyl, or Sph)
@@ -79,20 +95,8 @@ public:
     */
     virtual double totalMass() const;
 
-    /** derived classes implement this method to emulate a 'virtual copy constructor',
-        i.e. each object can create a new copy of itself.
-        Typically this method may be implemented as simply as 
-        virtual BaseDensity* MyClass::clone() const { return new MyClass(*this); }
-        i.e. using the default copy constructor for this particular class,
-        because most data fields are copyable in this way (both primitive types
-        and more advanced objects such as vectors of primitive types);
-        however, if it contains data fields that are not simply copyable
-        (like pointers that were created and are owned by the object),
-        then it needs to be implemented manually.
-    */
-    virtual BaseDensity* clone() const = 0;
-
 protected:
+
     /** evaluate density at the position specified in cartesian coordinates */
     virtual double densityCar(const coord::PosCar &pos) const = 0;
 
@@ -102,16 +106,20 @@ protected:
     /** Evaluate density at the position specified in spherical coordinates */
     virtual double densitySph(const coord::PosSph &pos) const = 0;
 
-/** Copy constructor and assignment operators are not allowed to be used outside the class
-    hierarchy, because their inadvertent application (slicing) would lead to a complex 
-    derived class being assigned to a variable of base class, thus destroying its internal state.
-    Instead, one should use the `clone()` method that is reimplemented in each sub-class.
-    For this method to work, one still needs the base class to have a (trivial) copy constructor,
-    but it is declared protected to prevent its general usage outside the context of `clone()`.
-*/
-    BaseDensity(const BaseDensity& /*src*/) {};
+    /** Empty constructor is needed explicitly since we have disabled the default copy constructor */
+    BaseDensity() {};
+
 private:
-    BaseDensity& operator=(const BaseDensity&);  // this is not allowed at all
+/** Copy constructor and assignment operators are not allowed, because their inadvertent
+    application (slicing) would lead to a complex derived class being assigned to 
+    a variable of base class, thus destroying its internal state.
+    Thus these polymorphic objects are simply non-copyable, period.
+    If one needs to pass a reference to an object that may possibly outlive the scope
+    of the object being passed, then one should use create this object dynamically 
+    and place it into a shared_ptr.
+*/
+    BaseDensity(const BaseDensity&);
+    BaseDensity& operator=(const BaseDensity&);
 };  // class BaseDensity
 
 ///@}
@@ -137,9 +145,6 @@ private:
 */
 class BasePotential: public BaseDensity{
 public:
-    BasePotential() : BaseDensity() {};
-    virtual ~BasePotential() {};
-
     /** Evaluate potential and up to two its derivatives in a specified coordinate system.
         \param[in]  pos is the position in the given coordinates.
         \param[out] potential - if not NULL, store the value of potential
@@ -166,9 +171,6 @@ public:
         return val;
     }
 
-    /** create a copy of potential object (redefined the return type to be BasePotential) */
-    virtual BasePotential* clone() const = 0;
-
 protected:
     /** evaluate potential and up to two its derivatives in cartesian coordinates;
         must be implemented in derived classes */
@@ -191,6 +193,18 @@ protected:
 };  // class BasePotential
 
 ///@}
+/// \name   Smart pointers to density and potential classes
+///@{
+    
+#ifdef HAVE_CXX11
+typedef std::shared_ptr<const BaseDensity>    PtrDensity;
+typedef std::shared_ptr<const BasePotential>  PtrPotential;
+#else
+typedef std::tr1::shared_ptr<const BaseDensity>    PtrDensity;
+typedef std::tr1::shared_ptr<const BasePotential>  PtrPotential;
+#endif
+
+///@}
 /// \name   Base classes for potentials that implement the computations in a particular coordinate system
 ///@{
 
@@ -199,10 +213,7 @@ protected:
     but provides the conversion from cartesian to cylindrical and spherical coordinates
     in `evalCyl` and `evalSph`. */
 class BasePotentialCar: public BasePotential, coord::IScalarFunction<coord::Car>{
-public:
-    BasePotentialCar() : BasePotential() {}
 
-private:
     /** evaluate potential and up to two its derivatives in cylindrical coordinates. */
     virtual void evalCyl(const coord::PosCyl &pos,
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const {
@@ -233,10 +244,7 @@ private:
     It leaves the implementation of `evalCyl` member function for cylindrical coordinates undefined, 
     but provides the conversion from cylindrical to cartesian and spherical coordinates. */
 class BasePotentialCyl: public BasePotential, coord::IScalarFunction<coord::Cyl>{
-public:
-    BasePotentialCyl() : BasePotential() {}
 
-private:
     /** evaluate potential and up to two its derivatives in cartesian coordinates. */
     virtual void evalCar(const coord::PosCar &pos,
         double* potential, coord::GradCar* deriv, coord::HessCar* deriv2) const {
@@ -268,10 +276,7 @@ private:
     It leaves the implementation of `evalSph member` function for spherical coordinates undefined, 
     but provides the conversion from spherical to cartesian and cylindrical coordinates. */
 class BasePotentialSph: public BasePotential, coord::IScalarFunction<coord::Sph>{
-public:
-    BasePotentialSph() : BasePotential() {}
 
-private:
     /** evaluate potential and up to two its derivatives in cartesian coordinates. */
     virtual void evalCar(const coord::PosCar &pos,
         double* potential, coord::GradCar* deriv, coord::HessCar* deriv2) const {
@@ -305,15 +310,12 @@ private:
     the potential and up to two its derivatives as functions of spherical radius.
     Conversion into other coordinate systems is implemented in this class. */
 class BasePotentialSphericallySymmetric: public BasePotential, math::IFunction{
-public:
-    BasePotentialSphericallySymmetric() : BasePotential() {}
 
     virtual SymmetryType symmetry() const { return ST_SPHERICAL; }
 
     /** find the mass enclosed within a given radius from the radial component of force */
     virtual double enclosedMass(const double radius) const;
 
-private:
     virtual void evalCar(const coord::PosCar &pos,
         double* potential, coord::GradCar* deriv, coord::HessCar* deriv2) const {
         coord::evalAndConvertSph(*this, pos, potential, deriv, deriv2); }

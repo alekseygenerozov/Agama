@@ -3,51 +3,45 @@
 
 namespace potential{
 
-CompositeDensity::CompositeDensity(const std::vector<const BaseDensity*>& _components) : 
-    BaseDensity()
+CompositeDensity::CompositeDensity(const std::vector<PtrDensity>& _components) : 
+    BaseDensity(), components(_components)
 {
     if(_components.empty())
         throw std::invalid_argument("List of density components cannot be empty");
-    components.resize(_components.size());
-    for(unsigned int i=0; i<_components.size(); i++)
-        components[i] = _components[i]->clone();
 }
 
 double CompositeDensity::densityCar(const coord::PosCar &pos) const {
     double sum=0; 
     for(unsigned int i=0; i<components.size(); i++) 
-        sum+=components[i]->density(pos); 
+        sum += components[i]->density(pos); 
     return sum;
 }
 double CompositeDensity::densityCyl(const coord::PosCyl &pos) const {
     double sum=0; 
     for(unsigned int i=0; i<components.size(); i++) 
-        sum+=components[i]->density(pos); 
+        sum += components[i]->density(pos); 
     return sum;
 }
 double CompositeDensity::densitySph(const coord::PosSph &pos) const {
     double sum=0; 
     for(unsigned int i=0; i<components.size(); i++) 
-        sum+=components[i]->density(pos); 
+        sum += components[i]->density(pos); 
     return sum;
 }
 
 SymmetryType CompositeDensity::symmetry() const {
-    int sym=static_cast<int>(ST_SPHERICAL);
+    int sym = static_cast<int>(ST_SPHERICAL);
     for(unsigned int index=0; index<components.size(); index++)
         sym &= static_cast<int>(components[index]->symmetry());
     return static_cast<SymmetryType>(sym);
 };
 
 
-CompositeCyl::CompositeCyl(const std::vector<const BasePotential*>& _components) : 
-    BasePotentialCyl()
+CompositeCyl::CompositeCyl(const std::vector<PtrPotential>& _components) : 
+    BasePotentialCyl(), components(_components)
 {
     if(_components.empty())
         throw std::invalid_argument("List of potential components cannot be empty");
-    components.resize(_components.size());
-    for(unsigned int i=0; i<_components.size(); i++)
-        components[i] = _components[i]->clone();
 }
 
 void CompositeCyl::evalCyl(const coord::PosCyl &pos,
@@ -79,7 +73,7 @@ void CompositeCyl::evalCyl(const coord::PosCyl &pos,
 }
 
 SymmetryType CompositeCyl::symmetry() const {
-    int sym=static_cast<int>(ST_SPHERICAL);
+    int sym = static_cast<int>(ST_SPHERICAL);
     for(unsigned int index=0; index<components.size(); index++)
         sym &= static_cast<int>(components[index]->symmetry());
     return static_cast<SymmetryType>(sym);

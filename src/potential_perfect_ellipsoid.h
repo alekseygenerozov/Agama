@@ -29,12 +29,12 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "OblatePerfectEllipsoid"; };
     virtual double totalMass() const { return mass; }
-    virtual BasePotential* clone() const { return new OblatePerfectEllipsoid(*this); }
 
     /** evaluates the function G(tau) and up to two its derivatives,
         if the supplied output arguments are not NULL 
         (implements the math::IFunction interface) */
     virtual void evalDeriv(double tau, double* G=0, double* Gderiv=0, double* Gderiv2=0) const;
+
 private:
     const double mass;
     /** prolate spheroidal coordinate system corresponding to the oblate density profile */
@@ -65,5 +65,12 @@ private:
 
     virtual unsigned int numDerivs() const { return 2; }
 };
+
+/// specialization of a shared pointer to this potential (to be used in ActionFinderAxisymStaeckel)
+#ifdef HAVE_CXX11
+typedef std::shared_ptr<const OblatePerfectEllipsoid> PtrOblatePerfectEllipsoid;
+#else
+typedef std::tr1::shared_ptr<const OblatePerfectEllipsoid> PtrOblatePerfectEllipsoid;
+#endif
 
 }  // namespace potential

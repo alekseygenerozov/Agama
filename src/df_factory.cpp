@@ -27,26 +27,26 @@ static DoublePowerLawParam parseDoublePowerLawParams(
     return par;
 }
 
-static PseudoIsothermalParam parsePseudoIsothermalParams(
+/*static PseudoIsothermalParam parsePseudoIsothermalParams(
     const utils::KeyValueMap& kvmap,
     const units::ExternalUnits& conv)
 {
     PseudoIsothermalParam par;
     return par;
-}
+}*/
 
-const BaseDistributionFunction* createDistributionFunction(
+PtrDistributionFunction createDistributionFunction(
     const utils::KeyValueMap& kvmap,
     const units::ExternalUnits& converter)
 {
     std::string type = kvmap.getString("type");
     if(utils::stringsEqual(type, "DoublePowerLaw")) {
         DoublePowerLawParam params = parseDoublePowerLawParams(kvmap, converter);
-        return new DoublePowerLaw(params);
+        return PtrDistributionFunction(new DoublePowerLaw(params));
     }
     /*else if(utils::stringsEqual(type, "PseudoIsothermal")) {
         PseudoIsothermalParam params = parsePseudoIsothermalParams(kvmap, converter);
-        return new PseudoIsothermal(params);
+        return PtrDistributionFunction(new PseudoIsothermal(params));
     }*/
     else
         throw std::invalid_argument("Unknown type of distribution function");

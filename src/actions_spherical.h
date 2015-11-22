@@ -36,14 +36,14 @@ ActionAngles sphericalActionAngles(
 class ActionFinderSpherical: public BaseActionFinder {
 public:
     /// Initialize the internal interpolation tables
-    ActionFinderSpherical(const potential::BasePotential& potential, const unsigned int gridSize=50);
+    ActionFinderSpherical(const potential::PtrPotential& potential, const unsigned int gridSize=50);
     virtual ~ActionFinderSpherical() {};
     virtual Actions actions(const coord::PosVelCyl& point) const;
     virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const;
 private:
-    const potential::BasePotential& potential;  ///< reference to the spherical potential
-    const potential::InterpLcirc interpLcirc;   ///< interpolator for Lcirc(E)
-    math::LinearInterpolator2d interpJr;        ///< 2d interpolator for Jr(E,L)
+    const potential::PtrPotential potential;   ///< pointer to the spherical potential
+    const potential::InterpLcirc interpLcirc;  ///< interpolator for Lcirc(E)
+    const math::LinearInterpolator2d interpJr; ///< 2d interpolator for Jr(E,L)
 };
 
 }  // namespace actions

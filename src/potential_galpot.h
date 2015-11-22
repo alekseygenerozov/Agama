@@ -111,11 +111,17 @@ struct SphrParam{
 */
 ///@{
 
+#ifdef HAVE_CXX11
+    typedef std::unique_ptr<const math::IFunction> UPtrFunction;
+#else
+    typedef std::auto_ptr<const math::IFunction> UPtrFunction;
+#endif
+
 /** helper routine to create an instance of radial density function */
-const math::IFunction* createRadialDiskFnc(const DiskParam& params);
+UPtrFunction createRadialDiskFnc(const DiskParam& params);
 
 /** helper routine to create an instance of vertical density function */
-const math::IFunction* createVerticalDiskFnc(const DiskParam& params);
+UPtrFunction createVerticalDiskFnc(const DiskParam& params);
 
 /** Residual density profile of a disk component (eq.9 in Dehnen&Binney 1998) */
 class DiskResidual: public BaseDensity {
@@ -124,15 +130,13 @@ public:
         BaseDensity(), params(_params),
         radialFnc  (createRadialDiskFnc(_params)),
         verticalFnc(createVerticalDiskFnc(_params)) {};
-    ~DiskResidual() { delete radialFnc; delete verticalFnc; }
     virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DiskResidual"; };
-    virtual BaseDensity* clone() const { return new DiskResidual(params); };
 private:
-    const DiskParam params;              ///< copy of density profile parameters, needed for cloning
-    const math::IFunction* radialFnc;    ///< function describing radial dependence of surface density
-    const math::IFunction* verticalFnc;  ///< function describing vertical density profile
+    const DiskParam params;     ///< copy of density profile parameters, needed for cloning
+    UPtrFunction radialFnc;     ///< function describing radial dependence of surface density
+    UPtrFunction verticalFnc;   ///< function describing vertical density profile
     virtual double densityCyl(const coord::PosCyl &pos) const;
     virtual double densityCar(const coord::PosCar &pos) const
     {  return densityCyl(toPosCyl(pos)); }
@@ -147,15 +151,13 @@ public:
         BasePotentialCyl(), params(_params),
         radialFnc  (createRadialDiskFnc(_params)),
         verticalFnc(createVerticalDiskFnc(_params)) {};
-    ~DiskAnsatz() { delete radialFnc; delete verticalFnc; }
     virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DiskAnsatz"; };
-    virtual BasePotential* clone() const { return new DiskAnsatz(params); };
 private:
-    const DiskParam params;              ///< copy of density profile parameters, needed for cloning
-    const math::IFunction* radialFnc;    ///< function describing radial dependence of surface density
-    const math::IFunction* verticalFnc;  ///< function describing vertical density profile
+    const DiskParam params;     ///< copy of density profile parameters, needed for cloning
+    UPtrFunction radialFnc;     ///< function describing radial dependence of surface density
+    UPtrFunction verticalFnc;   ///< function describing vertical density profile
     /** Compute _part_ of disk potential: f(r)*H(z) */
     virtual void evalCyl(const coord::PosCyl &pos,
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
@@ -179,7 +181,6 @@ public:
         return params.axisRatio==1?ST_SPHERICAL:ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "TwoPowerLawSpheroid"; };
-    virtual BaseDensity* clone() const { return new SpheroidDensity(*this); }
 private:
     SphrParam params;
     virtual double densityCyl(const coord::PosCyl &pos) const;
@@ -209,7 +210,6 @@ public:
     virtual SymmetryType symmetry() const { return isSpherical ? ST_SPHERICAL : ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "AxisymmetricMultipole"; };
-    virtual BasePotential* clone() const { return new Multipole(*this); }
 private:
     math::QuinticSpline2d spl;   ///< 2d spline in meridional plane for interpolating the potential
     bool isSpherical;            ///< degree of symmetry of the original density profile
@@ -230,7 +230,7 @@ private:
     this array should be passed to the constructor of CompositeCyl potential,
     after more components being added to it if needed.
 */
-std::vector<const BasePotential*> createGalaxyPotentialComponents(
+std::vector<PtrPotential> createGalaxyPotentialComponents(
     const std::vector<DiskParam>& DiskParams,
     const std::vector<SphrParam>& SphrParams);
 
@@ -239,7 +239,7 @@ std::vector<const BasePotential*> createGalaxyPotentialComponents(
     (a simplified interface for the previous routine in the case that no additional 
     components are needed).
 */
-const potential::BasePotential* createGalaxyPotential(
+PtrPotential createGalaxyPotential(
     const std::vector<DiskParam>& DiskParams,
     const std::vector<SphrParam>& SphrParams);
     

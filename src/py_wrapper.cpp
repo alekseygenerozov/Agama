@@ -553,29 +553,19 @@ static PyObject* callAnyFunctionOnArray(void* params, PyObject* args, anyFunctio
 /// Python type corresponding to Potential class
 typedef struct {
     PyObject_HEAD
-    const potential::BasePotential* pot;
+    potential::PtrPotential pot;
 } PotentialObject;
 
 static PyObject* Potential_new(PyTypeObject *type, PyObject*, PyObject*)
 {
     PotentialObject *self = (PotentialObject*)type->tp_alloc(type, 0);
-    if(self)
-        self->pot=NULL;
     return (PyObject*)self;
 }
 
-static void Potential_dealloc(PotentialObject* self)
+static void Potential_dealloc(PyObject* self)
 {
-    if(self->pot) {
-#ifdef DEBUGPRINT
-        printf("Deleted an instance of %s potential\n", self->pot->name());
-#endif
-        delete self->pot;
-    }
-#ifdef DEBUGPRINT
-    else printf("Deleted empty Potential\n");
-#endif
-    self->ob_type->tp_free((PyObject*)self);
+    ((PotentialObject*)self)->pot.reset();
+    self->ob_type->tp_free(self);
 }
 
 /// pointer to the Potential type object (will be initialized below)
@@ -659,8 +649,9 @@ static const char* docstringPotential =
     "Alternatively, one may provide no units at all, and use the `N-body` convention G=1 "
     "(this is the default regime and is restored by `reset_units`).\n";
 
-/// attempt to construct potential::BasePotential* from an array of particles
-static const potential::BasePotential* Potential_initFromParticles(const utils::KeyValueMap& params, PyObject* points)
+/// attempt to construct potential from an array of particles
+static potential::PtrPotential Potential_initFromParticles(
+    const utils::KeyValueMap& params, PyObject* points)
 {
     if(params.contains("file"))
         throw std::invalid_argument("Cannot provide both 'points' and 'file' arguments");
@@ -702,7 +693,7 @@ static const potential::BasePotential* Potential_initFromParticles(const utils::
 }
 
 /// attempt to construct an elementary potential from the parameters provided in dictionary
-static const potential::BasePotential* Potential_initFromDict(PyObject* args)
+static potential::PtrPotential Potential_initFromDict(PyObject* args)
 {
     utils::KeyValueMap params;
     convertPyDictToKeyValueMap(args, params);
@@ -716,7 +707,7 @@ static const potential::BasePotential* Potential_initFromDict(PyObject* args)
 }
 
 /// attempt to construct a composite potential from a tuple of Potential objects or dictionaries with potential parameters
-static const potential::BasePotential* Potential_initFromTuple(PyObject* tuple)
+static potential::PtrPotential Potential_initFromTuple(PyObject* tuple)
 {
     if(PyTuple_Size(tuple) == 1 && PyString_Check(PyTuple_GET_ITEM(tuple, 0)))
     {   // assuming that we have one parameter which is the INI file name
@@ -726,22 +717,15 @@ static const potential::BasePotential* Potential_initFromTuple(PyObject* tuple)
     // first check the types of tuple elements
     for(Py_ssize_t i=0; i<PyTuple_Size(tuple); i++) {
         onlyPot &= PyObject_TypeCheck(PyTuple_GET_ITEM(tuple, i), PotentialTypePtr) &&
-             ((PotentialObject*)PyTuple_GET_ITEM(tuple, i))->pot != NULL;  // an existing Potential object
-        onlyDict &= PyDict_Check(PyTuple_GET_ITEM(tuple, i));  // a dictionary with param=value pairs
+             ((PotentialObject*)PyTuple_GET_ITEM(tuple, i))->pot;  // an existing Potential object
+        onlyDict &= PyDict_Check(PyTuple_GET_ITEM(tuple, i));      // a dictionary with param=value pairs
     }
     if(onlyPot) {
-    /*  In the present implementation, creating a composite potential from an array
-        of BasePotential* pointers means that they are "taken over" by the new composite
-        potential and will be deleted when the latter is destroyed.
-        Since we must not delete the same object twice, we make sure that the original
-        Potential objects in Python will no longer be usable after creating a composite,
-        but they won't be automatically deleted until their refcounter drops to zero. */
-        std::vector<const potential::BasePotential*> components;
+        std::vector<potential::PtrPotential> components;
         for(Py_ssize_t i=0; i<PyTuple_Size(tuple); i++) {
             components.push_back(((PotentialObject*)PyTuple_GET_ITEM(tuple, i))->pot);
-            ((PotentialObject*)PyTuple_GET_ITEM(tuple, i))->pot = NULL;  // won't be usable anymore
         }
-        return new potential::CompositeCyl(components);
+        return potential::PtrPotential(new potential::CompositeCyl(components));
     } else if(onlyDict) {
         std::vector<utils::KeyValueMap> paramsArr;
         for(Py_ssize_t i=0; i<PyTuple_Size(tuple); i++) {
@@ -758,14 +742,14 @@ static const potential::BasePotential* Potential_initFromTuple(PyObject* tuple)
 /// the generic constructor of Potential object
 static int Potential_init(PyObject* self, PyObject* args, PyObject* namedArgs)
 {
-    const potential::BasePotential* pot=NULL;
+    potential::PtrPotential pot;
     try{
         // check if we have only a tuple of potential components as arguments
         if(args!=NULL && PyTuple_Check(args) && PyTuple_Size(args)>0 && 
             (namedArgs==NULL || PyDict_Size(namedArgs)==0))
-            pot = Potential_initFromTuple(args);
+            ((PotentialObject*)self)->pot = Potential_initFromTuple(args);
         else if(namedArgs!=NULL && PyDict_Check(namedArgs) && PyDict_Size(namedArgs)>0)
-            pot = Potential_initFromDict(namedArgs);
+            ((PotentialObject*)self)->pot = Potential_initFromDict(namedArgs);
         else {
             printf("Received %d positional arguments", (int)PyTuple_Size(args));
             if(namedArgs==NULL)
@@ -774,18 +758,10 @@ static int Potential_init(PyObject* self, PyObject* args, PyObject* namedArgs)
                 printf(" and %d named arguments\n", (int)PyDict_Size(namedArgs));
             throw std::invalid_argument("Invalid parameters passed to the constructor, type help(Potential) for details");
         }
-        assert(pot!=NULL);
+        assert(((PotentialObject*)self)->pot);
 #ifdef DEBUGPRINT
         printf("Created an instance of %s potential\n", pot->name());
 #endif
-        if(((PotentialObject*)self)->pot)
-        {  // check if this is not the first time that constructor is called
-#ifdef DEBUGPRINT
-            printf("Deleted previous instance of %s potential\n", ((PotentialObject*)self)->pot->name());
-#endif
-            delete ((PotentialObject*)self)->pot;
-        }
-        ((PotentialObject*)self)->pot = pot;
         return 0;
     }
     catch(std::exception& e) {
@@ -800,7 +776,7 @@ static bool Potential_isCorrect(PyObject* self)
         PyErr_SetString(PyExc_ValueError, "Should be called as method of Potential object");
         return false;
     }
-    if(((PotentialObject*)self)->pot==NULL) {
+    if(!((PotentialObject*)self)->pot) {
         PyErr_SetString(PyExc_ValueError, "Potential is not initialized properly");
         return false;
     }
@@ -948,7 +924,7 @@ static PyMethodDef Potential_methods[] = {
 static PyTypeObject PotentialType = {
     PyObject_HEAD_INIT(NULL)
     0, "py_wrapper.Potential",
-    sizeof(PotentialObject), 0, (destructor)Potential_dealloc,
+    sizeof(PotentialObject), 0, Potential_dealloc,
     0, 0, 0, 0, 0, 0, 0, 0, 0, Potential_value, Potential_name, 0, 0, 0,
     Py_TPFLAGS_DEFAULT, docstringPotential, 
     0, 0, 0, 0, 0, 0, Potential_methods, 0, 0, 0, 0, 0, 0, 0,
@@ -960,37 +936,30 @@ static PyTypeObject PotentialType = {
 ///@{
 
 /// create a spherical or non-spherical action finder
-const actions::BaseActionFinder* createActionFinder(const potential::BasePotential* pot)
+actions::PtrActionFinder createActionFinder(const potential::PtrPotential& pot)
 {
     if(isSpherical(*pot))
-        return new actions::ActionFinderSpherical(*pot);
+        return actions::PtrActionFinder(new actions::ActionFinderSpherical(pot));
     else
-        return new actions::ActionFinderAxisymFudge(*pot);
+        return actions::PtrActionFinder(new actions::ActionFinderAxisymFudge(pot));
 }
 
 /// Python type corresponding to ActionFinder class
 typedef struct {
     PyObject_HEAD
-    const actions::BaseActionFinder* af;  // C++ object for action finder
-    PyObject* pot;  // Python object for potential
+    actions::PtrActionFinder af;  // C++ object for action finder
 } ActionFinderObject;
 
 static PyObject* ActionFinder_new(PyTypeObject *type, PyObject*, PyObject*)
 {
     ActionFinderObject *self = (ActionFinderObject*)type->tp_alloc(type, 0);
-    if(self) {
-        self->af=NULL;
-        self->pot=NULL;
-    }
     return (PyObject*)self;
 }
 
-static void ActionFinder_dealloc(ActionFinderObject* self)
+static void ActionFinder_dealloc(PyObject* self)
 {
-    if(self->af)
-        delete self->af;
-    Py_XDECREF(self->pot);
-    self->ob_type->tp_free((PyObject*)self);
+    ((ActionFinderObject*)self)->af.reset();
+    self->ob_type->tp_free(self);
 }
 
 static const char* docstringActionFinder =
@@ -1013,15 +982,7 @@ static int ActionFinder_init(PyObject* self, PyObject* args, PyObject* /*namedAr
         return -1;
     }
     try{
-        const actions::BaseActionFinder* af = createActionFinder(((PotentialObject*)objPot)->pot);
-        // ensure valid cleanup if the constructor was called more than once
-        if(((ActionFinderObject*)self)->af!=NULL)
-            delete ((ActionFinderObject*)self)->af;
-        Py_XDECREF(((ActionFinderObject*)self)->pot);
-        // replace the member variables with freshly created ones
-        ((ActionFinderObject*)self)->af  = af;
-        ((ActionFinderObject*)self)->pot = objPot;
-        Py_INCREF(objPot);
+        ((ActionFinderObject*)self)->af = createActionFinder(((PotentialObject*)objPot)->pot);
         return 0;
     }
     catch(std::exception& e) {
@@ -1047,7 +1008,7 @@ static void fncActions(void* obj, const double input[], double *result) {
 }
 static PyObject* ActionFinder_value(PyObject* self, PyObject* args, PyObject* /*namedArgs*/)
 {
-    if(((ActionFinderObject*)self)->af==NULL)
+    if(!((ActionFinderObject*)self)->af)
         return NULL;
     return callAnyFunctionOnArray<INPUT_VALUE_SEXTET, OUTPUT_VALUE_TRIPLET>
         (self, args, fncActions);
@@ -1057,7 +1018,7 @@ static PyObject* ActionFinder_value(PyObject* self, PyObject* args, PyObject* /*
 static PyTypeObject ActionFinderType = {
     PyObject_HEAD_INIT(NULL)
     0, "py_wrapper.ActionFinder",
-    sizeof(ActionFinderObject), 0, (destructor)ActionFinder_dealloc,
+    sizeof(ActionFinderObject), 0, ActionFinder_dealloc,
     0, 0, 0, 0, 0, 0, 0, 0, 0, ActionFinder_value, 0, 0, 0, 0,
     Py_TPFLAGS_DEFAULT, docstringActionFinder, 
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1067,7 +1028,7 @@ static PyTypeObject ActionFinderType = {
 // standalone action finder
 
 typedef struct {
-    const potential::BasePotential* pot;
+    potential::PtrPotential pot;
     double ifd;
 } ActionFinderParams;
 
@@ -1126,22 +1087,19 @@ static PyObject* find_actions(PyObject* /*self*/, PyObject* args, PyObject* name
 /// Python type corresponding to SplineApprox class
 typedef struct {
     PyObject_HEAD
-    const df::BaseDistributionFunction* df;
+    df::PtrDistributionFunction df;
 } DistributionFunctionObject;
 
 static PyObject* DistributionFunction_new(PyTypeObject *type, PyObject*, PyObject*)
 {
     DistributionFunctionObject *self = (DistributionFunctionObject*)type->tp_alloc(type, 0);
-    if(self)
-        self->df=NULL;
     return (PyObject*)self;
 }
 
-static void DistributionFunction_dealloc(DistributionFunctionObject* self)
+static void DistributionFunction_dealloc(PyObject* self)
 {
-    if(self->df)
-        delete self->df;
-    self->ob_type->tp_free((PyObject*)self);
+    ((DistributionFunctionObject*)self)->df.reset();
+    self->ob_type->tp_free(self);
 }
 
 static const char* docstringDistributionFunction =
@@ -1166,13 +1124,8 @@ static int DistributionFunction_init(PyObject* self, PyObject* args, PyObject* n
     try{
         utils::KeyValueMap params;
         convertPyDictToKeyValueMap(namedArgs, params);
-        const df::BaseDistributionFunction* df = df::createDistributionFunction(params, *conv);
-        assert(df!=NULL);
-        if(((DistributionFunctionObject*)self)->df)
-        {  // check if this is not the first time that constructor is called
-            delete ((DistributionFunctionObject*)self)->df;
-        }
-        ((DistributionFunctionObject*)self)->df = df;
+        ((DistributionFunctionObject*)self)->df = df::createDistributionFunction(params, *conv);
+        assert(((DistributionFunctionObject*)self)->df);
         return 0;
     }
     catch(std::exception& e) {
@@ -1222,7 +1175,7 @@ static PyMethodDef DistributionFunction_methods[] = {
 static PyTypeObject DistributionFunctionType = {
     PyObject_HEAD_INIT(NULL)
     0, "py_wrapper.DistributionFunction",
-    sizeof(DistributionFunctionObject), 0, (destructor)DistributionFunction_dealloc,
+    sizeof(DistributionFunctionObject), 0, DistributionFunction_dealloc,
     0, 0, 0, 0, 0, 0, 0, 0, 0, DistributionFunction_value, 0, 0, 0, 0,
     Py_TPFLAGS_DEFAULT, docstringDistributionFunction, 
     0, 0, 0, 0, 0, 0, DistributionFunction_methods, 0, 0, 0, 0, 0, 0, 0,
@@ -1236,32 +1189,22 @@ static PyTypeObject DistributionFunctionType = {
 /// Python type corresponding to ActionFinder class
 typedef struct {
     PyObject_HEAD
-    PotentialObject* pot;                // Python object for potential
-    DistributionFunctionObject* df;      // Python object for distribution function
-    ActionFinderObject* af_ext;          // Python object for action finder (if provided)
-    const actions::BaseActionFinder* af; // C++ object for action finder (created internally if af_ext is not provided)
+    potential::PtrPotential pot;
+    df::PtrDistributionFunction df;
+    actions::PtrActionFinder af;
 } GalaxyModelObject;
 
 static PyObject* GalaxyModel_new(PyTypeObject *type, PyObject*, PyObject*)
 {
     GalaxyModelObject *self = (GalaxyModelObject*)type->tp_alloc(type, 0);
-    if(self) {
-        self->pot=NULL;
-        self->df =NULL;
-        self->af =NULL;
-        self->af_ext=NULL;
-    }
     return (PyObject*)self;
 }
 
 static void GalaxyModel_dealloc(GalaxyModelObject* self)
 {
-    Py_XDECREF(self->pot);
-    Py_XDECREF(self->df);
-    if(self->af_ext)   // action finder was provided externally; decrease its refcounter
-        Py_DECREF(self->af_ext);
-    else     // action finder was created internally in the constructor; must delete it manually
-        delete self->af;
+    self->pot.reset();
+    self->df.reset();
+    self->af.reset();
     self->ob_type->tp_free((PyObject*)self);
 }
 
@@ -1293,6 +1236,7 @@ static int GalaxyModel_init(PyObject* self, PyObject* args, PyObject* namedArgs)
             "Argument 'pot' must be a valid instance of Potential class");
         return -1;
     }
+    ((GalaxyModelObject*)self)->pot = ((PotentialObject*)pot_obj)->pot;
     if(df_obj==NULL || !PyObject_TypeCheck(df_obj, &DistributionFunctionType) ||
        ((DistributionFunctionObject*)df_obj)->df==NULL )
     {
@@ -1300,44 +1244,27 @@ static int GalaxyModel_init(PyObject* self, PyObject* args, PyObject* namedArgs)
             "Argument 'df' must be a valid instance of DistributionFunction class");
         return -1;
     }
+    ((GalaxyModelObject*)self)->df = ((DistributionFunctionObject*)df_obj)->df;
     // af_obj might be NULL; if not NULL then check its validity
     if(af_obj!=NULL && (!PyObject_TypeCheck(af_obj, &ActionFinderType) ||
-       ((ActionFinderObject*)af_obj)->af==NULL || ((ActionFinderObject*)af_obj)->pot!=pot_obj))
+       ((ActionFinderObject*)af_obj)->af==NULL))
     {
         PyErr_SetString(PyExc_TypeError,
             "Argument 'af' must be a valid instance of ActionFinder class "
             "corresponding to the given potential");
         return -1;
     }
-    const actions::BaseActionFinder* af = NULL;
     if(af_obj==NULL) {  // no action finder provided - create one internally
         try{
-            af = createActionFinder(((PotentialObject*)pot_obj)->pot);
+            ((GalaxyModelObject*)self)->af = createActionFinder(((PotentialObject*)pot_obj)->pot);
         }
         catch(std::exception& e) {
             PyErr_SetString(PyExc_ValueError, 
                 (std::string("Error in constructing action finder: ")+e.what()).c_str());
             return -1;
         }
-    }
-    // ensure valid cleanup if the constructor was called more than once
-    Py_XDECREF(((GalaxyModelObject*)self)->pot);
-    Py_XDECREF(((GalaxyModelObject*)self)->df);
-    if(((GalaxyModelObject*)self)->af_ext!=NULL)
-        Py_DECREF(((GalaxyModelObject*)self)->af_ext);
-    else
-        delete ((GalaxyModelObject*)self)->af;
-    // replace the member variables with freshly created ones
-    ((GalaxyModelObject*)self)->pot = (PotentialObject*)pot_obj;
-    Py_INCREF(pot_obj);
-    ((GalaxyModelObject*)self)->df = (DistributionFunctionObject*)df_obj;
-    Py_INCREF(df_obj);
-    ((GalaxyModelObject*)self)->af_ext = (ActionFinderObject*)af_obj;
-    if(af_obj==NULL)
-        ((GalaxyModelObject*)self)->af = af;
-    else {
+    } else {
         ((GalaxyModelObject*)self)->af = ((ActionFinderObject*)af_obj)->af;
-        Py_INCREF(af_obj);
     }
     return 0;
 }
@@ -1353,7 +1280,7 @@ static PyObject* GalaxyModel_sample_posvel(GalaxyModelObject* self, PyObject* ar
     }
     try{
         // do the sampling
-        galaxymodel::GalaxyModel galmod(*self->pot->pot, *self->af, *self->df->df);
+        galaxymodel::GalaxyModel galmod(*self->pot, *self->af, *self->df);
         particles::PointMassArrayCar points;
         galaxymodel::generatePosVelSamples(galmod, numPoints, points);
 
@@ -1434,7 +1361,7 @@ static PyObject* GalaxyModel_moments(GalaxyModelObject* self, PyObject* args, Py
         return NULL;
     }
     try{
-        GalaxyModelParams params(*self->pot->pot, *self->af, *self->df->df);
+        GalaxyModelParams params(*self->pot, *self->af, *self->df);
         params.accuracy = 1e-3;
         params.maxNumEval = 1e5;
         params.needDens = dens_flag==NULL || PyObject_IsTrue(dens_flag);
@@ -1514,7 +1441,7 @@ static PyObject* GalaxyModel_projected_moments(GalaxyModelObject* self, PyObject
         return NULL;
     }
     try{
-        GalaxyModelParams params(*self->pot->pot, *self->af, *self->df->df);
+        GalaxyModelParams params(*self->pot, *self->af, *self->df);
         params.accuracy = 1e-3;
         params.maxNumEval = 1e5;
         return callAnyFunctionOnArray<INPUT_VALUE_SINGLE, OUTPUT_VALUE_SINGLE_AND_SINGLE>
@@ -1563,7 +1490,7 @@ static PyObject* GalaxyModel_projected_df(GalaxyModelObject* self, PyObject* arg
         return NULL;
     }
     try{
-        GalaxyModelParams params(*self->pot->pot, *self->af, *self->df->df);
+        GalaxyModelParams params(*self->pot, *self->af, *self->df);
         params.accuracy = 1e-4;
         params.maxNumEval = 1e5;
         params.vz_error = vz_error * conv->velocityUnit;

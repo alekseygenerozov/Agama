@@ -71,15 +71,15 @@ bool test_actions(const potential::BasePotential& poten,
     return tolerable;
 }
 
-const potential::BasePotential* make_galpot(const char* params)
+potential::PtrPotential make_galpot(const char* params)
 {
     const char* params_file="test_galpot_params.pot";
     std::ofstream out(params_file);
     out<<params;
     out.close();
-    const potential::BasePotential* gp = potential::readGalaxyPotential(params_file, unit);
+    potential::PtrPotential gp = potential::readGalaxyPotential(params_file, unit);
     std::remove(params_file);
-    if(gp==NULL)
+    if(gp.get()==NULL)
         std::cout<<"Potential not created\n";
     return gp;
 }
@@ -96,7 +96,7 @@ const char* test_galpot_params =
 
 int main(int argc, const char* argv[]) {
     bool allok = true;
-    const potential::BasePotential* pot;
+    potential::PtrPotential pot;
     utils::KeyValueMap params(argc, argv);
     if(argc==2 && std::string(argv[1]).find('=')==std::string::npos)
     {   // probably passed the ini file name
@@ -114,10 +114,9 @@ int main(int argc, const char* argv[]) {
     acts.Jz   = Jz   * unit.from_Kpc_kms;
     acts.Jphi = Jphi * unit.from_Kpc_kms;
     actions::ActionMapperTorus mapper(*pot, acts);
-    actions::ActionFinderAxisymFudge finder(*pot);
+    actions::ActionFinderAxisymFudge finder(pot);
     allok &= test_actions(*pot, finder, mapper, acts);
     if(allok)
         std::cout << "ALL TESTS PASSED\n";
-    delete pot;
     return 0;
 }

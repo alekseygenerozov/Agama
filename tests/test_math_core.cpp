@@ -81,30 +81,29 @@ public:
 static const double  // rotation
     A00 = 0.8786288646, A01 = -0.439043856, A02 = 0.1877546558,
     A10 = 0.4474142786, A11 = 0.8943234085, A12 = -0.002470791,
-    A20 = -0.166828598, A21 = 0.0861750222, A22 = 0.9822128505;
+    A20 = -0.166828598, A21 = 0.0861750222, A22 = 0.9822128505,
+    c0 = -0.5, c1 = -1., c2 = 2,    // center
+    s0 = 2.0,  s1 = 0.5, s2 = 0.1;  // scale
 class test7Ndim: public math::IFunctionNdim{
 public:
     // 3-dimensional paraboloid centered at c[], scaled with s[] and rotated with orthogonal matrix A[][]
-    static const double c0 = -0.5, c1 = -1., c2 = 2;    // center
-    static const double s0 = 2.0,  s1 = 0.5, s2 = 0.1;  // scale
     virtual void eval(const double x[], double val[]) const{
         double x0 = (x[0]-c0)*s0, x1 = (x[1]-c1)*s1, x2 = (x[2]-c2)*s2;
         double v0 = x0*A00+x1*A01+x2*A02;
         double v1 = x0*A10+x1*A11+x2*A12;
         double v2 = x0*A20+x1*A21+x2*A22;
         double v  = x0*v0 +x1*v1 +x2*v2;
-        val[0] = 1-1./(1+v*v);//1 - exp(-sqrt(fabs(v)));
-        //std::cout << "x=("<<x0<<","<<x1<<","<<x2<<"), v="<<v<<", val="<<val[0]<<"\n";
+        val[0] = 1-1./(1+v*v);
         numEval++;
     }
     virtual unsigned int numVars() const { return 3; }
     virtual unsigned int numValues() const { return 1; }
 };
 
+static const double Rout = 3, Rin = 1;  // outer and inner radii of the torus
 class test8Ndim: public math::IFunctionNdim{
 public:
     // 3-dimensional torus rotated with orthogonal matrix A[][]
-    static const double Rout = 3, Rin = 1;  // outer and inner radii of the torus
     virtual void eval(const double x[], double val[]) const{
         double x0 = x[0]*A00+x[1]*A01+x[2]*A02;
         double x1 = x[0]*A10+x[1]*A11+x[2]*A12;
@@ -279,13 +278,13 @@ int main()
     std::cout << "N-dimensional minimization (N=3): minimum at x=("<<
         yresult[0]<<","<<yresult[1]<<","<<yresult[2]<<")"
         " is "<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
-    ok &= fabs(yresult[0]-test7Ndim::c0) * fabs(yresult[1]-test7Ndim::c1) * fabs(yresult[2]-test7Ndim::c2) < 1e-10;
+    ok &= fabs(yresult[0]-c0) * fabs(yresult[1]-c1) * fabs(yresult[2]-c2) < 1e-10;
 
     numEval=0;
     double ymin[] = {-4,-4,-2};
     double ymax[] = {+4,+4,+2};
     test8Ndim fnc8;
-    exact = 2*pow_2(M_PI*test8Ndim::Rin)*test8Ndim::Rout;  // volume of a torus
+    exact = 2*pow_2(M_PI*Rin)*Rout;  // volume of a torus
     integrateNdim(fnc8, ymin, ymax, toler, 1000000, &result, &error);
     std::cout << "Volume of a 3d torus = "<<result<<" +- "<<error<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
     ok &= fabs(result-exact)<error;

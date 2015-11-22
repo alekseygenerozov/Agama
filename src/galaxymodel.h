@@ -13,12 +13,16 @@
 namespace galaxymodel{
 
 /** Data-only structure defining a galaxy model: 
-    a combination of potential, action finder, and distribution function */
+    a combination of potential, action finder, and distribution function.
+    Its purpose is to temporarily bind together the three common ingredients that are passed
+    to various functions; however, as it only keeps references and not shared pointers, 
+    it should not generally be used for a long-term storage.
+*/
 class GalaxyModel{
 public:
-    const potential::BasePotential &potential;     ///< gravitational potential
-    const actions::BaseActionFinder &actFinder;    ///< action finder for the given potential
-    const df::BaseDistributionFunction &distrFunc; ///< distribution function expressed in terms of actions
+    const potential::BasePotential&     potential;  ///< gravitational potential
+    const actions::BaseActionFinder&    actFinder;  ///< action finder for the given potential
+    const df::BaseDistributionFunction& distrFunc;  ///< distribution function expressed in terms of actions
 
     /** Create an instance of the galaxy model from the three ingredients */
     GalaxyModel(

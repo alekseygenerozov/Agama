@@ -113,8 +113,6 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Direct"; };
     virtual SymmetryType symmetry() const { return mysymmetry; }
-    virtual BasePotential* clone() const {   // not needed
-        throw std::runtime_error("DirectPotential: clone not implemented"); }
 
     /// compute m-th azimuthal harmonic of potential
     double Rho_m(double R, double z, int m) const;
@@ -128,7 +126,7 @@ public:
     virtual double totalMass() const;
 
 private:
-    /// input density model (if provided);
+    /// pointer to the input density model (if provided) - not owned by this object;
     const BaseDensity* density;
 
     /// input discrete point mass set (if provided)

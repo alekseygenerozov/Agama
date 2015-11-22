@@ -8,6 +8,8 @@
 
 namespace actions{
 
+using potential::BasePotential;
+
 /// number of sampling points for a shell orbit (equally spaced in time)
 static const unsigned int NUM_STEPS_TRAJ = 16;
 /// accuracy of root-finding for Rmin/Rmax
@@ -23,7 +25,7 @@ static const unsigned int MAX_NUM_STEPS_ODE = 100;
 // estimate IFD for a series of points in R-z plane
 template<typename PointT>
 double estimateInterfocalDistancePoints(
-    const potential::BasePotential& potential, const std::vector<PointT>& traj)
+    const BasePotential& potential, const std::vector<PointT>& traj)
 {
     if(traj.size()==0)
         throw std::invalid_argument("Error in finding interfocal distance: empty array of points");
@@ -46,17 +48,17 @@ double estimateInterfocalDistancePoints(
 }
 
 template double estimateInterfocalDistancePoints(
-    const potential::BasePotential& potential, const std::vector<coord::PosCar>& traj);
+    const BasePotential& potential, const std::vector<coord::PosCar>& traj);
 template double estimateInterfocalDistancePoints(
-    const potential::BasePotential& potential, const std::vector<coord::PosVelCar>& traj);
+    const BasePotential& potential, const std::vector<coord::PosVelCar>& traj);
 template double estimateInterfocalDistancePoints(
-    const potential::BasePotential& potential, const std::vector<coord::PosCyl>& traj);
+    const BasePotential& potential, const std::vector<coord::PosCyl>& traj);
 template double estimateInterfocalDistancePoints(
-    const potential::BasePotential& potential, const std::vector<coord::PosVelCyl>& traj);
+    const BasePotential& potential, const std::vector<coord::PosVelCyl>& traj);
 template double estimateInterfocalDistancePoints(
-    const potential::BasePotential& potential, const std::vector<coord::PosSph>& traj);
+    const BasePotential& potential, const std::vector<coord::PosSph>& traj);
 template double estimateInterfocalDistancePoints(
-    const potential::BasePotential& potential, const std::vector<coord::PosVelSph>& traj);
+    const BasePotential& potential, const std::vector<coord::PosVelSph>& traj);
 
 
 /** find the best-fit value of interfocal distance for a shell orbit.
@@ -87,11 +89,11 @@ static double fitInterfocalDistanceShellOrbit(const std::vector<coord::PosCyl>& 
 /** Helper function for finding the roots of (effective) potential in R direction */
 class OrbitSizeFunction: public math::IFunction {
 public:
-    const potential::BasePotential& potential;
+    const BasePotential& potential;
     double E;
     double Lz2;
     enum { FIND_RMIN, FIND_RMAX, FIND_JR } mode;
-    OrbitSizeFunction(const potential::BasePotential& p, double _E, double _Lz) :
+    OrbitSizeFunction(const BasePotential& p, double _E, double _Lz) :
         potential(p), E(_E), Lz2(_Lz*_Lz), mode(FIND_RMIN) {};
     virtual unsigned int numDerivs() const { return 2; }
     /** This function is used in the root-finder for Rmin/Rmax, and in computing the radial action.
@@ -165,7 +167,7 @@ public:
 };
     
 /// accurate treatment of limiting case E --> Phi(0), assuming a power-law behaviour of potential at small r
-static void findPlanarOrbitExtentSmallE(const potential::BasePotential& poten, double Phi0, double E, double Lz, 
+static void findPlanarOrbitExtentSmallE(const BasePotential& poten, double Phi0, double E, double Lz, 
     double& Rmin, double& Rmax, double* Jr)
 {
     // determine asymptotic power-law behaviour of Phi(r) at small r: Phi = Phi(0) + A r^(2-gamma)
@@ -204,7 +206,7 @@ static void findPlanarOrbitExtentSmallE(const potential::BasePotential& poten, d
     }
 }
 
-void findPlanarOrbitExtent(const potential::BasePotential& poten, double E, double Lz, 
+void findPlanarOrbitExtent(const BasePotential& poten, double E, double Lz, 
     double& Rmin, double& Rmax, double* Jr)
 {
     if(!isAxisymmetric(poten))
@@ -304,7 +306,7 @@ void findPlanarOrbitExtent(const potential::BasePotential& poten, double E, doub
 /// function to use in ODE integrator
 class OrbitIntegratorMeridionalPlane: public math::IOdeSystem {
 public:
-    OrbitIntegratorMeridionalPlane(const potential::BasePotential& p, double Lz) :
+    OrbitIntegratorMeridionalPlane(const BasePotential& p, double Lz) :
         poten(p), Lz2(Lz*Lz) {};
 
     /** apply the equations of motion in R,z plane without tracking the azimuthal motion */
@@ -321,7 +323,7 @@ public:
     /** return the size of ODE system: R, z, vR, vz */
     virtual unsigned int size() const { return 4;}
 private:
-    const potential::BasePotential& poten;
+    const BasePotential& poten;
     const double Lz2;
 };
 
@@ -351,7 +353,7 @@ private:
     \return  the crossing radius
 */
 static double findCrossingPointR(
-    const potential::BasePotential& poten, double E, double Lz, double R,
+    const BasePotential& poten, double E, double Lz, double R,
     double* timeCross, std::vector<coord::PosCyl>* traj, double* Jz)
 {
     double vz = sqrt(fmax( 2 * (E-poten.value(coord::PosCyl(R, 0, 0))) - (Lz>0 ? pow_2(Lz/R) : 0), R*R*1e-16));
@@ -412,7 +414,7 @@ static double findCrossingPointR(
 /// function to be used in root-finder for locating the thin orbit in R-z plane
 class FindClosedOrbitRZplane: public math::IFunctionNoDeriv {
 public:
-    FindClosedOrbitRZplane(const potential::BasePotential& p, 
+    FindClosedOrbitRZplane(const BasePotential& p, 
         double _E, double _Lz, double _Rmin, double _Rmax,
         double* _timeCross, std::vector<coord::PosCyl>* _traj, double* _Jz) :
         poten(p), E(_E), Lz(_Lz), Rmin(_Rmin), Rmax(_Rmax), 
@@ -428,7 +430,7 @@ public:
         return R-R1;
     }
 private:
-    const potential::BasePotential& poten;
+    const BasePotential& poten;
     const double E, Lz;               ///< parameters of motion in the R-z plane
     const double Rmin, Rmax;          ///< boundaries of interval in R (to skip the first two calls)
     double* timeCross;                ///< keep track of time required to complete orbit
@@ -438,7 +440,7 @@ private:
 
 
 double estimateInterfocalDistanceShellOrbit(
-    const potential::BasePotential& poten, double E, double Lz, 
+    const BasePotential& poten, double E, double Lz, 
     double* R, double* Jz)
 {
     double Rmin, Rmax;
@@ -460,7 +462,7 @@ double estimateInterfocalDistanceShellOrbit(
 
 // ----------- Interpolation of interfocal distance in E,Lz plane ------------ //
 InterfocalDistanceFinder::InterfocalDistanceFinder(
-    const potential::BasePotential& potential, const unsigned int gridSizeE) :
+    const BasePotential& potential, const unsigned int gridSizeE) :
     interpLcirc(potential)
 {
     if(!isAxisymmetric(potential))

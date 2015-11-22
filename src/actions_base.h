@@ -6,6 +6,12 @@
 #pragma once
 #include "coord.h"
 
+#ifdef HAVE_CXX11
+#include <memory>
+#else
+#include <tr1/memory>
+#endif
+
 /** Classes and routines for transformations between position/velocity and action/angle phase spaces */
 namespace actions {
 
@@ -55,6 +61,11 @@ public:
     /** Evaluate actions and angles for a given position/velocity point in cylindrical coordinates;
         if the output argument freq!=NULL, also store the frequencies */
     virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const = 0;
+
+private:
+    /// disable copy constructor and assignment operator
+    BaseActionFinder(const BaseActionFinder&);
+    BaseActionFinder& operator= (const BaseActionFinder&);
 };
 
 /** Base class for action/angle mappers, which convert action/angle variables to position/velocity point */
@@ -66,6 +77,22 @@ public:
     /** Map a point in action/angle space to a position/velocity in physical space;
         if the output argument freq!=NULL, also store the frequencies */
     virtual coord::PosVelCyl map(const ActionAngles& actAng, Frequencies* freq=0) const = 0;
+private:
+    /// disable copy constructor and assignment operator
+    BaseActionMapper(const BaseActionMapper&);
+    BaseActionMapper& operator= (const BaseActionMapper&);
 };
 
+#ifdef HAVE_CXX11
+typedef std::shared_ptr<const BaseActionFinder>  PtrActionFinder;
+typedef std::unique_ptr<const BaseActionFinder> UPtrActionFinder;
+typedef std::shared_ptr<const BaseActionMapper>  PtrActionMapper;
+typedef std::unique_ptr<const BaseActionMapper> UPtrActionMapper;
+#else
+typedef std::tr1::shared_ptr<const BaseActionFinder>  PtrActionFinder;
+typedef std::auto_ptr       <const BaseActionFinder> UPtrActionFinder;
+typedef std::tr1::shared_ptr<const BaseActionMapper>  PtrActionMapper;
+typedef std::auto_ptr       <const BaseActionMapper> UPtrActionMapper;
+#endif
+    
 }  // namespace action

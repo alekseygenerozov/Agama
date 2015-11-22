@@ -21,7 +21,7 @@ namespace df {
     \return    a new instance of BaseDistributionFunction* on success.
     \throws    std::invalid_argument or std::runtime_error or other df-specific exception on failure.
 */
-const BaseDistributionFunction* createDistributionFunction(
+PtrDistributionFunction createDistributionFunction(
     const utils::KeyValueMap& params,
     const units::ExternalUnits& converter = units::ExternalUnits());
 

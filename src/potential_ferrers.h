@@ -19,7 +19,6 @@ public:
     virtual const char* name() const { return myName(); }
     static const char* myName() { return "Ferrers"; }
     virtual SymmetryType symmetry() const { return ST_TRIAXIAL; }
-    virtual BasePotential* clone() const { return new Ferrers(*this); }
 private:
     const double a, b, c;       ///< principal axis of ellipsoidal density 
     const double mass, rho0;    ///< total mass and central density of the model

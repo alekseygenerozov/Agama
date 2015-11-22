@@ -68,7 +68,6 @@ public:
 
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "BasisSetExp"; };
-    virtual BasePotential* clone() const { return new BasisSetExp(*this); }
 
     //  get functions:
     /// return the array of BSE coefficients
@@ -140,7 +139,6 @@ public:
 
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "SplineExp"; };
-    virtual BasePotential* clone() const { return new SplineExp(*this); }
 
     // get functions
     /// return the number of radial points in the spline (excluding r=0)
@@ -229,7 +227,6 @@ public:
     virtual SymmetryType symmetry() const { return mysymmetry; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensitySphericalHarmonic"; };
-    virtual BaseDensity* clone() const { return new DensitySphericalHarmonic(*this); }
 
     /** a faster estimate of M(r) from the l=0 harmonic only:
         \f$  M(r) \int_0^r 4\pi x^2 \rho_0(x) dx  \f$   */

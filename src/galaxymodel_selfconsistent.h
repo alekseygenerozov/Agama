@@ -63,19 +63,16 @@ public:
     virtual void update(const potential::BasePotential& totalPotential,
         const actions::BaseActionFinder& actFinder) = 0;
 
-    /** return the pointer to the internally used density profile for the given component
-        (valid until the next call to `update` or until the object is destroyed);
-        if necessary, one may make a copy of it with the `BaseDensity::clone()` method.
-        This pointer to density object may be NULL, in which case it is not used
-        in the spherical-harmonic expansion of the SelfConsistentModel.
+    /** return the pointer to the internally used density profile for the given component;
+        if it returns NULL, then this component does not participate in 
+        the spherical-harmonic density expansion of the SelfConsistentModel.
     */    
-    virtual const potential::BaseDensity*   getDensity()   const = 0;
+    virtual potential::PtrDensity   getDensity()   const = 0;
 
     /** return the pointer to the additional potential component to be used as part of
-        the total potential, or NULL if not applicable. This pointer remains valid
-        until the next call to `update` or until the object is destroyed.
+        the total potential, or NULL if not applicable.
     */
-    virtual const potential::BasePotential* getPotential() const = 0;
+    virtual potential::PtrPotential getPotential() const = 0;
 
 private:
     // do not allow to copy or assign objects of this type
@@ -88,20 +85,17 @@ private:
     a combination of DiskAnsatz potential and DiskResidual density profile. */
 class ComponentStatic: public BaseComponent {
 public:
-    /** create copies of the input density and/or potential profiles */
-    ComponentStatic(const potential::BaseDensity& dens) : density(dens.clone()), potential(0) {}
-    ComponentStatic(const potential::BasePotential& pot) : density(0), potential(pot.clone()) {}
-    ComponentStatic(const potential::BaseDensity& dens, const potential::BasePotential& pot) :
-        density(dens.clone()), potential(pot.clone()) {}
-    /** destroy the internally created copies of density/potentials */
-    virtual ~ComponentStatic() { delete density; delete potential; }
+    ComponentStatic(const potential::PtrDensity& dens) : density(dens), potential() {}
+    ComponentStatic(const potential::PtrPotential& pot) : density(), potential(pot) {}
+    ComponentStatic(const potential::PtrDensity& dens, const potential::PtrPotential& pot) :
+        density(dens), potential(pot) {}
     /** update does nothing */
     virtual void update(const potential::BasePotential&, const actions::BaseActionFinder&) {}
-    virtual const potential::BaseDensity*   getDensity()   const { return density; }
-    virtual const potential::BasePotential* getPotential() const { return potential; }
+    virtual potential::PtrDensity   getDensity()   const { return density; }
+    virtual potential::PtrPotential getPotential() const { return potential; }
 private:
-    const potential::BaseDensity* density;
-    const potential::BasePotential* potential;
+    potential::PtrDensity density;
+    potential::PtrPotential potential;
 };
 
 /** A specialization for the component with the density profile computed from a DF,
@@ -109,38 +103,26 @@ private:
 class ComponentWithDF: public BaseComponent {
 public:
     /** create a component with the given distribution function and parameters of density profile.
-        \param[in]  df -- distribution function of this component (which is not owned
-                    by this object and remains constant during the iterative procedure).
+        \param[in]  df -- shared pointer to the distribution function of this component
+                    (the DF remains constant during the iterative procedure).
         \param[in]  rmin,rmax -- determine the extent of (logarithmic) radial grid
                     used to compute the density profile of this component.
         \param[in]  numCoefsRadial -- number of grid points in this radial grid.
         \param[in]  numCoefsAngular -- max order of spherical-harmonic expansion (l_max).
         \param[in]  initDensity -- the initial guess for the density profile of this component;
-                    a copy of it is created internally.
+                    if it is not provided (i.e. is an empty pointer), then a plausible guess
+                    is constructed internally.
         \param[in]  relError -- relative accuracy of density computation.
         \param[in]  maxNumEval -- max # of DF evaluations per single density computation.
     */
     ComponentWithDF(
-        const df::BaseDistributionFunction& df,
+        const df::PtrDistributionFunction& df,
         double rmin, double rmax,
         unsigned int numCoefsRadial, unsigned int numCoefsAngular,
-        const potential::BaseDensity& initDensity,
-        double relError=1e-3,
-        unsigned int maxNumEval=1e5);
-
-    /** same as the above, with the difference that the initial guess for the density profile
-        is not provided by the user, and instead a plausible guess is constructed internally.
-    */
-    ComponentWithDF(
-        const df::BaseDistributionFunction& df,
-        double rmin, double rmax,
-        unsigned int numCoefsRadial, unsigned int numCoefsAngular,
+        const potential::PtrDensity& initDensity=potential::PtrDensity(),
         double relError=1e-3,
         unsigned int maxNumEval=1e5);
     
-    /** delete the internally created density model */
-    virtual ~ComponentWithDF() { delete density; }
-
     /** reinitialize the density profile by recomputing the values of density at a set of 
         grid points in the meridional plane, and then constructing a spherical-harmonic
         density expansion from these values.
@@ -148,17 +130,17 @@ public:
     virtual void update(const potential::BasePotential& pot, const actions::BaseActionFinder& af);
 
     /** return the pointer to the internal density profile */
-    virtual const potential::BaseDensity*   getDensity()   const { return density; }
+    virtual potential::PtrDensity   getDensity()   const { return density; }
 
-    /** no additional potential component is provided */
-    virtual const potential::BasePotential* getPotential() const { return 0; }
+    /** no additional potential component is provided, i.e. an empty pointer is returned */
+    virtual potential::PtrPotential getPotential() const { return potential::PtrPotential(); }
 
 protected:
-    /// action-based distribution function (not owned by this object and stays constant),
-    const df::BaseDistributionFunction& distrFunc;
+    /// shared pointer to the action-based distribution function (remains unchanged)
+    const df::PtrDistributionFunction distrFunc;
     
     /// spherical-harmonic expansion of density profile of this component
-    const potential::BaseDensity* density;
+    potential::PtrDensity density;
     
     /// definition of grid for computing the density profile:
     const double rmin, rmax;             ///< range of radii for the logarithmic grid
@@ -195,7 +177,7 @@ public:
         \param[in] maxNumEval -- maximum # of DF evaluations for a single density value.
     */
     ComponentWithDisklikeDF(
-        const df::BaseDistributionFunction& df,
+        const df::PtrDistributionFunction& df,
         double rmin, double rmax,
         unsigned int numCoefsRadial, unsigned int numCoefsAngular,
         const potential::DiskParam& diskParams,
@@ -203,17 +185,15 @@ public:
         unsigned int maxNumEval=1e5
         );
 
-    virtual ~ComponentWithDisklikeDF() { delete diskAnsatzPotential; }
-
     /** recompute both the analytic disk potential and the spherical-harmonic expansion
         of the residual density profile.
     */
     virtual void update(const potential::BasePotential& pot, const actions::BaseActionFinder& af);
 
     /** return the pointer to the internal analytic potential model */
-    virtual const potential::BasePotential* getPotential() const { return diskAnsatzPotential; }
+    virtual potential::PtrPotential getPotential() const { return diskAnsatzPotential; }
 private:
-    const potential::BasePotential* diskAnsatzPotential;  ///< analytic potential
+    potential::PtrPotential diskAnsatzPotential;  ///< analytic potential
 };
 
 /// Class for providing a progress report during self-consistent modelling
@@ -232,7 +212,14 @@ public:
     virtual void reportTotalPotential(const potential::BasePotential& /*potential*/) {};
 };
 
-
+#ifdef HAVE_CXX11
+    typedef std::shared_ptr<BaseComponent>  PtrComponent;
+    typedef std::shared_ptr<ProgressReportCallback> PtrProgressReportCallback;
+#else
+    typedef std::tr1::shared_ptr<BaseComponent> PtrComponent;
+    typedef std::tr1::shared_ptr<ProgressReportCallback> PtrProgressReportCallback;
+#endif
+    
 /** The driver class for self-consistend modelling.
     The list of model components is provided at initialization;
     each component may be 'dead' (with a fixed density profile and unspecified DF) 
@@ -257,19 +244,17 @@ public:
     The overall potential is in turn used in recomputing the live density profiles through
     integration of their DFs over velocities. This two-stage process is performed 
     at each iteration: first the density recomputation, then the potential update.
-    The overall potential may be queried at any time, but this object exists only until
-    the next iteration, or until the `SelfConsistentModel` object is destroyed;
-    same is true for the density profiles of each component.
-    One may create copies of them with the `clone()` method of `BaseDensity` or `BasePotential`,
-    and then use to initialize a new SelfConsistentModel from the already computed 
+    The overall potential may be queried at any time, returning a shared pointer, which,
+    if assigned, continues to exist even after the `SelfConsistentModel` object is destroyed;
+    same is true for the density profiles returned by each component.
+    One may use them to initialize a new SelfConsistentModel from the already computed 
     approximations for the density, possibly with a different combination of dead/live components.
 */
 class SelfConsistentModel {
 public:
     /** Construct the model and initialize the first guess for the total potential.
-        \param[in] components  is the array of pointers to the model components
-        (they must have been constructed before, exist during the lifetime of 
-        SelfConsistentModel object, and are not deleted when this object is destroyed).
+        \param[in] components  is the array of shared pointers to the model components
+        (all of them must have been fully constructed before creation of this object).
         \param[in] rmin,rmax  determine the extent of radial grid used in multipole expansion;
         \param[in] numCoefsRadial  is the number of nodes in the (logarithmic) radial grid;
         \param[in] numCoefsAngular  is the order of spherical-harmonic expansion;
@@ -278,16 +263,11 @@ public:
         \param[in] callback  is the optional pointer to the progress reporting routine (may be NULL).
     */
     SelfConsistentModel(
-        const std::vector<BaseComponent*>& components,
+        const std::vector<PtrComponent>& components,
         double rmin, double rmax,
         unsigned int numCoefsRadial, unsigned int numCoefsAngular,
-        ProgressReportCallback* callback=0
+        const PtrProgressReportCallback& callback = PtrProgressReportCallback()
     );
-    
-    /** Destructor deletes the internally created total potential and action finder objects,
-        but does not touch the model components passed to the constructor (nor the callback routine).
-    */
-    ~SelfConsistentModel();
     
     /** Main iteration step: recompute the densities of all components
         (if appropriate, i.e. if they have a specified DFs and can recompute 
@@ -296,20 +276,16 @@ public:
     */
     void doIteration();
     
-    /** return the pointer to the internally used total potential: 
-        this pointer is valid until another iteration is performed, or the object itself is destroyed;
-        if one needs to have a permanent copy then the `BasePotential::clone()` method should be used,
-        like  const BasePotential* pot = model.getPotential()->clone();
-    */
-    const potential::BasePotential* getPotential() const {
+    /** return the shared pointer to the internally used total potential */
+    potential::PtrPotential getPotential() const {
         return totalPotential; }
     
     /** return the pointer to the given component, or throw an exception if index is out of range */
-    const BaseComponent* getComponent(unsigned int index) const;
+    PtrComponent getComponent(unsigned int index) const { return components.at(index); }
 
 private:
     /// array of model components
-    std::vector<BaseComponent*> components;
+    std::vector<PtrComponent> components;
 
     /// definition of grid for computing the multipole expansion of the total density profile:
     const double rmin, rmax;             ///< range of radii for the logarithmic grid
@@ -317,13 +293,13 @@ private:
     const unsigned int numCoefsAngular;  ///< maximum order of angular-harmonic expansion (l_max)
     
     /// Total gravitational potential of all components
-    const potential::BasePotential* totalPotential;
+    potential::PtrPotential totalPotential;
     
-    /// Action finder associated with the total potential
-    const actions::BaseActionFinder* actionFinder;
+    /// Action finder associated with the total potential (uniquely owned by this object)
+    actions::UPtrActionFinder actionFinder;
     
     /// External progress reporting interface (may be NULL)
-    ProgressReportCallback* callback;
+    PtrProgressReportCallback callback;
 
     /// recompute the total potential using the current density profiles for all components
     void updateTotalPotential();

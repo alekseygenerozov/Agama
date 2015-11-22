@@ -74,10 +74,10 @@ int main(){
     double sigmar0 = sigmaz0;
     const df::PseudoIsothermalParam param = {norm,Rdisk,L0,Sigma0,sigmar0,sigmaz0,sigmar0*0.1,0};
     const potential::DiskParam      paramPot(Sigma0, Rdisk, -Hdisk, 0, 0);
-    const potential::BasePotential* pot   = potential::createGalaxyPotential(
+    const potential::PtrPotential pot    = potential::createGalaxyPotential(
         std::vector<potential::DiskParam>(1, paramPot),
         std::vector<potential::SphrParam>() );
-    const actions::ActionFinderAxisymFudge act(*pot);
+    const actions::ActionFinderAxisymFudge act(pot);
     const df::PseudoIsothermal df(param, potential::InterpEpicycleFreqs(*pot));
     const galaxymodel::GalaxyModel galmod(*pot, act, df);
 

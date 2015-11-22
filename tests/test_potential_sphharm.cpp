@@ -28,12 +28,12 @@ const double pos_sph[numtestpoints][3] = {   // order: R, theta, phi
 const bool output = false;
 
 /// write potential coefs into file, load them back and create a new potential from these coefs
-const potential::BasePotential* write_read(const potential::BasePotential& pot)
+potential::PtrPotential write_read(const potential::BasePotential& pot)
 {
     std::string coefFile("test_potential_sphharm");
     coefFile += getCoefFileExtension(pot);
     writePotentialCoefs(coefFile, pot);
-    const potential::BasePotential* newpot = potential::readPotentialCoefs(coefFile);
+    potential::PtrPotential newpot = potential::readPotentialCoefs(coefFile);
     std::remove(coefFile.c_str());
     return newpot;
 }
@@ -52,23 +52,23 @@ void make_hernquist(int nbody, double q, double p, particles::PointMassArrayCar&
     }
 }
 
-const potential::BasePotential* create_from_file(
+potential::PtrPotential create_from_file(
     const particles::PointMassArrayCar& points, const std::string& potType)
 {
     const std::string fileName = "test.txt";
     particles::writeSnapshot(fileName, units::ExternalUnits(), points, "Text");
-    const potential::BasePotential* newpot = NULL;
+    potential::PtrPotential newpot;
 
     // illustrates two possible ways of creating a potential from points
     if(potType == "BasisSetExp") {
         particles::PointMassArrayCar pts;
         particles::readSnapshot(fileName, units::ExternalUnits(), pts);
-        newpot = new potential::BasisSetExp(
+        newpot = potential::PtrPotential(new potential::BasisSetExp(
             1.0, /*alpha*/
             20,  /*numCoefsRadial*/
             4,   /*numCoefsAngular*/
             pts, /*points*/
-            potential::ST_TRIAXIAL);  /*symmetry (default value)*/
+            potential::ST_TRIAXIAL));  /*symmetry (default value)*/
     } else {
         // a rather lengthy way of setting parameters, used only for illustration:
         // normally these would be read from an INI file or from command line;
@@ -126,7 +126,7 @@ void test_average_error(const potential::BasePotential& p1, const potential::Bas
 bool test_suite(const potential::BasePotential& p, const potential::BasePotential& orig, double eps_pot)
 {
     bool ok=true;
-    const potential::BasePotential* newpot = write_read(p);
+    potential::PtrPotential newpot = write_read(p);
     double gamma = getInnerDensitySlope(orig);
     std::cout << "\033[1;32m---- testing "<<p.name()<<" with "<<
         (isSpherical(orig) ? "spherical " : isAxisymmetric(orig) ? "axisymmetric" : "triaxial ") <<orig.name()<<
@@ -173,7 +173,6 @@ bool test_suite(const potential::BasePotential& p, const potential::BasePotentia
         test_average_error(*newpot, orig);
 #endif
     }
-    delete newpot;
     return ok;
 }
 
@@ -242,65 +241,42 @@ int main() {
     srand(42);
     bool ok=true;
     make_hernquist(100000, 0.8, 0.6, points);
-    const potential::BasePotential* p=0;
 
     //test_axi_dens();
-#if 0
+#if __GNUC__ and (__GNUC__ <= 4) and (__GNUC_MINOR__ <= 2)
+    std::cout << "Cannot compile this test: the current version of GNU compiler "<<__GNUC__<<'.'<<__GNUC_MINOR__<<
+        " does not allow temporary objects without copy constructors to be passed as references\n";
+#else
     // spherical, cored
     const potential::Plummer plum(10., 5.);
-    p = new potential::BasisSetExp(0., 30, 2, plum);
-    ok &= test_suite(*p, plum, 1e-5);
-    delete p;
-    p = new potential::SplineExp(20, 2, plum);
-    ok &= test_suite(*p, plum, 1e-5);
-    delete p;
+    ok &= test_suite(potential::BasisSetExp(0., 30, 2, plum), plum, 1e-5);
+    ok &= test_suite(potential::SplineExp(20, 2, plum), plum, 1e-5);
     // this forces potential to be computed via integration of density over volume
-    p = new potential::CylSplineExp(20, 20, 0, static_cast<const potential::BaseDensity&>(plum));
-    ok &= test_suite(*p, plum, 1e-4);
-    delete p;
+    ok &= test_suite(potential::CylSplineExp(20, 20, 0, static_cast<const potential::BaseDensity&>(plum)), plum, 1e-4);
 
     // mildly triaxial, cuspy
     const potential::Dehnen deh15(3., 1.2, 0.8, 0.6, 1.5);
-    p = new potential::BasisSetExp(2., 20, 6, deh15);
-    ok &= test_suite(*p, deh15, 2e-4);
-    delete p;
-    p = new potential::SplineExp(20, 6, deh15);
-    ok &= test_suite(*p, deh15, 2e-4);
-    delete p;
+    ok &= test_suite(potential::BasisSetExp(2., 20, 6, deh15), deh15, 2e-4);
+    ok &= test_suite(potential::SplineExp(20, 6, deh15), deh15, 2e-4);
 
     // mildly triaxial, cored
     const potential::Dehnen deh0(1., 1., 0.8, 0.6, 0.);
-    p = new potential::BasisSetExp(1., 20, 6, deh0);
-    ok &= test_suite(*p, deh0, 5e-5);
-    delete p;
-    p = new potential::SplineExp(20, 6, deh0);
-    ok &= test_suite(*p, deh0, 5e-5);
-    delete p;
-    p = new potential::CylSplineExp(20, 20, 6, static_cast<const potential::BaseDensity&>(deh0));
-    ok &= test_suite(*p, deh0, 1e-4);
-    delete p;
+    ok &= test_suite(potential::BasisSetExp(1., 20, 6, deh0), deh0, 5e-5);
+    ok &= test_suite(potential::SplineExp(20, 6, deh0), deh0, 5e-5);
+    ok &= test_suite(potential::CylSplineExp(20, 20, 6, static_cast<const potential::BaseDensity&>(deh0)), deh0, 1e-4);
 
     // mildly triaxial, created from N-body samples
     const potential::Dehnen hernq(1., 1., 0.8, 0.6, 1.0);
-    p = create_from_file(points, potential::BasisSetExp::myName());
-    ok &= test_suite(*p, hernq, 2e-2);
-    delete p;
-    p = new potential::SplineExp(20, 4, points, potential::ST_TRIAXIAL);  // or maybe create_from_file(points, "SplineExp");
-    ok &= test_suite(*p, hernq, 2e-2);
-    delete p;
-    p = create_from_file(points, potential::CylSplineExp::myName());
-    ok &= test_suite(*p, hernq, 2e-2);
-    delete p;
-#endif
-    // axisymmetric
+    ok &= test_suite(*create_from_file(points, potential::BasisSetExp::myName()), hernq, 2e-2);
+    // could also use create_from_file(points, "SplineExp");  below
+    ok &= test_suite(potential::SplineExp(20, 4, points, potential::ST_TRIAXIAL), hernq, 2e-2);
+    ok &= test_suite(*create_from_file(points, potential::CylSplineExp::myName()), hernq, 2e-2);
+
+    // axisymmetric multipole
     const potential::Dehnen hernqa(1., 1., 1., .5, 1.2);
-    //p = new OldGalpotWrapper();
-    p = new potential::Multipole(hernqa, 1e-3, 1e3, 100, 16);
-    test_average_error(*p, hernqa);
-    delete p;
-    p = new potential::SplineExp(100, 16, hernqa, 1e-3, 1e3);
-    test_average_error(*p, hernqa);
-    delete p;
+    test_average_error(potential::Multipole(hernqa, 1e-3, 1e3, 100, 16), hernqa);
+    test_average_error(potential::SplineExp(100, 16, hernqa, 1e-3, 1e3), hernqa);
+#endif
 
     if(ok)
         std::cout << "ALL TESTS PASSED\n";

@@ -291,22 +291,25 @@ static SphrParam parseSphrParams(const utils::KeyValueMap& params, const units::
 
 /// create potential expansion of a given type from a set of point masses
 template<typename ParticleT>
-const BasePotential* createPotentialFromPoints(const ConfigPotential& config,
+PtrPotential createPotentialFromPoints(const ConfigPotential& config,
     const particles::PointMassArray<ParticleT>& points)
 {
     switch(config.potentialType) {
     case PT_SPLINE:
-        return new SplineExp(config.numCoefsRadial, config.numCoefsAngular, 
+        return PtrPotential(new SplineExp(
+            config.numCoefsRadial, config.numCoefsAngular, 
             points, config.symmetryType, config.splineSmoothFactor, 
-            config.splineRMin, config.splineRMax);
+            config.splineRMin, config.splineRMax));
     case PT_CYLSPLINE:
-        return new CylSplineExp(config.numCoefsRadial, config.numCoefsVertical,
+        return PtrPotential(new CylSplineExp(
+            config.numCoefsRadial, config.numCoefsVertical,
             config.numCoefsAngular, points, config.symmetryType, 
             config.splineRMin, config.splineRMax,
-            config.splineZMin, config.splineZMax);
+            config.splineZMin, config.splineZMax));
     case PT_BSE:
-        return new BasisSetExp(config.alpha, config.numCoefsRadial, 
-            config.numCoefsAngular, points, config.symmetryType);
+        return PtrPotential(new BasisSetExp(
+            config.alpha, config.numCoefsRadial, 
+            config.numCoefsAngular, points, config.symmetryType));
     default:
         throw std::invalid_argument(std::string("Unknown potential type in createPotentialFromPoints: ")
             + getPotentialNameByType(config.potentialType));
@@ -314,28 +317,28 @@ const BasePotential* createPotentialFromPoints(const ConfigPotential& config,
 }
 
 template<typename ParticleT>
-const BasePotential* createPotentialFromPoints(const utils::KeyValueMap& params,
+PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
     const units::ExternalUnits& converter, const particles::PointMassArray<ParticleT>& points)
 {
     return createPotentialFromPoints(parseParams(params, converter), points);
 }
 // instantiations
-template const BasePotential* createPotentialFromPoints(const utils::KeyValueMap& params,
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
     const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosCar>& points);
-template const BasePotential* createPotentialFromPoints(const utils::KeyValueMap& params,
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
     const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosVelCar>& points);
-template const BasePotential* createPotentialFromPoints(const utils::KeyValueMap& params,
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
     const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosCyl>& points);
-template const BasePotential* createPotentialFromPoints(const utils::KeyValueMap& params,
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
     const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosVelCyl>& points);
-template const BasePotential* createPotentialFromPoints(const utils::KeyValueMap& params,
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
     const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosSph>& points);
-template const BasePotential* createPotentialFromPoints(const utils::KeyValueMap& params,
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
     const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosVelSph>& points);
 
 
 /// attempt to load coefficients of BasisSetExp or SplineExp stored in a text file
-static const BasePotential* createPotentialExpFromCoefs(
+static PtrPotential createPotentialExpFromCoefs(
     const std::string& fileName, const PotentialType potentialType)
 {
     std::ifstream strm(fileName.c_str(), std::ios::in);
@@ -385,9 +388,9 @@ static const BasePotential* createPotentialExpFromCoefs(
     switch(potentialType)
     {
     case PT_BSE: 
-        return new BasisSetExp(/*Alpha*/param, coefs); 
+        return PtrPotential(new BasisSetExp(/*Alpha*/param, coefs)); 
     case PT_SPLINE:
-        return new SplineExp(radii, coefs); 
+        return PtrPotential(new SplineExp(radii, coefs)); 
     default:
         throw std::invalid_argument(std::string("Unknown potential type to load: ") +
             getPotentialNameByType(potentialType));
@@ -395,7 +398,7 @@ static const BasePotential* createPotentialExpFromCoefs(
 }
 
 /// attempt to load coefficients of CylSplineExp stored in a text file
-static const BasePotential* createPotentialCylExpFromCoefs(const std::string& fileName)
+static PtrPotential createPotentialCylExpFromCoefs(const std::string& fileName)
 {
     std::ifstream strm(fileName.c_str(), std::ios::in);
     std::string buffer;
@@ -449,11 +452,11 @@ static const BasePotential* createPotentialCylExpFromCoefs(const std::string& fi
     if(!ok)
         throw std::runtime_error(std::string("Error loading potential ") +
             CylSplineExp::myName() + " coefs from file "+fileName);
-    return new CylSplineExp(gridR, gridz, coefs);
+    return PtrPotential(new CylSplineExp(gridR, gridz, coefs));
 }
 
 /// load potential expansion coefficients from a text file
-const BasePotential* readPotentialCoefs(const std::string& fileName)
+PtrPotential readPotentialCoefs(const std::string& fileName)
 {
     if(fileName.empty()) {
         throw std::runtime_error("readPotentialCoefs: empty file name");
@@ -599,7 +602,7 @@ static void swallowRestofLine(std::ifstream& from) {
 }
 
 // legacy interface for GalPot (deprecated)
-const potential::BasePotential* readGalaxyPotential(const std::string& filename, const units::ExternalUnits& conv) 
+PtrPotential readGalaxyPotential(const std::string& filename, const units::ExternalUnits& conv) 
 {
     std::ifstream strm(filename.c_str());
     if(!strm) 
@@ -647,26 +650,28 @@ const potential::BasePotential* readGalaxyPotential(const std::string& filename,
     \throw     std::invalid_argument exception if the parameters don't make sense,
     or any other exception that may occur in the constructor of a particular density model
 */
-static const BaseDensity* createDensity(const ConfigPotential& config)
+static PtrDensity createDensity(const ConfigPotential& config)
 {
     switch(config.densityType) 
     {
     case PT_DEHNEN: 
-        return new Dehnen(config.mass, config.scaleRadius, config.q, config.p, config.gamma); 
+        return PtrDensity(new Dehnen(
+            config.mass, config.scaleRadius, config.q, config.p, config.gamma));
     case PT_PLUMMER:
         if(config.q==1 && config.p==1)
-            return new Plummer(config.mass, config.scaleRadius);
+            return PtrDensity(new Plummer(config.mass, config.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Plummer is not yet supported");
     case PT_PERFECTELLIPSOID:
         if(config.q==1 && config.p<1)
-            return new OblatePerfectEllipsoid(config.mass, config.scaleRadius, config.scaleRadius*config.p); 
+            return PtrDensity(new OblatePerfectEllipsoid(
+                config.mass, config.scaleRadius, config.scaleRadius*config.p));
         else
             throw std::invalid_argument("May only create oblate axisymmetric Perfect Ellipsoid model");
     case PT_FERRERS:
-        return new Ferrers(config.mass, config.scaleRadius, config.q, config.p);
+        return PtrDensity(new Ferrers(config.mass, config.scaleRadius, config.q, config.p));
     case PT_MIYAMOTONAGAI:
-        return new MiyamotoNagai(config.mass, config.scaleRadius, config.scaleRadius2);
+        return PtrDensity(new MiyamotoNagai(config.mass, config.scaleRadius, config.scaleRadius2));
     default:
         throw std::invalid_argument("Unknown density type");
     }
@@ -678,33 +683,35 @@ static const BaseDensity* createDensity(const ConfigPotential& config)
     \throw     std::invalid_argument exception if the parameters don't make sense,
     or any other exception that may occur in the constructor of a particular potential model
 */
-static const BasePotential* createElementaryPotential(const ConfigPotential& config)
+static PtrPotential createElementaryPotential(const ConfigPotential& config)
 {
     switch(config.potentialType)
     {
     case PT_LOG:  // NB: it's not really 'mass' here but 'sigma'
-        return new Logarithmic(config.mass, config.scaleRadius, config.q, config.p);
+        return PtrPotential(new Logarithmic(config.mass, config.scaleRadius, config.q, config.p));
     case PT_HARMONIC:  // NB: it's not really 'mass' here but 'Omega'
-        return new Harmonic(config.mass, config.q, config.p);
+        return PtrPotential(new Harmonic(config.mass, config.q, config.p));
     case PT_MIYAMOTONAGAI:
-        return new MiyamotoNagai(config.mass, config.scaleRadius, config.scaleRadius2);
+        return PtrPotential(new MiyamotoNagai(config.mass, config.scaleRadius, config.scaleRadius2));
     case PT_DEHNEN:
-        return new Dehnen(config.mass, config.scaleRadius, config.q, config.p, config.gamma);
+        return PtrPotential(new Dehnen(
+            config.mass, config.scaleRadius, config.q, config.p, config.gamma));
     case PT_FERRERS:
-        return new Ferrers(config.mass, config.scaleRadius, config.q, config.p); 
+        return PtrPotential(new Ferrers(config.mass, config.scaleRadius, config.q, config.p)); 
     case PT_PLUMMER:
         if(config.q==1 && config.p==1)
-            return new Plummer(config.mass, config.scaleRadius);
+            return PtrPotential(new Plummer(config.mass, config.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Plummer is not yet supported");
     case PT_NFW:
         if(config.q==1 && config.p==1)
-            return new NFW(config.mass, config.scaleRadius);
+            return PtrPotential(new NFW(config.mass, config.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Navarro-Frenk-White is not yet supported");
     case PT_PERFECTELLIPSOID:
         if(config.q==1 && config.p<1)
-            return new OblatePerfectEllipsoid(config.mass, config.scaleRadius, config.scaleRadius*config.p); 
+            return PtrPotential(new OblatePerfectEllipsoid(
+                config.mass, config.scaleRadius, config.scaleRadius*config.p)); 
         else
             throw std::invalid_argument("May only create oblate axisymmetric Perfect Ellipsoid model");
     default:
@@ -712,129 +719,107 @@ static const BasePotential* createElementaryPotential(const ConfigPotential& con
     }
 }
 
-static const BasePotential* createPotentialExpansion(const ConfigPotential& config)
+static PtrPotential createPotentialExpansion(const ConfigPotential& config)
 {
-    // create a temporary instance of analytic density model, and use it for computing expansion coefs
-    const BaseDensity* densModel = createDensity(config);
-    const BasePotential* poten = NULL;
     switch(config.potentialType) {
     case PT_BSE:
-        poten = new BasisSetExp(
-            config.alpha, config.numCoefsRadial, config.numCoefsAngular, *densModel);
-        break;
+        return PtrPotential(new BasisSetExp(
+            config.alpha, config.numCoefsRadial, config.numCoefsAngular, *createDensity(config)));
     case PT_SPLINE: {
-        poten = new SplineExp(config.numCoefsRadial, config.numCoefsAngular,
-            *densModel, config.splineRMin, config.splineRMax);
-        break;
+        return PtrPotential(new SplineExp(
+            config.numCoefsRadial, config.numCoefsAngular,
+            *createDensity(config), config.splineRMin, config.splineRMax));
     }
     case PT_CYLSPLINE: {
         if( config.densityType == PT_DEHNEN || 
             config.densityType == PT_FERRERS ||
             config.densityType == PT_MIYAMOTONAGAI ) 
         {   // use potential for initialization, without intermediate DirectPotential step
-            poten = new CylSplineExp(
+            return PtrPotential(new CylSplineExp(
                 config.numCoefsRadial, config.numCoefsVertical, config.numCoefsAngular,
-                // explicitly type cast to BasePotential to call an appropriate constructor
-                dynamic_cast<const BasePotential&>(*densModel),
-                config.splineRMin, config.splineRMax, config.splineZMin, config.splineZMax);
+                *createElementaryPotential(config),
+                config.splineRMin, config.splineRMax, config.splineZMin, config.splineZMax));
         } else {
-            poten = new CylSplineExp(
+            return PtrPotential(new CylSplineExp(
                 config.numCoefsRadial, config.numCoefsVertical, config.numCoefsAngular, 
-                *densModel, 
-                config.splineRMin, config.splineRMax, config.splineZMin, config.splineZMax);
+                *createDensity(config), 
+                config.splineRMin, config.splineRMax, config.splineZMin, config.splineZMax));
         }
-        break;
     }
-    default: assert(isPotentialExpansion(config.potentialType));
+    default: throw std::invalid_argument("Unknown potential expansion type");
     }
-    delete densModel;
-    return poten;
+}
+
+static PtrPotential createAnyPotential(const ConfigPotential& params,
+    const units::ExternalUnits& converter)
+{
+    if( params.potentialType == PT_UNKNOWN && !params.fileName.empty() ) 
+        return readPotentialCoefs(params.fileName);
+    else if(isPotentialExpansion(params.potentialType)) {
+        if( params.densityType == PT_NBODY && !params.fileName.empty()) {
+            // create potential expansion from an N-body snapshot file
+            particles::PointMassArrayCar points;
+            particles::readSnapshot(params.fileName, converter, points);
+            if(points.size()==0)
+                throw std::runtime_error("Error loading N-body snapshot from " + params.fileName);
+            PtrPotential poten = createPotentialFromPoints(params, points);
+            // store coefficients in a text file, 
+            // later may load this file instead for faster initialization
+            try{
+                writePotentialCoefs( (params.fileName + 
+                    getCoefFileExtension(params.potentialType)), *poten);
+            }
+            catch(std::runtime_error&) {};  // ignore possible write errors
+            return poten;
+        } else if(params.densityType == PT_COEFS && !params.fileName.empty())
+            // read coefs and all other parameters from a text file
+            return readPotentialCoefs(params.fileName);
+        else
+            return createPotentialExpansion(params);
+    } else  // elementary potential, or an error
+        return createElementaryPotential(params);
 }
 
 // create a potential from several components
-const BasePotential* createPotential(
+PtrPotential createPotential(
     const std::vector<utils::KeyValueMap>& kvmap,
     const units::ExternalUnits& converter)
 {
     if(kvmap.size() == 0)
         throw std::runtime_error("Empty list of potential components");
-    std::vector<const BasePotential*> components;
-    try{
-        // first we isolate all components that are part of GalPot
-        std::vector<DiskParam> diskParams;
-        std::vector<SphrParam> sphrParams;
-        std::vector<ConfigPotential> params;
-        for(unsigned int i=0; i<kvmap.size(); i++) {
-            std::string type = kvmap[i].getString("type");
-            if(utils::stringsEqual(type, DiskAnsatz::myName())) {
-                diskParams.push_back(parseDiskParams(kvmap[i], converter));
-            } else if(utils::stringsEqual(type, SpheroidDensity::myName())) {
-                sphrParams.push_back(parseSphrParams(kvmap[i], converter));
-            } else
-                params.push_back(parseParams(kvmap[i], converter));
-        }
-        // create an array of GalPot components if needed
-        if(diskParams.size()>0 || sphrParams.size()>0)
-            components = createGalaxyPotentialComponents(diskParams, sphrParams);
-        // add other components if they exist
-        for(unsigned int i=0; i<params.size(); i++) {
-            const BasePotential* poten = NULL;
-            if( params[i].potentialType == PT_UNKNOWN && 
-                !params[i].fileName.empty() ) 
-            {
-                poten = readPotentialCoefs(params[i].fileName);
-            } else
-            if(isPotentialExpansion(params[i].potentialType))
-            {
-                if( params[i].densityType == PT_NBODY && 
-                   !params[i].fileName.empty()) 
-                {
-                    // create potential expansion from an N-body snapshot file
-                    particles::PointMassArrayCar points;
-                    particles::readSnapshot(params[i].fileName, converter, points);
-                    if(points.size()==0)
-                        throw std::runtime_error("Error loading N-body snapshot from " + 
-                            params[i].fileName);
-                    poten = createPotentialFromPoints(params[i], points);
-                    // store coefficients in a text file, 
-                    // later may load this file instead for faster initialization
-                    try{
-                        writePotentialCoefs( (params[i].fileName + 
-                            getCoefFileExtension(params[i].potentialType)), *poten);
-                    }
-                    catch(std::runtime_error&) {};  // ignore possible write errors
-                } else if( params[i].densityType == PT_COEFS && 
-                          !params[i].fileName.empty() ) 
-                {
-                    // read coefs and all other parameters from a text file
-                    poten = readPotentialCoefs(params[i].fileName);
-                } else {
-                    poten = createPotentialExpansion(params[i]);
-                }
-            } else  // elementary potential, or an error
-                poten = createElementaryPotential(params[i]);
-            components.push_back(poten);
-        }
-        assert(components.size()>0);
-        if(components.size() == 1)
-            return components[0];
-        // otherwise we create a composite potential, and delete the temporary components
-        const BasePotential* result = new CompositeCyl(components);
-        for(unsigned int i=0; i<components.size(); i++)
-            delete components[i];
-        return result;
+    std::vector<PtrPotential> components;
+
+    // first we isolate all components that are part of GalPot
+    std::vector<DiskParam> diskParams;
+    std::vector<SphrParam> sphrParams;
+    std::vector<ConfigPotential> params;
+    for(unsigned int i=0; i<kvmap.size(); i++) {
+        std::string type = kvmap[i].getString("type");
+        if(utils::stringsEqual(type, DiskAnsatz::myName())) {
+            diskParams.push_back(parseDiskParams(kvmap[i], converter));
+        } else if(utils::stringsEqual(type, SpheroidDensity::myName())) {
+            sphrParams.push_back(parseSphrParams(kvmap[i], converter));
+        } else
+            params.push_back(parseParams(kvmap[i], converter));
     }
-    catch(std::exception&) {
-        // if potential creation failed, we delete all temporary components
-        for(unsigned int i=0; i<components.size(); i++)
-            delete components[i];
-        throw;
+    // create an array of GalPot components if needed
+    if(diskParams.size()>0 || sphrParams.size()>0)
+        components = createGalaxyPotentialComponents(diskParams, sphrParams);
+    // add other components if they exist
+    for(unsigned int i=0; i<params.size(); i++) {
+        components.push_back(createAnyPotential(params[i], converter));
     }
+
+    assert(components.size()>0);
+    if(components.size() == 1)
+        return components[0];
+    else
+        return PtrPotential(new CompositeCyl(components));
 }
 
 // create a potential from one component (which may still turn into a composite potential
 // if it happened to be one of GalPot things)
-const BasePotential* createPotential(
+PtrPotential createPotential(
     const utils::KeyValueMap& params,
     const units::ExternalUnits& converter)
 {
@@ -843,7 +828,7 @@ const BasePotential* createPotential(
 }
     
 // create a potential from INI file
-const BasePotential* createPotential(
+PtrPotential createPotential(
     const std::string& iniFileName, const units::ExternalUnits& converter)
 {
     utils::ConfigFile ini(iniFileName);

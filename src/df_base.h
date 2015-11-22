@@ -36,8 +36,21 @@ public:
         \param[in] J - actions
     */
     virtual double value(const actions::Actions &J) const=0;
+
+private:
+    /// disable copy constructor and assignment operator
+    BaseDistributionFunction(const BaseDistributionFunction&);
+    BaseDistributionFunction& operator= (const BaseDistributionFunction&);
 };
 
+#ifdef HAVE_CXX11
+typedef std::shared_ptr<const BaseDistributionFunction>  PtrDistributionFunction;
+typedef std::unique_ptr<const BaseDistributionFunction> UPtrDistributionFunction;
+#else
+typedef std::tr1::shared_ptr<const BaseDistributionFunction>  PtrDistributionFunction;
+typedef std::auto_ptr       <const BaseDistributionFunction> UPtrDistributionFunction;
+#endif
+    
 /** Sample the distribution function in actions.
     In other words, draw N sampling points from the action space, so that the density of points 
     in the neighborhood of any point is proportional to the value of DF at this point 

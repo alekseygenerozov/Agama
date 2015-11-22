@@ -82,7 +82,7 @@ void test(bool useNewAngleMapping, const potential::BasePotential& poten, const 
 }
 
 int main(int argc, char** argv) {
-    const potential::BasePotential* poten = 
+    potential::PtrPotential poten = 
         potential::readGalaxyPotential("../temp/GalPot.pot", units::galactic_Myr);
     Torus::Actions J;
     J[0] = 1; // actions in whatever units

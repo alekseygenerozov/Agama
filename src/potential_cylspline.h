@@ -43,7 +43,6 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "CylSplineExp"; };
     virtual SymmetryType symmetry() const { return mysymmetry; };
-    virtual BasePotential* clone() const { return new CylSplineExp(*this); }
 
     /** retrieve coefficients of potential approximation.
         \param[out] gridR will be filled with the array of R-values of grid nodes

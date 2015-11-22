@@ -124,18 +124,18 @@ int main(){
     double bz    = 1.0;
     double bphi  = 1.0;
     const df::DoublePowerLawParam paramDPL = {norm,j0,jcore,alpha,beta,ar,az,aphi,br,bz,bphi};
-    const potential::Dehnen potH(1., 1., 1., 1., 1.);        // potential
-    const actions::ActionFinderAxisymFudge actH(potH);       // action finder
-    const df::DoublePowerLaw dfH(paramDPL);                  // distribution function
-    const galaxymodel::GalaxyModel galmodH(potH, actH, dfH); // all together - the mighty triad
+    potential::PtrPotential potH(new potential::Dehnen(1., 1., 1., 1., 1.));  // potential
+    const actions::ActionFinderAxisymFudge actH(potH);        // action finder
+    const df::DoublePowerLaw dfH(paramDPL);                   // distribution function
+    const galaxymodel::GalaxyModel galmodH(*potH, actH, dfH); // all together - the mighty triad
 
     // the analytic value of total mass for the case ar=az=aphi=br=bz=bphi=1 and jcore=0 is just 'norm'
     ok &= testTotalMass(galmodH, norm);
 
     for(int i=0; i<NUM_POINTS_H; i++) {
         const coord::PosVelCyl point(testPointsH[i]);
-        double dfExact    = dfHernquist(1, 1, totalEnergy(potH, point));     // f(E) for the Hernquist model
-        double densExact  = potH.density(point);                             // analytical value of density
+        double dfExact    = dfHernquist(1, 1, totalEnergy(*potH, point));    // f(E) for the Hernquist model
+        double densExact  = potH->density(point);                            // analytical value of density
         double sigmaExact = sigmaHernquist(1, 1, coord::toPosSph(point).r);  // analytical value of sigma^2
         ok &= testDFmoments(galmodH, point, dfExact, densExact, sigmaExact);
     }

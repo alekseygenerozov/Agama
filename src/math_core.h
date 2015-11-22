@@ -55,10 +55,12 @@ double wrapAngle(double x);
 double unwrapAngle(double x, double xprev);
 
 /** Perform a binary search in an array of sorted numbers x_0 < x_1 < ... < x_N
-    to locate the index of bin that contains a given value x .
+    to locate the index of bin that contains a given value x.
     \param[in]  x is the position, which must lie in the interval x_0 <= x <= x_N;
     \param[in]  arr is the array of bin boundaries sorted in ascending order (NOT CHECKED!)
-    \param[in]  size is the number of elements in the array (i.e., number of bins plus 1).
+    \param[in]  size is the number of elements in the array (i.e., number of bins plus 1);
+    since this header does not include <vector>, we shall pass the array in the traditional
+    way, as a pointer to the first element plus the number of elements.
     \returns the index k of the bin such that x_k <= x < x_{k+1}, where the last inequality
     may be inexact for the last bin (x=x_N still returns N-1).
     \throws std::invalid_argument exception if the point is outside the interval */

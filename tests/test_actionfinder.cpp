@@ -108,15 +108,15 @@ bool test_actions(const potential::BasePotential& potential,
     return tolerable;
 }
 
-const potential::BasePotential* make_galpot(const char* params)
+potential::PtrPotential make_galpot(const char* params)
 {
     const char* params_file="test_galpot_params.pot";
     std::ofstream out(params_file);
     out<<params;
     out.close();
-    const potential::BasePotential* gp = potential::readGalaxyPotential(params_file, unit);
+    potential::PtrPotential gp = potential::readGalaxyPotential(params_file, unit);
     std::remove(params_file);
-    if(gp==NULL)
+    if(gp.get()==NULL)
         std::cout<<"Potential not created\n";
     return gp;
 }
@@ -148,8 +148,7 @@ const char* test_galpot_params =
 
 int main(int argc, const char* argv[]) {
     bool allok = true;
-    const potential::BasePotential* pot;
-    pot = make_galpot(test_galpot_params);
+    potential::PtrPotential pot = make_galpot(test_galpot_params);
     clock_t clockbegin = std::clock();
     actions::InterfocalDistanceFinder ifdFinder(*pot);
     std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to init Delta-finder\n";
@@ -184,6 +183,5 @@ int main(int argc, const char* argv[]) {
     std::cout << numActionEval * 1.0*CLOCKS_PER_SEC / (std::clock()-clockbegin) << " actions per second\n";
     if(allok)
         std::cout << "ALL TESTS PASSED\n";
-    delete pot;
     return 0;
 }

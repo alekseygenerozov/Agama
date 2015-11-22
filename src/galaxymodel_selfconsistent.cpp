@@ -11,6 +11,9 @@
 
 namespace galaxymodel{
 
+using potential::PtrDensity;
+using potential::PtrPotential;
+
 /// Helper class for providing a BaseDensity interface to a density computed via integration over DF
 class DensityFromDF: public potential::BaseDensity{
 public:
@@ -27,14 +30,13 @@ public:
     virtual potential::SymmetryType symmetry() const { return potential::ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensityFromDF"; };
-    // needs not be used
-    virtual BaseDensity* clone() const { throw std::runtime_error("DensityFromDF is not copyable"); }
 
 private:
-    const GalaxyModel model;
-    double relError;
-    unsigned int maxNumEval;
-    const potential::BaseDensity* densityToSubtract;
+    const GalaxyModel model;  ///< aggregate of potential, action finder and DF
+    double relError;          ///< requested relative error of density computation
+    unsigned int maxNumEval;  ///< max # of DF evaluations per one density calculation
+    /// pointer to an (optional) density profile that is subtracted from the computed one
+    const potential::BaseDensity* densityToSubtract; ///< (may be NULL, not owned by this object)
     
     virtual double densityCar(const coord::PosCar &pos) const {
         return densityCyl(toPosCyl(pos)); }
@@ -52,29 +54,23 @@ private:
     }
 };
 
-// two variants of constructor: if the initial guess for density is provided, it is cloned
-ComponentWithDF::ComponentWithDF(
-    const df::BaseDistributionFunction& df,
-    double _rmin, double _rmax,
-    unsigned int _numCoefsRadial, unsigned int _numCoefsAngular,
-    const potential::BaseDensity& initDensity,
-    double _relError, unsigned int _maxNumEval) :
-distrFunc(df),
-density(initDensity.clone()),
-rmin(_rmin), rmax(_rmax),
-numCoefsRadial(_numCoefsRadial), numCoefsAngular(_numCoefsAngular),
-relError(_relError), maxNumEval(_maxNumEval)
-{}
+template<typename T>
+const T& ensureNotNull(const T& x) {
+    if(x) return x;
+    throw std::invalid_argument("NULL pointer in assignment");
+}
 
-// if the first guess for density is not provided, it is initialized as a simple
-// Plummer model with the correct total mass and a (hopefully) reasonable scale radius
 ComponentWithDF::ComponentWithDF(
-    const df::BaseDistributionFunction& df,
+    const df::PtrDistributionFunction& df,
     double _rmin, double _rmax,
     unsigned int _numCoefsRadial, unsigned int _numCoefsAngular,
+    const PtrDensity& initDensity,
     double _relError, unsigned int _maxNumEval) :
-distrFunc(df),
-density(new potential::Plummer(df.totalMass(), sqrt(_rmin*_rmax))),
+distrFunc(ensureNotNull(df)),
+density(initDensity ? initDensity :  // if the first guess for density is provided, use it;
+    // otherwise initialize it as a simple Plummer model with the correct total mass
+    // and a (hopefully) reasonable scale radius
+    PtrDensity(new potential::Plummer(df->totalMass(), sqrt(_rmin*_rmax)))),
 rmin(_rmin), rmax(_rmax),
 numCoefsRadial(_numCoefsRadial), numCoefsAngular(_numCoefsAngular),
 relError(_relError), maxNumEval(_maxNumEval)
@@ -86,22 +82,21 @@ void ComponentWithDF::update(
 {
     // temporary density wrapper object
     const DensityFromDF densityWrapper(
-        totalPotential, actionFinder, distrFunc, relError, maxNumEval);
+        totalPotential, actionFinder, *distrFunc, relError, maxNumEval);
     
     // recompute the spherical-harmonic expansion for the density
-    delete density;
-    density = new potential::DensitySphericalHarmonic(
-        numCoefsRadial, numCoefsAngular, densityWrapper, rmin, rmax);
+    density = PtrDensity(new potential::DensitySphericalHarmonic(
+        numCoefsRadial, numCoefsAngular, densityWrapper, rmin, rmax));
 }
 
 ComponentWithDisklikeDF::ComponentWithDisklikeDF(
-    const df::BaseDistributionFunction& df,
+    const df::PtrDistributionFunction& df,
     double _rmin, double _rmax,
     unsigned int _numCoefsRadial, unsigned int _numCoefsAngular,
     const potential::DiskParam& _params,
     double _relError, unsigned int _maxNumEval) :
 ComponentWithDF(df, _rmin, _rmax, _numCoefsRadial, _numCoefsAngular, 
-    potential::DiskResidual(_params), _relError, _maxNumEval),
+    PtrDensity(new potential::DiskResidual(_params)), _relError, _maxNumEval),
 diskAnsatzPotential(new potential::DiskAnsatz(_params))
 {}
 
@@ -114,42 +109,28 @@ void ComponentWithDisklikeDF::update(
     // temporary density wrapper object that subtracts the density of the analytic disk component
     // from the overall density computed from the DF
     const DensityFromDF densityWrapper(
-        totalPotential, actionFinder, distrFunc, relError, maxNumEval, diskAnsatzPotential);
+        totalPotential, actionFinder, *distrFunc, relError, maxNumEval, diskAnsatzPotential.get());
     
     // recompute the spherical-harmonic expansion for the density
-    delete density;
-    density = new potential::DensitySphericalHarmonic(
-        numCoefsRadial, numCoefsAngular, densityWrapper, rmin, rmax);
+    density = PtrDensity(new potential::DensitySphericalHarmonic(
+        numCoefsRadial, numCoefsAngular, densityWrapper, rmin, rmax));
 }
     
 //------------ Driver class for self-consistent modelling ------------//
 
 SelfConsistentModel::SelfConsistentModel(
-    const std::vector<BaseComponent*>& _components,
+    const std::vector<PtrComponent>& _components,
     double _rmin, double _rmax,
     unsigned int _numCoefsRadial, unsigned int _numCoefsAngular,
-    ProgressReportCallback* _callback) :
+    const PtrProgressReportCallback& _callback) :
 components(_components),
 rmin(_rmin), rmax(_rmax),
 numCoefsRadial(_numCoefsRadial), numCoefsAngular(_numCoefsAngular),
-totalPotential(NULL), actionFinder(NULL), callback(_callback)
+totalPotential(), actionFinder(), callback(_callback)
 {
     if(components.size()<=0)
         throw std::invalid_argument("SelfConsistentModel: no components provided");
     updateTotalPotential();  // init totalPotential and actionFinder
-}
-
-SelfConsistentModel::~SelfConsistentModel()
-{
-    delete actionFinder;
-    delete totalPotential;
-}
-
-const BaseComponent* SelfConsistentModel::getComponent(unsigned int index) const
-{
-    if(index>=components.size())
-        throw std::range_error("Component index out of range");
-    return components[index];
 }
 
 void SelfConsistentModel::doIteration()
@@ -174,25 +155,31 @@ void SelfConsistentModel::updateTotalPotential()
 {
     assert(components.size()>=1);
     // temporary array of density and potential objects from components
-    std::vector<const potential::BaseDensity*> compDens;
-    std::vector<const potential::BasePotential*> compPot;
+    std::vector<PtrDensity> compDens;
+    std::vector<PtrPotential> compPot;
     
+    // first retrieve non-zero density and potential objects from all components
     for(unsigned int i=0; i<components.size(); i++) {
-        const potential::BaseDensity* d = components[i]->getDensity();
-        if(d!=NULL)
+        PtrDensity d = components[i]->getDensity();
+        if(d)
             compDens.push_back(d);
-        const potential::BasePotential* p = components[i]->getPotential();
-        if(p!=NULL)
+        PtrPotential p = components[i]->getPotential();
+        if(p)
             compPot.push_back(p);
     }
     
     // the total density to be used in multipole expansion
-    const potential::BaseDensity* totalDensity =
-        compDens.size()>1 ?                          // if more than one density component is present, 
-        new potential::CompositeDensity(compDens) :  // create a temporary composite density object;
-        compDens.size()>0 ?                          // if only one component is present,  
-        compDens[0]->clone() :                       // simply copy it;
-        NULL;                                        // otherwise don't use multipole expansion at all
+    PtrDensity totalDensity;
+    if(compDens.size()>1)  // if more than one density component is present, 
+        totalDensity =     // create a temporary composite density object;
+#ifdef HAVE_CXX11
+        std::make_shared<potential::CompositeDensity>(compDens);
+#else
+        PtrDensity(new potential::CompositeDensity(compDens));
+#endif
+    else if(compDens.size()>0)       // if only one component is present,  
+        totalDensity = compDens[0];  // simply copy it;
+    // otherwise don't use multipole expansion at all
     
     // construct potential expansion from the total density
     if(totalDensity != NULL) {
@@ -200,25 +187,27 @@ void SelfConsistentModel::updateTotalPotential()
             callback->generalMessage("Initializing Multipole");
         // add it as one of potential components (possibly the only one)
         compPot.push_back(
-            new potential::Multipole(*totalDensity,
-            rmin, rmax, numCoefsRadial, numCoefsAngular));
-        delete totalDensity;
+            PtrPotential(new potential::Multipole(*totalDensity,
+            rmin, rmax, numCoefsRadial, numCoefsAngular)));
     }
     
     // now check if the total potential is elementary or composite
-    delete totalPotential;
-    delete actionFinder;
     if(compPot.size()==0)
         throw std::runtime_error("No potential is present in SelfConsistentModel");
     if(compPot.size()==1)
-        totalPotential = compPot[0]->clone();
+        totalPotential = compPot[0];
     else
-        totalPotential = new potential::CompositeCyl(compPot);
+#ifdef HAVE_CXX11
+        totalPotential = std::make_shared<potential::CompositeCyl>(compPot);
+#else
+        totalPotential = PtrPotential(new potential::CompositeCyl(compPot));
+#endif
 
     // update the action finder
     if(callback)
         callback->generalMessage("Initializing action finder");
-    actionFinder = new actions::ActionFinderAxisymFudge(*totalPotential);
+    // replace the raw pointer with a new one and dispose of the old one
+    actionFinder.reset(new actions::ActionFinderAxisymFudge(totalPotential));
     
     // report progress if necessary
     if(callback)
