@@ -8,8 +8,10 @@
 #include "potential_perfect_ellipsoid.h"
 #include "potential_sphharm.h"
 #include "particles_io.h"
+#include "math_core.h"
 #include "utils.h"
 #include "utils_config.h"
+#include <cmath>
 #include <cassert>
 #include <stdexcept>
 #include <fstream>
@@ -571,6 +573,37 @@ static void writePotentialCylExpCoefs(const std::string& fileName, const CylSpli
                 strm << "\n";
             }
         } 
+    if(!strm.good())
+        throw std::runtime_error("Cannot write potential coefs to file "+fileName);
+}
+
+void writeDensityExpCoefs(const std::string& fileName, const DensitySphericalHarmonic& density)
+{
+    std::ofstream strm(fileName.c_str(), std::ios::out);
+    if(!strm) 
+        throw std::runtime_error("Cannot write density coefs to file "+fileName);  // file not writable
+    std::vector<double> radii;
+    std::vector<std::vector<double> > coefs;
+    density.getCoefs(radii, coefs);
+    const double lmax = density.getNumCoefsAngular();
+    assert(coefs.size()==lmax+1);
+
+    // use values of polar angle (theta) that correspond to Gauss-Legendre nodes in cos(theta)
+    // for the given order of spherical-harmonic expansion lmax
+    std::vector<double> theta(lmax+2), weights(lmax+1);
+    math::prepareIntegrationTableGL(-1, 1, lmax+1, &theta.front(), &weights.front());
+    for(int i=lmax/2; i<=lmax; i++)  // use only upper half of points
+        theta[i] = acos(theta[i]);
+    strm << "#r\\theta:";
+    for(int t=lmax/2; t<=lmax; t++)
+        strm << '\t' << theta[t];
+    strm << '\n';
+    for(unsigned int i=0; i<radii.size(); i++) {
+        strm << radii[i];
+        for(int t=lmax/2; t<=lmax; t++)
+            strm << '\t' << density.density(coord::PosSph(radii[i], theta[t], 0));
+        strm << '\n';
+    }
     if(!strm.good())
         throw std::runtime_error("Cannot write potential coefs to file "+fileName);
 }

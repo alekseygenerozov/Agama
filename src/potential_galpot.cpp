@@ -40,7 +40,8 @@ Version 0.8    24. June      2005
 
 namespace potential{
 
-static const int    GALPOT_LMAX=78;     ///< maximum l for the Multipole expansion 
+static const int MAX_NCOEFS_ANGULAR=201;///< 1 + maximum l for the Multipole expansion 
+static const int    GALPOT_LMAX=64;     ///< DEFAULT order (lmax) for the Multipole expansion 
 static const int    GALPOT_NRAD=201;    ///< DEFAULT number of radial points in Multipole 
 static const double GALPOT_RMIN=1.e-4,  ///< DEFAULT min radius of logarithmic radial grid in Multipole
                     GALPOT_RMAX=1.e3;   ///< DEFAULT max radius of logarithmic radial grid
@@ -50,19 +51,19 @@ static const double GALPOT_RMIN=1.e-4,  ///< DEFAULT min radius of logarithmic r
 /** simple exponential radial density profile without inner hole or wiggles */
 class DiskDensityRadialExp: public math::IFunction {
 public:
-    DiskDensityRadialExp(double _surfaceDensity, double _scaleLength): 
-        surfaceDensity(_surfaceDensity), scaleLength(_scaleLength) {};
+    DiskDensityRadialExp(double _surfaceDensity, double _scaleRadius): 
+        surfaceDensity(_surfaceDensity), scaleRadius(_scaleRadius) {};
 private:
-    const double surfaceDensity, scaleLength;
+    const double surfaceDensity, scaleRadius;
     /**  evaluate  f(R) and optionally its two derivatives, if these arguments are not NULL  */
     virtual void evalDeriv(double R, double* f=NULL, double* fprime=NULL, double* fpprime=NULL) const {
-        double val = surfaceDensity * exp(-R/scaleLength);
+        double val = surfaceDensity * exp(-R/scaleRadius);
         if(f)
             *f = val;
         if(fprime)
-            *fprime = -val/scaleLength;
+            *fprime = -val/scaleRadius;
         if(fpprime)
-            *fpprime = val/pow_2(scaleLength);
+            *fpprime = val/pow_2(scaleRadius);
     }
     virtual unsigned int numDerivs() const { return 2; }
 };
@@ -86,10 +87,11 @@ private:
         const double sr = params.modulationAmplitude ? params.modulationAmplitude*sin(Rrel) : 0;
         if(R==0 && params.innerCutoffRadius==0)
             R = 1e-100;  // avoid 0/0 indeterminacy
-        double val = params.surfaceDensity * exp(-params.innerCutoffRadius/R-Rrel+cr);
-        double fp  = params.innerCutoffRadius/(R*R)-(1+sr)/params.scaleRadius;
+        double val = params.surfaceDensity * exp(-params.innerCutoffRadius/R - Rrel + cr);
+        double fp  = params.innerCutoffRadius/(R*R) - (1+sr)/params.scaleRadius;
         if(fpprime)
-            *fpprime = val ? (fp*fp-2*params.innerCutoffRadius/(R*R*R)-cr/pow_2(params.scaleRadius))*val : 0;
+            *fpprime = val ? (fp*fp - 2*params.innerCutoffRadius/(R*R*R)
+                - cr/pow_2(params.scaleRadius)) * val : 0;  // if val==0, the bracket could be NaN
         if(fprime)
             *fprime  = val ? fp*val : 0;
         if(f) 
@@ -148,25 +150,25 @@ private:
 };
 
 /** helper routine to create an instance of radial density function */
-UPtrFunction createRadialDiskFnc(const DiskParam& params) {
+math::PtrFunction createRadialDiskFnc(const DiskParam& params) {
     if(params.scaleRadius<=0)
         throw std::invalid_argument("Disk scale radius cannot be <=0");
     if(params.innerCutoffRadius<0)
         throw std::invalid_argument("Disk inner cutoff radius cannot be <0");
     if(params.innerCutoffRadius==0 && params.modulationAmplitude==0)
-        return UPtrFunction(new DiskDensityRadialExp(params.surfaceDensity, params.scaleRadius));
+        return math::PtrFunction(new DiskDensityRadialExp(params.surfaceDensity, params.scaleRadius));
     else
-        return UPtrFunction(new DiskDensityRadialRichExp(params));
+        return math::PtrFunction(new DiskDensityRadialRichExp(params));
 }
 
 /** helper routine to create an instance of vertical density function */
-UPtrFunction createVerticalDiskFnc(const DiskParam& params) {
+math::PtrFunction createVerticalDiskFnc(const DiskParam& params) {
     if(params.scaleHeight>0)
-        return UPtrFunction(new DiskDensityVerticalExp(params.scaleHeight));
+        return math::PtrFunction(new DiskDensityVerticalExp(params.scaleHeight));
     if(params.scaleHeight<0)
-        return UPtrFunction(new DiskDensityVerticalIsothermal(-params.scaleHeight));
+        return math::PtrFunction(new DiskDensityVerticalIsothermal(-params.scaleHeight));
     else
-        return UPtrFunction(new DiskDensityVerticalThin());
+        return math::PtrFunction(new DiskDensityVerticalThin());
 }
 
 double DiskResidual::densityCyl(const coord::PosCyl &pos) const
@@ -177,6 +179,13 @@ double DiskResidual::densityCyl(const coord::PosCyl &pos) const
     radialFnc  ->evalDeriv(r, &f, &fp, &fpp);
     radialFnc  ->evalDeriv(pos.R, &F);
     return (F-f)*h - 2*fp*(H+pos.z*Hp)/r - fpp*H;
+}
+
+double DiskDensity::densityCyl(const coord::PosCyl &pos) const
+{
+    double h;
+    verticalFnc->evalDeriv(pos.z, NULL, NULL, &h);
+    return radialFnc->value(pos.R) * h;
 }
 
 double DiskAnsatz::densityCyl(const coord::PosCyl &pos) const
@@ -192,8 +201,9 @@ void DiskAnsatz::evalCyl(const coord::PosCyl &pos,
 {
     double r=hypot(pos.R, pos.z);
     double h, H, Hp, f, fp, fpp;
-    verticalFnc->evalDeriv(pos.z, &H, &Hp, &h);
-    radialFnc  ->evalDeriv(r, &f, &fp, &fpp);
+    bool deriv1 = deriv!=NULL || deriv2!=NULL;  // compute 1st derivative of f and H only if necessary
+    verticalFnc->evalDeriv(pos.z, &H, deriv1? &Hp : NULL, deriv2? &h : NULL);
+    radialFnc  ->evalDeriv(r,     &f, deriv1? &fp : NULL, deriv2? &fpp : NULL);
     f*=4*M_PI; fp*=4*M_PI; fpp*=4*M_PI;
     double Rr=pos.R/r, zr=pos.z/r;
     if(r==0) { Rr=0; zr=0; r=1e-100; }
@@ -253,52 +263,41 @@ double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
 //----- multipole potential -----//
 
 Multipole::Multipole(const BaseDensity& source_density,
-                     const double Rmin, const double Rmax,
-                     const int gridSizeR, const int numCoefsAngular)
+                     double Rmin, double Rmax,
+                     int gridSizeR, int numCoefsAngular)
 {
     if(gridSizeR<=2 || numCoefsAngular<0 || Rmin<=0 || Rmax<=Rmin)
         throw std::invalid_argument("Error in Multipole expansion: invalid grid parameters");
     if(!isAxisymmetric(source_density))
-        throw std::invalid_argument("Error in Multipole expansion: source density must be axially symmetric");
+        throw std::invalid_argument("Error in Multipole expansion: source density must be axisymmetric");
+    numCoefsAngular = std::min<int>(numCoefsAngular, MAX_NCOEFS_ANGULAR-1);
     const int numMultipoles = numCoefsAngular/2+1;   // number of multipoles (only even-l terms are used)
     const int gridSizeC     = 2*numCoefsAngular+1;   // number of grid points for theta in [0,pi/2]
 
     // set up radial grid
-    std::vector<double> gridR(gridSizeR), gridC(gridSizeC);
-    std::vector<double> r(gridSizeR);
-    const double
-        logRmin = log(Rmin),
-        logRmax = log(Rmax), 
-        dlr = (logRmax-logRmin)/double(gridSizeR-1);
-    for(int k=0; k<gridSizeR; k++) {
-        gridR[k] = k<gridSizeR-1? logRmin+dlr*k : logRmax;
-        r[k]     = exp(gridR[k]);
-    }
-#if 0
-    math::createNonuniformGrid(gridSizeR, Rmin, Rmax, false, r); 
-    for(int k=0; k<gridSizeR; k++)
-        gridR[k] = log(r[k]);
-#endif
+    std::vector<double> r = math::createExpGrid(gridSizeR, Rmin, Rmax);
     
-    // construct spherical-harmonic expansion of density
-    const DensitySphericalHarmonic* densh = NULL;
-    if(source_density.name() == DensitySphericalHarmonic::myName())   // use existing sph.-harm. expansion
-        densh = static_cast<const DensitySphericalHarmonic*>(&source_density);
-    else    // create new spherical-harmonic expansion with a higher density of grid points in radius
-        densh = new DensitySphericalHarmonic(gridSizeR*5, numCoefsAngular, source_density, Rmin, Rmax);
+    // check if the input density is of a spherical-harmonic type already...
+    bool useExistingSphHarm = source_density.name() == DensitySphericalHarmonic::myName();
+    // ...and construct a fresh spherical-harmonic expansion of density if it wasn't such.
+    PtrDensity mySphHarm(useExistingSphHarm ? NULL :
+        new DensitySphericalHarmonic(gridSizeR*2, numCoefsAngular, source_density, Rmin, Rmax));
+    // for convenience, this reference points to either the original or internally created SH density
+    const DensitySphericalHarmonic& densh = static_cast<const DensitySphericalHarmonic&>(
+        useExistingSphHarm ? source_density : *mySphHarm);
 
-    // accumulate the 'inner' (P1) and 'outer' (P2) parts of the potential at radial grid points:
-    // P1_l(r) = r^{-l-1} \int_0^r \rho_l(s) s^{l+2} ds,
-    // P2_l(r) = r^l \int_r^\infty \rho_l(s) s^{1-l} ds.
-    // For each l, we compute P1(r) by looping over sub-intervals from inside out,
-    // and P2(r) - from outside in. In doing so, we use the recurrent relation
-    // P1(r_{i+1}) r_{i+1}^{l+1} = r_i^{l+1} P1(r_i) + \int_{r_i}^{r_{i+1}} \rho_l(s) s^{l+2} ds,
-    // and a similar relation for P2. This is further rewritten so that the integration over 
+    // accumulate the 'inner' (Pint) and 'outer' (Pext) parts of the potential at radial grid points:
+    // Pint_l(r) = r^{-l-1} \int_0^r \rho_l(s) s^{l+2} ds,
+    // Pext_l(r) = r^l \int_r^\infty \rho_l(s) s^{1-l} ds.
+    // For each l, we compute Pint(r) by looping over sub-intervals from inside out,
+    // and Pext(r) - from outside in. In doing so, we use the recurrent relation
+    // Pint(r_{i+1}) r_{i+1}^{l+1} = r_i^{l+1} Pint(r_i) + \int_{r_i}^{r_{i+1}} \rho_l(s) s^{l+2} ds,
+    // and a similar relation for Pext. This is further rewritten so that the integration over 
     // density  \rho_l(s)  uses  (s/r_{i+1})^{l+2}  as the radius-dependent weight function -
     // this avoids over/underflows when both l and r are large or small.
-    // Finally, \Phi_l(r) is computed as -4\pi ( P1_l(r) + P2_l(r) ), and similarly its derivative.
+    // Finally, \Phi_l(r) is computed as -4\pi ( Pint_l(r) + Pext_l(r) ), and similarly its derivative.
     math::Matrix<double> Phil(gridSizeR, numMultipoles), dPhil(gridSizeR, numMultipoles);
-    std::vector<double>  P1(gridSizeR), P2(gridSizeR);
+    std::vector<double>  Pint(gridSizeR), Pext(gridSizeR);
     innerSlopes.assign(numMultipoles, 0);
     outerSlopes.assign(numMultipoles, 0);
     innerValues.assign(numMultipoles, 0);
@@ -306,28 +305,29 @@ Multipole::Multipole(const BaseDensity& source_density,
 
     for(int l=0; l<=numCoefsAngular; l+=2) {
         // inner part
-        P1[0] = densh->integrate(0, Rmin, l, l+2, Rmin) * Rmin;
+        Pint[0] = densh.integrate(0, Rmin, l, l+2, Rmin) * Rmin;
         for(int k=1; k<gridSizeR; k++) {
-            double s = densh->integrate(r[k-1], r[k], l, l+2, r[k]);
-            P1[k] = P1[k-1] * math::powInt(r[k-1]/r[k], l+1) + s * r[k];
+            double s = densh.integrate(r[k-1], r[k], l, l+2, r[k]);
+            Pint[k] = Pint[k-1] * math::powInt(r[k-1]/r[k], l+1) + s * r[k];
         }
 
         // outer part
-        P2[gridSizeR-1] = densh->integrate(Rmax, INFINITY, l, 1-l, Rmax) * Rmax;
-        if(!math::isFinite(P2[gridSizeR-1]))
-            P2[gridSizeR-1] = 0;
+        Pext[gridSizeR-1] = densh.integrate(Rmax, INFINITY, l, 1-l, Rmax) * Rmax;
+        if(!math::isFinite(Pext[gridSizeR-1]))
+            Pext[gridSizeR-1] = 0;
         for(int k=gridSizeR-2; k>=0; k--) {
-            double s = densh->integrate(r[k], r[k+1], l, 1-l, r[k]);
-            P2[k] = P2[k+1] * math::powInt(r[k]/r[k+1], l) + s * r[k];
+            double s = densh.integrate(r[k], r[k+1], l, 1-l, r[k]);
+            Pext[k] = Pext[k+1] * math::powInt(r[k]/r[k+1], l) + s * r[k];
         }
 
         // put together inner and outer parts to compute the potential and its radial derivative,
         // for each spherical-harmonic term
         for(int k=0; k<gridSizeR; k++) {
-            Phil (k, l/2) = -4*M_PI * (P1[k] + P2[k]);           // Phi_l
-            dPhil(k, l/2) =  4*M_PI * ( (l+1)*P1[k] - l*P2[k]);  // dPhi_l/dlogr
+            Phil (k, l/2) = -4*M_PI * (Pint[k] + Pext[k]);           // Phi_l
+            dPhil(k, l/2) =  4*M_PI * ( (l+1)*Pint[k] - l*Pext[k]);  // dPhi_l/dlogr
 #ifdef VERBOSE_REPORT
-            std::cout << l << '\t' << r[k] << '\t' << Phil(k,l/2) << '\t' << (4*M_PI*P1[k]) << '\t' << (4*M_PI*P2[k]) << '\n';
+            //std::cout << l << '\t' << r[k] << '\t' << Phil(k,l/2) << '\t' <<
+            //(4*M_PI*Pint[k]) << '\t' << (4*M_PI*Pext[k]) << '\n';
 #endif
         }
 
@@ -335,29 +335,40 @@ Multipole::Multipole(const BaseDensity& source_density,
         // used for extrapolating to large and small radii (beyond the grid definition region)
         if(l==0) {
             // determine the central value of potential
-            innerValues[0] = 4*M_PI * (densh->integrate(0, r[0], 0, 1) - P1[0]);
+            innerValues[0] = 4*M_PI * (densh.integrate(0, r[0], 0, 1) - Pint[0]);
             Phi0 = Phil(0, 0) - innerValues[0];   // innerValues[0] is Phi(rmin)-Phi(0)
             // if the central value is finite, we derive the value of inner density slope gamma
             // assuming that Phi(r) = Phi(0) + (Phi(rmin) - Phi(0)) * (r/rmin)^(2-gamma)
             if(math::isFinite(innerValues[0]) && innerValues[0]!=0)
                 innerSlopes[0] = dPhil(0, 0) / innerValues[0];
             else {
-                // otherwise we take the ratio between enclosed mass within rmin, given by P1(rmin),
+                // otherwise we take the ratio between enclosed mass within rmin, given by Pint(rmin),
                 // and the value of density at this radius, assuming that it varies as 
                 // rho(r) = rho(rmin) * (r/rmin)^(-gamma)  for r<rmin
-                innerSlopes[0] = densh->rho_l(Rmin, 0) * pow_2(Rmin) / P1.front() - 1.;
+                innerSlopes[0] = densh.rho_l(Rmin, 0) * pow_2(Rmin) / Pint.front() - 1.;
                 innerValues[0];
             }
             if(!math::isFinite(innerSlopes[0]) || innerSlopes[0] < -0.5)
                 innerSlopes[0] = 0;  // rather arbitrary..
 
             // determine the outer slope of density profile rho ~ r^-beta
-            double betaminustwo = densh->rho_l(Rmax, 0) * pow_2(Rmax) / P2.back();
-            if(!math::isFinite(betaminustwo) || betaminustwo<0.5 || fabs(betaminustwo-1.)<0.01)
+            double densRmax = densh.rho_l(Rmax, 0);
+            double betaminustwo = densRmax * pow_2(Rmax) / Pext.back();
+            if(!math::isFinite(betaminustwo) || fabs(Pext.back()) < fabs(densRmax) * pow_2(Rmax) * 0.01) {
+                betaminustwo = 0;    // discard all remaining density outside Rmax,
+                Pext.back() = 0;       // if the density profile seems to be too steeply falling
+                densRmax = 0;
+            } else if(betaminustwo<0.2 || fabs(betaminustwo-1.)<0.01)
                 betaminustwo = 1.1;  // beta=3 would need a different treatment of the asymptotic law
-            outerValueMain = -4*M_PI * (P1.back() + P2.back() * betaminustwo / (betaminustwo-1));
-            outerValues[0] =  4*M_PI * P2.back() / (betaminustwo-1);
+            //!!! FIXME: leads to crazy results if density is negative at Rmax and falling off too slowly
+            outerValueMain = -4*M_PI * (Pint.back() + Pext.back() * betaminustwo / (betaminustwo-1));
+            outerValues[0] =  4*M_PI * Pext.back() / (betaminustwo-1);
             outerSlopes[0] = -betaminustwo;
+#ifdef VERBOSE_REPORT
+            std::cout << "Multipole: inner density profile "
+                "rho=" << densh.rho_l(Rmin, 0) << "*r^" << (innerSlopes[0]-2) <<
+                ", outer rho=" << densRmax << "*r^" << (-betaminustwo-2) << "\n";
+#endif
         } else {
             innerValues[l/2] = Phil(0, l/2);
             if(Phil(0, l/2) != 0)
@@ -368,13 +379,13 @@ Multipole::Multipole(const BaseDensity& source_density,
         }
     }
 
-    if(source_density.name() != DensitySphericalHarmonic::myName())
-        delete densh;   // destroy temporarily created spherical-harmonic expansion of the density
-
     // Put potential and its derivatives on a 2D grid in log[r] & cos[theta]
     //
     // set linear grid in theta, i.e. non-uniform in cos(theta), with denser spacing close to z-axis
     //
+    std::vector<double> gridR(gridSizeR), gridC(gridSizeC);
+    for(int i=0; i<gridSizeR; i++)
+        gridR[i] = log(r[i]);
     for(int i=0; i<gridSizeC-1; i++) 
         gridC[i] = sin(M_PI_2 * i / (gridSizeC-1));
     gridC[gridSizeC-1] = 1.0;
@@ -426,7 +437,7 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
     double Phi=0, PhiR=0, PhiC=0, PhiRR=0, PhiRC=0, PhiCC=0;
 
     if(logr > logRmax) {  // extrapolation at large radii
-        double Pl[GALPOT_LMAX+1], dPl[GALPOT_LMAX+1];
+        double Pl[MAX_NCOEFS_ANGULAR], dPl[MAX_NCOEFS_ANGULAR];
         math::legendrePolyArray(outerValues.size()*2-2, 0, ct, Pl, dPl);
         // special treatment for l==0: we assume that the density falls off
         // as a power law in radius, and potential then behaves as 
@@ -509,11 +520,20 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
     // keep track of length scales of all components
     double lengthMin=1e100, lengthMax=0;
     
-    // first create a set of density components for the multipole
-    // (all spheroids and residual part of disks)
+    // assemble the set of density components for the multipole
+    // (all spheroids and residual part of disks),
+    // and the complementary set of potential components
+    // (the flattened part of disks, eventually to be joined by the multipole itself)
     std::vector<PtrDensity> componentsDens;
+    std::vector<PtrPotential> componentsPot;
     for(unsigned int i=0; i<DiskParams.size(); i++) {
+        // the two 1d functions shared between DiskAnsatz and DiskResidual
+        math::PtrFunction radialFnc(createRadialDiskFnc(DiskParams[i]));
+        math::PtrFunction verticalFnc(createVerticalDiskFnc(DiskParams[i]));
+        // the two parts of disk profile
+        componentsPot.push_back(PtrPotential(new DiskAnsatz(DiskParams[i])));
         componentsDens.push_back(PtrDensity(new DiskResidual(DiskParams[i])));
+        // keep track of characteristic lengths
         lengthMin = fmin(lengthMin, DiskParams[i].scaleRadius);
         lengthMax = fmax(lengthMax, DiskParams[i].scaleRadius);
         if(DiskParams[i].innerCutoffRadius>0)
@@ -534,16 +554,11 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
     // create multipole potential from this combined density
     double rmin = GALPOT_RMIN * lengthMin;
     double rmax = GALPOT_RMAX * lengthMax;
-    PtrPotential mult(new Multipole(dens, rmin, rmax, GALPOT_NRAD, GALPOT_LMAX));
+    componentsPot.push_back(PtrPotential(
+        new Multipole(dens, rmin, rmax, GALPOT_NRAD, GALPOT_LMAX)));
 
-    // now create a composite potential from the multipole and non-residual part of disk potential
-    std::vector<PtrPotential> componentsPot;
-    componentsPot.push_back(mult);
-    // note that we create a different class of objects from the `DiskResidual` class above
-    for(unsigned int i=0; i<DiskParams.size(); i++) {
-        componentsPot.push_back(PtrPotential(new DiskAnsatz(DiskParams[i])));
-    }
-    // this array should be passed to the constructor of CompositeCyl potential;
+    // the array of components to be passed to the constructor of CompositeCyl potential:
+    // the multipole and the non-residual parts of disk potential
     return componentsPot;
 }
 

@@ -109,62 +109,13 @@ public:
         double x1 = x[0]*A10+x[1]*A11+x[2]*A12;
         double x2 = x[0]*A20+x[1]*A21+x[2]*A22;
         val[0] = pow_2(sqrt(x0*x0+x1*x1)-Rout)+x2*x2 <= Rin*Rin ? 1.0+x0*0.2 : 0.0;
+#ifdef _OPENMP
 #pragma omp atomic
+#endif
         ++numEval;
     }
     virtual unsigned int numVars() const { return 3; }
     virtual unsigned int numValues() const { return 1; }
-};
-
-class ProgressReport: public math::SamplingProgressReportCallback {
-    unsigned int ndim;               ///< dimensions of the problem
-    unsigned int numSamplesReported; ///< keep track of the number of reported overweight samples
-    unsigned int numCellsReported;   ///< keep track of the number of refined cells
-public:
-    ProgressReport(unsigned int n): ndim(n), numSamplesReported(0), numCellsReported(0) {};
-        virtual void generalMessage(const char* msg)
-    {
-        std::cout << msg << std::endl;
-    }
-    virtual void reportBins(const std::vector<double> binBoundaries[])
-    {
-        for(unsigned int d=0; d<ndim; d++) {
-            std::cout << "bins for D=" << d << ':';
-            for(unsigned int k=0; k<binBoundaries[d].size(); k++)
-                std::cout << ' ' << binBoundaries[d][k];
-            std::cout << std::endl;
-        }
-    }
-    virtual void reportIteration(int numIter, 
-        double integralValue, double integralError, unsigned int numCallsFnc)
-    {
-        std::cout << "Iteration #" << numIter << ": value= " << integralValue <<
-            " +- " << integralError << " using " << numCallsFnc << " function calls, numEval=" << numEval;
-        if(numSamplesReported>0 || numCellsReported>0)
-            std::cout << " and refining " << numCellsReported <<
-                " cells because of " << numSamplesReported << " overweight samples";
-        std::cout << std::endl;
-        numSamplesReported = numCellsReported = 0;
-    }
-    virtual void reportOverweightSample(const double sampleCoords[], double refineFactor)
-    {
-        if(++numSamplesReported <= 4) {
-            std::cout << "f/favg= " << refineFactor << " at";
-            for(unsigned int d=0; d<ndim; d++)
-                std::cout << ' ' << sampleCoords[d];
-            std::cout << std::endl;
-        }
-    }
-    virtual void reportRefinedCell(const double lowerCorner[], const double upperCorner[],
-        double refineFactor)
-    {
-        if(++numCellsReported <= 4) {
-            std::cout << "Refining cell centered at";
-            for(unsigned int d=0; d<ndim; d++)
-                std::cout << " [" << lowerCorner[d] << ':' << upperCorner[d] << ']';
-            std::cout << " by factor " << refineFactor << std::endl;
-        }
-    }
 };
 
 int main()
@@ -291,8 +242,7 @@ int main()
 
     numEval=0;
     math::Matrix<double> points;
-    ProgressReport callback(fnc8.numVars());
-    sampleNdim(fnc8, ymin, ymax, 100000, points, NULL, &result, &error, &callback);
+    sampleNdim(fnc8, ymin, ymax, 100000, points, NULL, &result, &error);
     std::cout << "Monte Carlo Volume of a 3d torus = "<<result<<" +- "<<error<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
     ok &= fabs(result-exact)<error*2;  // loose tolerance on MC error estimate
     if(0) {

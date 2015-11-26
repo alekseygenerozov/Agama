@@ -421,3 +421,12 @@ private:
 
 ///@}
 }  // namespace potential
+
+namespace math{
+/// pointer to a one-dimensional function
+#ifdef HAVE_CXX11
+typedef std::shared_ptr<const IFunction> PtrFunction;
+#else
+typedef std::tr1::shared_ptr<const IFunction> PtrFunction;
+#endif
+}

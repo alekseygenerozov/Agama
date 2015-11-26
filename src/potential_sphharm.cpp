@@ -6,7 +6,6 @@
 #include <cassert>
 #include <stdexcept>
 
-//#define VERBOSE_REPORT
 #ifdef VERBOSE_REPORT
 #include <iostream>
 #endif
@@ -413,10 +412,6 @@ private:
 
 void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin, double Rmax)
 {
-    std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);  // SHE coefficients to pass to initspline routine
-    std::vector<double> radii(Ncoefs_radial+1);  // true radii to pass to initspline routine
-    for(unsigned int i=0; i<=Ncoefs_radial; i++)
-        coefsArray[i].assign(pow_2(1+Ncoefs_angular), 0);
     // find inner/outermost radius if they were not provided
     if(Rmin<0 || Rmax<0 || (Rmax>0 && Rmax<=Rmin*Ncoefs_radial))
         throw std::invalid_argument("SplineExp: invalid choice of min/max grid radii");
@@ -433,7 +428,10 @@ void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin,
         double epsin = 5.0/pow(Ncoefs_radial*1.0,3.0);
         Rmin  = getRadiusByMass(srcdensity, totalmass*epsin*0.1);
     }
-    math::createNonuniformGrid(Ncoefs_radial+1, Rmin, Rmax, true, radii); 
+    std::vector<double> radii = math::createNonuniformGrid(Ncoefs_radial+1, Rmin, Rmax, true);
+    std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);  // SHE coefficients to pass to initspline routine
+    for(unsigned int i=0; i<=Ncoefs_radial; i++)
+        coefsArray[i].assign(pow_2(1+Ncoefs_angular), 0);
     const double rscale = getRadiusByMass(srcdensity, 0.5*totalmass);  // scaling factor for integration in radius
     std::vector<double> coefsInner, coefsOuter;
     const double SPLINE_MIN_RADIUS = 1e-10;
@@ -608,13 +606,6 @@ void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosS
     std::vector< std::vector<double> > pointCoefs;
     computeCoefsFromPoints(points, pointRadii, pointCoefs);
 
-    // radii of grid nodes to pass to initspline routine
-    std::vector<double> radii(Ncoefs_radial+1);
-    // SHE coefficients to pass to initspline routine
-    std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);
-    for(size_t i=0; i<=Ncoefs_radial; i++)
-        coefsArray[i].assign(pow_2(Ncoefs_angular+1), 0);
-
     // choose the radial grid parameters if they were not provided:
     // innermost cell contains minBinMass and outermost radial node should encompass cutoffMass.
     // spline definition region extends up to outerRadius which is 
@@ -631,7 +622,8 @@ void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosS
         innerBinRadius = pointRadii[npointsInnerGrid];
     if(outerBinRadius == 0 || outerBinRadius > pointRadii.back())
         outerBinRadius = pointRadii[npointsOuterGrid];
-    math::createNonuniformGrid(Ncoefs_radial+1, innerBinRadius, outerBinRadius, true, radii);
+    std::vector<double> radii =     // radii of grid nodes to pass to initspline routine
+        math::createNonuniformGrid(Ncoefs_radial+1, innerBinRadius, outerBinRadius, true);
 
     // find index of the inner- and outermost points which are used in b-spline fitting
     size_t npointsInnerSpline = 0;
@@ -661,6 +653,11 @@ void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosS
     // transformed x- and y- values of regression spline knots
     std::vector<double> scaledKnotRadii(numBSplineKnots), scaledSplineValues;
 
+    // SHE coefficients to pass to initspline routine
+    std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);
+    for(size_t i=0; i<=Ncoefs_radial; i++)
+        coefsArray[i].assign(pow_2(Ncoefs_angular+1), 0);
+    
     // open block so that temp variable "appr" will be destroyed upon closing this block
     {
         // first construct spline for zero-order term (radial dependence)
@@ -906,7 +903,8 @@ void SplineExp::initSpline(const std::vector<double> &_radii, const std::vector<
 #endif
 }
 
-void SplineExp::getCoefs(std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const
+void SplineExp::getCoefs(
+    std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const
 {
     radii.resize(Ncoefs_radial+1);
     for(size_t i=0; i<=Ncoefs_radial; i++)
@@ -1043,6 +1041,11 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
     const BaseDensity& srcDensity, double rmin, double rmax):
     BaseDensity(), SphericalHarmonicCoefSet(numCoefsAngular)
 {
+    if(numCoefsAngular%2 != 0)
+        throw std::invalid_argument("DensitySphericalHarmonic: numCoefsAngular must be even");
+    if(!isAxisymmetric(srcDensity))
+        throw std::invalid_argument("DensitySphericalHarmonic is only apllicable to axisymmetric models");
+
     // find inner/outermost radius if they were not provided
     if(rmin<0 || rmax<0 || (rmax>0 && rmax<=rmin*numCoefsRadial))
         throw std::invalid_argument("DensitySphericalHarmonic: invalid choice of min/max grid radii");
@@ -1060,18 +1063,9 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
         double epsIn = 5.0/pow(numCoefsRadial*1.0,3.0);
         rmin  = getRadiusByMass(srcDensity, totMass*epsIn*0.1);
     }
-    
+
     //  create grid in radius
-    std::vector<double> gridRadii;
-#if 0
-    math::createNonuniformGrid(numCoefsRadial, rmin, rmax, false, gridRadii);
-#else
-    gridRadii.assign(numCoefsRadial, rmax);
-    const double logrmin = log(rmin), dlog = (log(rmax)-logrmin)/(numCoefsRadial-1);
-    for(unsigned int indR=0; indR<numCoefsRadial-1; indR++) {
-        gridRadii[indR] = exp(logrmin+dlog*indR);
-    }
-#endif
+    std::vector<double> gridRadii = math::createExpGrid(numCoefsRadial, rmin, rmax);
 
     //  prepare table for integration in angle, using Gauss-Legendre quadrature for cos(theta) on [-1..1]
     unsigned int numIntPoints = numCoefsAngular+1;
@@ -1081,7 +1075,7 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
         sintheta[indC] = sqrt(1. - pow_2(costheta[indC]));
 
     // will need integrate over half of the interval only, 
-    // taking into account (alleged) reflection symmetry z -> -z;
+    // taking into account the (required, in this version) reflection symmetry z -> -z;
     // if the number of points is odd, the central point at z=0 should get half of the weight
     if(numIntPoints%2 == 1) {
         weights[numIntPoints/2] /= 2;
@@ -1094,7 +1088,7 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
     int numPoints = numIntPoints * numCoefsRadial;
     std::vector<double> densityValues(numPoints);
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic,16)
+#pragma omp parallel for schedule(dynamic)
 #endif
     for(int n=0; n<numPoints; n++) {
         unsigned int indR = n % numCoefsRadial;  // index in radial grid
@@ -1104,13 +1098,10 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
     }
 
     // 2nd step: transform these values to spherical-harmonic expansion coefficients
-    // prepare arrays for integrals of density times various Legendre polynomials
     setSymmetry(srcDensity.symmetry());  // assign the range of l's
     std::vector< std::vector<double> > rhol(lmax+1);
     for(int l=0; l<=lmax; l+=lstep)
-        rhol[l].assign(numCoefsRadial, 0);
-    
-    // prepare the array of Legendre polynomials
+        rhol[l].assign(numCoefsRadial, 0);    
     std::vector<double> legPoly(lmax+1);
     for(unsigned int indC=0; indC<numIntPoints; indC++) {
         math::legendrePolyArray(lmax, 0, costheta[indC], &legPoly.front());
@@ -1119,14 +1110,36 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
                 rhol[l][indR] += densityValues[indC*numCoefsRadial+indR] * legPoly[l];
         }
     }
-    
+
+    // finish the initialization by establishing the splines
+    initSpline(gridRadii, rhol);
+}
+
+DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gridRadii,
+    const std::vector< std::vector<double> > &coefs) :
+    BaseDensity(), SphericalHarmonicCoefSet(coefs.size()>0 ? coefs.size()-1 : 0)
+{
+    if(coefs.empty() || gridRadii.size()<2)
+        throw std::invalid_argument("DensitySphericalHarmonic: input arrays are empty");
+    setSymmetry(ST_AXISYMMETRIC);  // assign the range of l's
+    for(unsigned int n=0; n<coefs.size(); n++)
+        if(coefs[n].size() != gridRadii.size())
+            throw std::invalid_argument("DensitySphericalHarmonic: incorrect size of coefficients array");
+    initSpline(gridRadii, coefs);
+}
+
+void DensitySphericalHarmonic::initSpline(const std::vector<double> &gridRadii,
+    const std::vector< std::vector<double> > &rhol)
+{
+    unsigned int numCoefsRadial = gridRadii.size();
     //  establish splines for rho_l(r)
     splines.resize(lmax+1);
     // We also check (and correct if necessary) the logarithmic slopes of multipole components
     // at the innermost and outermost grid radii, to ensure correctly behaving extrapolation.
     // slope = (1/rho) d(rho)/d(logr), is usually negative (at least at large radii);
     // put constraints on min inner and max outer slopes:
-    double deriv_inner_l0=-2.8, deriv_outer_l0=-2.2;
+    const double min_deriv_inner=-2.8, max_deriv_outer=-2.2;
+    const double max_deriv_inner=20.0, min_deriv_outer=-20.;
     // Note that the inner slope less than -2 leads to a divergent potential at origin,
     // but the enclosed mass is still finite if slope is greater than -3;
     // similarly, outer slope greater than -3 leads to a divergent total mass,
@@ -1136,16 +1149,34 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
     // The l>0 components must not have steeper/shallower slopes than the l=0 component,
     // thus we store the slopes for the l=0 component (ensuring that they do not exceed
     // the above defined limits), and then apply the same constraints on other components.
+    double deriv_inner_l0 = min_deriv_inner, deriv_outer_l0 = max_deriv_outer;
     for(int l=0; l<=lmax; l+=lstep) {
         //  determine asymptotic slopes of density profile at large and small r
         double deriv_inner = log(rhol[l][1] / rhol[l][0]) / log(gridRadii[1] / gridRadii[0]);
         double deriv_outer = log(rhol[l][numCoefsRadial-1] / rhol[l][numCoefsRadial-2]) /
             log(gridRadii[numCoefsRadial-1] / gridRadii[numCoefsRadial-2]);
+        if( deriv_inner > max_deriv_inner)
+            deriv_inner = max_deriv_inner;
+        if( deriv_outer < min_deriv_outer)
+            deriv_outer = min_deriv_outer;
         if(!math::isFinite(deriv_inner) || deriv_inner < deriv_inner_l0)
             deriv_inner = deriv_inner_l0;
         if(!math::isFinite(deriv_outer) || deriv_outer > deriv_outer_l0)
             deriv_outer = deriv_outer_l0;
+        if(rhol[l].front() == 0)
+            deriv_inner = 0;
+        if(rhol[l].back() == 0)
+            deriv_outer = 0;
         if(l==0) {
+            // further ensure that if the innermost or outermost density values are negative,
+            // then the extrapolated slopes are forced to correspond to finite models
+            // in the sense described above, i.e. have a more conservative limit
+            // (DUBIOUS WHETHER IT's USEFUL AT ALL!)
+            if(rhol[0].front()<0)
+                deriv_inner = fmax(deriv_inner, -1.8);
+            if(rhol[0].back()<0)
+                deriv_outer = fmin(deriv_outer, -3.2);
+            // store the slopes for l=0 components, to be used as bounds for other l
             deriv_inner_l0 = deriv_inner;
             deriv_outer_l0 = deriv_outer;
         }
@@ -1156,6 +1187,19 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
             deriv_inner / gridRadii.front() * rhol[l].front(),
             deriv_outer / gridRadii.back()  * rhol[l].back());
     }
+}
+
+void DensitySphericalHarmonic::getCoefs(
+    std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const
+{
+    radii = splines[0].xvalues();
+    coefsArray.resize(lmax+1);
+    for(unsigned int l=0; l<=lmax; l++) {
+        coefsArray[l].assign(radii.size(), 0);
+        if(!splines[l].isEmpty())
+            for(unsigned int i=0; i<radii.size(); i++)
+                coefsArray[l][i] = splines[l](radii[i]);
+    }        
 }
 
 double DensitySphericalHarmonic::innerSlope(int l) const

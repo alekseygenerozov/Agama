@@ -6,6 +6,10 @@
 #include <stdexcept>
 #include <cmath>
 
+#ifdef VERBOSE_REPORT
+#include <iostream>
+#endif
+
 namespace actions{
 
 using potential::BasePotential;
@@ -206,6 +210,8 @@ static void findPlanarOrbitExtentSmallE(const BasePotential& poten, double Phi0,
     }
 }
 
+// FIXME:  this seems to be the most fragile part of algorithm -- 
+// suffers a lot from numerical roundoff errors and weird behaviour of potential...
 void findPlanarOrbitExtent(const BasePotential& poten, double E, double Lz, 
     double& Rmin, double& Rmax, double* Jr)
 {
@@ -220,13 +226,19 @@ void findPlanarOrbitExtent(const BasePotential& poten, double E, double Lz,
     OrbitSizeFunction fnc(poten, E, Lz);
     // first guess for the radius that should lie between Rmin and Rmax
     double Rinit = R_from_Lz(poten, Lz);
-    if(!(Rinit>=0))  // could be NaN or inf, although it's a really bad luck
+    if(!(Rinit>=0)) { // could be NaN or inf, although it's a really bad luck
+#ifdef VERBOSE_REPORT
+        std::cout << "Cannot determine R(Lz="<<Lz<<") for E="<<E<<" (with Phi(0)="<<Phi0<<")\n";
+        for(double r=1e-10; r<1e10; r*=1.2)
+            std::cout << r << '\t' << v_circ(poten, r) << '\n';
+#endif
         throw std::runtime_error("Error in findPlanarOrbitExtent: cannot determine R(Lz)");
+    }
     // we make sure that f(R)>=0, since otherwise we cannot initiate root-finding
     math::PointNeighborhood nh(fnc, Rinit);
     double dR_to_zero = nh.dxToNearestRoot();
     int nIter = 0;
-    while(nh.f0<0 && nIter<4) {       // safety measure to avoid roundoff errors
+    while(nh.f0<0 && nIter<4) {        // safety measure to avoid roundoff errors
         if(Rinit+dR_to_zero == Rinit)  // delta-step too small
             Rinit *= (1 + 1e-15*math::sign(dR_to_zero));
         else if(Rinit+dR_to_zero<0)    // delta-step negative and too large
@@ -239,8 +251,14 @@ void findPlanarOrbitExtent(const BasePotential& poten, double E, double Lz,
         dR_to_zero = nh.dxToNearestRoot();
         nIter++;
     }
-    if(nh.f0<0)
+    if(nh.f0<0) {
+#ifdef VERBOSE_REPORT
+        std::cout << "Cannot determine Rinit for Lz="<<Lz<<", E="<<E<<" (with Phi(0)="<<Phi0<<")"
+            ": initial guess="<<R_from_Lz(poten, Lz)<<
+            ", current="<<Rinit<<" after "<<nIter<<" adjustment steps\n";
+#endif
         throw std::runtime_error("Error in findPlanarOrbitExtent: E and Lz have incompatible values");
+    }
     Rmin = Rmax = Rinit;
     double maxPeri = Rinit, minApo = Rinit;    // endpoints of interval for locating peri/apocenter radii
     if(fabs(dR_to_zero) < Rinit*ACCURACY_RMINMAX) {    // we are already near peri- or apocenter radius
@@ -453,8 +471,12 @@ double estimateInterfocalDistanceShellOrbit(
     double Rthin = math::findRoot(fnc, Rmin, Rmax, ACCURACY_RTHIN);
     if(R!=NULL)
         *R=Rthin;
-    if(Rthin!=Rthin || traj.size()==0)
+    if(!math::isFinite(Rthin) || traj.size()==0) {
+#ifdef VERBOSE_REPORT
+        std::cout << "Could not find a thin orbit for E="<<E<<", Lz="<<Lz<<" - returning "<<Rmin<<"\n";
+#endif
         return Rmin;  // anything
+    }
     // now find the best-fit value of delta for this orbit
     return fitInterfocalDistanceShellOrbit(traj);
 }

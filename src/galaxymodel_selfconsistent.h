@@ -36,24 +36,22 @@ an updated potential;
 #include "potential_base.h"
 #include "actions_base.h"
 #include "df_base.h"
-#include "potential_galpot.h"
+#include <vector>
+
+// forward declaration
+namespace potential{ struct DiskParam; }
 
 namespace galaxymodel{
 
 /** Description of a single component of the total model.
-    It may provide the density profile, to be used in the multipole expansion,
-    or a potential to be added directly to the total potential, or both.
-    In the latter case, the overall density profile consists of two parts,
-    one with a known potential (which may be strongly flattened),
-    and the other with density that is not strongly flattened and can be efficiently
-    represented with a spherical-harmonic expansion.
-    This combination is primarily suited for disk-like components.
+    It may provide the density profile, to be used in the multipole or CylSpline
+    expansion, or a potential to be added directly to the total potential, or both.
     In case that this component has a DF, its density and potential may be recomputed
     with the `update` method, using the given total potential and its action finder.
 */
 class BaseComponent {
 public:
-    BaseComponent() {};
+    BaseComponent(bool _isDensityDisklike) : isDensityDisklike(_isDensityDisklike)  {};
     virtual ~BaseComponent() {};
 
     /** recalculate the density profile (and possibly the additional potential)
@@ -73,62 +71,63 @@ public:
         the total potential, or NULL if not applicable.
     */
     virtual potential::PtrPotential getPotential() const = 0;
-
+    
+    /** in case the component has an associated density profile, it may be used
+        in construction of either multipole (spherical-harmonic) potential expansion,
+        or a 'CylSpline' expansion of potential in the meridional plane.
+        The former is more suitable for spheroidal and the latter for disk-like components.
+    */
+    const bool isDensityDisklike;
 private:
     // do not allow to copy or assign objects of this type
     BaseComponent(const BaseComponent& src);
     BaseComponent& operator= (const BaseComponent& src);
 };
 
+
 /** A specialization for the component that provides static (unchanging) density and/or
     potential profiles. For instance, a disk-like structure may be described by
     a combination of DiskAnsatz potential and DiskResidual density profile. */
 class ComponentStatic: public BaseComponent {
 public:
-    ComponentStatic(const potential::PtrDensity& dens) : density(dens), potential() {}
-    ComponentStatic(const potential::PtrPotential& pot) : density(), potential(pot) {}
-    ComponentStatic(const potential::PtrDensity& dens, const potential::PtrPotential& pot) :
-        density(dens), potential(pot) {}
+    ComponentStatic(const potential::PtrDensity& dens, bool _isDensityDisklike) :
+        BaseComponent(_isDensityDisklike), density(dens), potential() {}
+    ComponentStatic(const potential::PtrPotential& pot) :
+        BaseComponent(false), density(), potential(pot) {}
+    ComponentStatic(const potential::PtrDensity& dens, bool _isDensityDisklike,
+        const potential::PtrPotential& pot) :
+        BaseComponent(_isDensityDisklike), density(dens), potential(pot) {}
     /** update does nothing */
     virtual void update(const potential::BasePotential&, const actions::BaseActionFinder&) {}
     virtual potential::PtrDensity   getDensity()   const { return density; }
     virtual potential::PtrPotential getPotential() const { return potential; }
 private:
-    potential::PtrDensity density;
-    potential::PtrPotential potential;
+    potential::PtrDensity density;     ///< shared pointer to the input density, if provided
+    potential::PtrPotential potential; ///< shared pointer to the input potential, if exists
 };
 
-/** A specialization for the component with the density profile computed from a DF,
-    using a spherical-harmonic expansion */
-class ComponentWithDF: public BaseComponent {
-public:
-    /** create a component with the given distribution function and parameters of density profile.
-        \param[in]  df -- shared pointer to the distribution function of this component
-                    (the DF remains constant during the iterative procedure).
-        \param[in]  rmin,rmax -- determine the extent of (logarithmic) radial grid
-                    used to compute the density profile of this component.
-        \param[in]  numCoefsRadial -- number of grid points in this radial grid.
-        \param[in]  numCoefsAngular -- max order of spherical-harmonic expansion (l_max).
-        \param[in]  initDensity -- the initial guess for the density profile of this component;
-                    if it is not provided (i.e. is an empty pointer), then a plausible guess
-                    is constructed internally.
-        \param[in]  relError -- relative accuracy of density computation.
-        \param[in]  maxNumEval -- max # of DF evaluations per single density computation.
-    */
-    ComponentWithDF(
-        const df::PtrDistributionFunction& df,
-        double rmin, double rmax,
-        unsigned int numCoefsRadial, unsigned int numCoefsAngular,
-        const potential::PtrDensity& initDensity=potential::PtrDensity(),
-        double relError=1e-3,
-        unsigned int maxNumEval=1e5);
-    
-    /** reinitialize the density profile by recomputing the values of density at a set of 
-        grid points in the meridional plane, and then constructing a spherical-harmonic
-        density expansion from these values.
-    */
-    virtual void update(const potential::BasePotential& pot, const actions::BaseActionFinder& af);
 
+/** A (partial) specialization for the component with the density profile computed from a DF,
+    using either a spherical-harmonic expansion or a 2d interpolation in meridional plane
+    (detailed in two derived classes).
+    Since the density computation from DF is very expensive, the density object provided by
+    this component does not directly represent this interface. 
+    Instead, during the update procedure, the DF-integrated density is computed at a moderate
+    number of points (<~ 10^3) and used in creating an intermediate representation, that in turn
+    provides the density everywhere in space by suitably interpolating from the computed values.
+    The two derived classes differ in the way this intermediate representation is constructed:
+    either as a spherical-harmonic expansion, or as 2d interpolation in R-z plane.
+*/
+class BaseComponentWithDF: public BaseComponent {
+public:
+    /** create a component with the given distribution function
+        (the DF remains constant during the iterative procedure) */
+    BaseComponentWithDF(const df::PtrDistributionFunction& df,
+        const potential::PtrDensity& initDensity, bool _isDensityDisklike,
+        double _relError, unsigned int _maxNumEval) :
+    BaseComponent(_isDensityDisklike), distrFunc(df), density(initDensity),
+    relError(_relError), maxNumEval(_maxNumEval) {}
+    
     /** return the pointer to the internal density profile */
     virtual potential::PtrDensity   getDensity()   const { return density; }
 
@@ -141,11 +140,6 @@ protected:
     
     /// spherical-harmonic expansion of density profile of this component
     potential::PtrDensity density;
-    
-    /// definition of grid for computing the density profile:
-    const double rmin, rmax;             ///< range of radii for the logarithmic grid
-    const unsigned int numCoefsRadial;   ///< number of grid points in radius
-    const unsigned int numCoefsAngular;  ///< maximum order of angular-harmonic expansion (l_max)
 
     /// Parameters controlling the accuracy of density computation:
     /// required relative error in density
@@ -155,6 +149,74 @@ protected:
     const unsigned int maxNumEval;
 };
 
+
+/** Specialization of a component with DF and spheroidal density profile,
+    which will be represented by a spherical-harmonic expansion */
+class ComponentWithSpheroidalDF: public BaseComponentWithDF {
+public:
+    /** construct a component with given DF and parameters of spherical-harmonic expansion
+        for representing its density profile.
+        \param[in]  df -- shared pointer to the distribution function of this component.
+        \param[in]  initDensity -- the initial guess for the density profile of this component;
+                    if hard to guess, one may start e.g. with a simple Plummer sphere with
+                    correct total mass and a reasonable scale radius, but it doesn't matter much.
+        \param[in]  rmin,rmax -- determine the extent of (logarithmic) radial grid
+                    used to compute the density profile of this component.
+        \param[in]  numCoefsRadial -- number of grid points in this radial grid.
+        \param[in]  numCoefsAngular -- max order of spherical-harmonic expansion (l_max).
+        \param[in]  relError -- relative accuracy of density computation.
+        \param[in]  maxNumEval -- max # of DF evaluations per single density computation.
+    */
+    ComponentWithSpheroidalDF(const df::PtrDistributionFunction& df,
+        const potential::PtrDensity& initDensity,
+        double rmin, double rmax, unsigned int numCoefsRadial, unsigned int numCoefsAngular,
+        double relError=1e-3, unsigned int maxNumEval=1e5);
+
+    /** reinitialize the density profile by recomputing the values of density at a set of 
+        grid points in the meridional plane, and then constructing a spherical-harmonic
+        density expansion from these values.
+    */
+    virtual void update(const potential::BasePotential& pot, const actions::BaseActionFinder& af);
+    
+private:
+    /// definition of grid for computing the density profile:
+    const double rmin, rmax;             ///< range of radii for the logarithmic grid
+    const unsigned int numCoefsRadial;   ///< number of grid points in radius
+    const unsigned int numCoefsAngular;  ///< maximum order of angular-harmonic expansion (l_max)
+};
+
+
+/** Specialization of a component with DF and flattened density profile,
+    which will be represented using 2d interpolation in the meridional plane */
+class ComponentWithDisklikeDF: public BaseComponentWithDF {
+public:
+    /** create the component with the given DF and parameters of the grid for representing
+        the density in the meridional plane.
+        \param[in]  df -- shared pointer to the distribution function of this component.
+        \param[in]  initDensity -- the initial guess for the density profile of this component.
+        \param[in]  gridR -- grid in cylindrical radius defining the R-coordinate of points
+                    at which density is computed. 0th element must be at R=0, and the grid
+                    should cover the range in which the density is presumed to be non-negligible.
+                    A suitable grid may be constructed by `math::createNonuniformGrid`.
+        \param[in]  gridz -- grid in vertical direction, with the same requirements as gridR.
+        \param[in]  relError -- relative accuracy in density computation;
+        \param[in]  maxNumEval -- maximum # of DF evaluations for a single density value.
+    */
+    ComponentWithDisklikeDF(const df::PtrDistributionFunction& df,
+        const potential::PtrDensity& initDensity,
+        const std::vector<double> _gridR, const std::vector<double> _gridz,
+        double relError=1e-3, unsigned int maxNumEval=1e5);
+
+    /** recompute both the analytic disk potential and the spherical-harmonic expansion
+     of the residual density profile. */
+    virtual void update(const potential::BasePotential& pot, const actions::BaseActionFinder& af);
+private:
+    /// coordinates of grid nodes for computing the density profile
+    std::vector<double> gridR, gridz;
+};
+
+
+#if 0
 /** A further modification of a component specified by a DF, suitable for disk-like profiles.
     It provides two contributions to the total model: first, an analytic potential of
     of a strongly flattened density distribution (DiskAnsatz); second, the difference
@@ -182,44 +244,31 @@ public:
         unsigned int numCoefsRadial, unsigned int numCoefsAngular,
         const potential::DiskParam& diskParams,
         double relError=1e-3,
-        unsigned int maxNumEval=1e5
-        );
+        unsigned int maxNumEval=1e5);
 
     /** recompute both the analytic disk potential and the spherical-harmonic expansion
-        of the residual density profile.
-    */
+        of the residual density profile. */
     virtual void update(const potential::BasePotential& pot, const actions::BaseActionFinder& af);
 
     /** return the pointer to the internal analytic potential model */
     virtual potential::PtrPotential getPotential() const { return diskAnsatzPotential; }
 private:
+    math::PtrFunction radialFncBase, verticalFncBase;
     potential::PtrPotential diskAnsatzPotential;  ///< analytic potential
+    std::vector<double> radialNodes, verticalNodes;
 };
-
-/// Class for providing a progress report during self-consistent modelling
-class ProgressReportCallback {
-public:
-    virtual ~ProgressReportCallback() {};
-    
-    /** any message from the SelfConsistentModel engine not covered by specialized methods */
-    virtual void generalMessage(const char* /*msg*/) {};
-
-    /** called after a component with the given index has been updated */
-    virtual void reportComponentUpdate(unsigned int /*componentIndex*/,
-        const BaseComponent& /*component*/) {};
-
-    /** called after the total potential has been recomputed */
-    virtual void reportTotalPotential(const potential::BasePotential& /*potential*/) {};
-};
-
-#ifdef HAVE_CXX11
-    typedef std::shared_ptr<BaseComponent>  PtrComponent;
-    typedef std::shared_ptr<ProgressReportCallback> PtrProgressReportCallback;
-#else
-    typedef std::tr1::shared_ptr<BaseComponent> PtrComponent;
-    typedef std::tr1::shared_ptr<ProgressReportCallback> PtrProgressReportCallback;
 #endif
-    
+
+/// smart pointer to the model component
+#ifdef HAVE_CXX11
+typedef std::shared_ptr<BaseComponent> PtrComponent;
+#else
+typedef std::tr1::shared_ptr<BaseComponent> PtrComponent;
+#endif
+
+/// array of components
+typedef std::vector<PtrComponent> ComponentArray;
+
 /** The driver class for self-consistend modelling.
     The list of model components is provided at initialization;
     each component may be 'dead' (with a fixed density profile and unspecified DF) 
@@ -250,59 +299,46 @@ public:
     One may use them to initialize a new SelfConsistentModel from the already computed 
     approximations for the density, possibly with a different combination of dead/live components.
 */
-class SelfConsistentModel {
+struct SelfConsistentModel {
 public:
-    /** Construct the model and initialize the first guess for the total potential.
-        \param[in] components  is the array of shared pointers to the model components
-        (all of them must have been fully constructed before creation of this object).
-        \param[in] rmin,rmax  determine the extent of radial grid used in multipole expansion;
-        \param[in] numCoefsRadial  is the number of nodes in the (logarithmic) radial grid;
-        \param[in] numCoefsAngular  is the order of spherical-harmonic expansion;
+    /** parameters of grid for computing the multipole expansion of the combined
+        density profile of spheroidal components;
         in general, these parameters should encompass the range of analogous parameters 
-        of all components that have a spherical-harmonic density representation.
-        \param[in] callback  is the optional pointer to the progress reporting routine (may be NULL).
-    */
-    SelfConsistentModel(
-        const std::vector<PtrComponent>& components,
-        double rmin, double rmax,
-        unsigned int numCoefsRadial, unsigned int numCoefsAngular,
-        const PtrProgressReportCallback& callback = PtrProgressReportCallback()
-    );
+        of all components that have a spherical-harmonic density representation. */
+    double rminSph, rmaxSph;      ///< range of radii for the logarithmic grid
+    unsigned int sizeRadialSph;   ///< number of grid points in radius
+    unsigned int lmaxAngularSph;  ///< maximum order of angular-harmonic expansion (l_max)
     
-    /** Main iteration step: recompute the densities of all components
-        (if appropriate, i.e. if they have a specified DFs and can recompute 
-        their density profile using the current total potential), 
-        and then update the total potential and reinit action finder.
-    */
-    void doIteration();
-    
-    /** return the shared pointer to the internally used total potential */
-    potential::PtrPotential getPotential() const {
-        return totalPotential; }
-    
-    /** return the pointer to the given component, or throw an exception if index is out of range */
-    PtrComponent getComponent(unsigned int index) const { return components.at(index); }
+    /** parameters of grid for computing CylSpline expansion of the combined
+        density profile of flattened (disk-like) components;
+        the radial and vertical extent should be somewhat larger than the region where
+        the overall density is non-negligible, and the resolution should match that
+        of the density profiles of components. */
+    double RminCyl, RmaxCyl;      ///< innermost (non-zero) and outermost grid nodes in cylindrical radius
+    double zminCyl, zmaxCyl;      ///< innermost and outermost grid nodes in vertical direction
+    unsigned int sizeRadialCyl;   ///< number of grid nodes in cylindrical radius
+    unsigned int sizeVerticalCyl; ///< number of grid nodes in vertical (z) direction
 
-private:
-    /// array of model components
-    std::vector<PtrComponent> components;
-
-    /// definition of grid for computing the multipole expansion of the total density profile:
-    const double rmin, rmax;             ///< range of radii for the logarithmic grid
-    const unsigned int numCoefsRadial;   ///< number of grid points in radius
-    const unsigned int numCoefsAngular;  ///< maximum order of angular-harmonic expansion (l_max)
-    
-    /// Total gravitational potential of all components
+    /// total gravitational potential of all components (empty at the beginning)
     potential::PtrPotential totalPotential;
-    
-    /// Action finder associated with the total potential (uniquely owned by this object)
-    actions::UPtrActionFinder actionFinder;
-    
-    /// External progress reporting interface (may be NULL)
-    PtrProgressReportCallback callback;
 
-    /// recompute the total potential using the current density profiles for all components
-    void updateTotalPotential();
+    /// action finder associated with the total potential (empty at the beginning)
+    actions::PtrActionFinder actionFinder;
+
+    /// array of model components
+    ComponentArray components;
 };
+
+/// recompute the total potential using the current density profiles for all components,
+/// and reinitialize the action finder;
+/// throws a runtime_error exception if the total potential does not have any constituents
+void updateTotalPotential(SelfConsistentModel& model);
+
+/** Main iteration step: recompute the densities of all components
+    (if appropriate, i.e. if they have a specified DFs and can recompute 
+    their density profile using the current total potential), 
+    and then update the total potential and reinit action finder.
+*/
+void doIteration(SelfConsistentModel& model);
     
 }  // namespace

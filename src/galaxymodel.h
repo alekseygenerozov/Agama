@@ -18,7 +18,7 @@ namespace galaxymodel{
     to various functions; however, as it only keeps references and not shared pointers, 
     it should not generally be used for a long-term storage.
 */
-class GalaxyModel{
+struct GalaxyModel{
 public:
     const potential::BasePotential&     potential;  ///< gravitational potential
     const actions::BaseActionFinder&    actFinder;  ///< action finder for the given potential

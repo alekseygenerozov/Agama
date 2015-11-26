@@ -77,4 +77,31 @@ private:
     double computePhi_m(double R, double z, int m, const BasePotential& potential) const;
 };
 
+/** Auxiliary class for representing an axisymmetric density profile,
+    computed at nodes of a 2d grid in cylindrical coordinates and interpolated between them.
+*/
+class DensityCylGrid: public BaseDensity{
+public:
+    /** Construct the interpolator by querying the source density values at the nodes
+        of 2d grid specified by two one-dimensional arrays, gridR and gridz.
+        The total number of density evaluations is gridR.size()*gridz.size(). */
+    DensityCylGrid(const std::vector<double>& gridR, const std::vector<double>& gridz,
+        const BaseDensity& srcDensity);
+    virtual potential::SymmetryType symmetry() const { return potential::ST_AXISYMMETRIC; }
+    virtual const char* name() const { return myName(); };
+    static const char* myName() { return "DensityCylGrid"; };
+private:
+    math::LinearInterpolator2d grid;  ///< spline for log(rho(R,z)+valadd)
+    double valadd;  ///< value added to the source density before taking its log (possibly zero)
+
+    virtual double densityCar(const coord::PosCar &pos) const {
+        return densityCyl(toPosCyl(pos)); }
+
+    virtual double densitySph(const coord::PosSph &pos) const {
+        return densityCyl(toPosCyl(pos)); }
+
+    /** Return density interpolated on the 2d grid, or zero if the point lies outside the grid */
+    virtual double densityCyl(const coord::PosCyl &pos) const;
+};
+
 }  // namespace

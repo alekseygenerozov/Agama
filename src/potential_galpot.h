@@ -93,8 +93,6 @@ struct SphrParam{
         scaleRadius(_scaleRadius), outerCutoffRadius(_outerCutoffRadius) {};
 };
 ///@}
-/// \name  Disk components
-
 /** Specification of a disk density profile separable in R and z requires two auxiliary function,
     f(R) and H(z)  (the former essentially describes the surface density of the disk,
     and the latter is the second antiderivative of vertical density profile h(z) ).
@@ -109,34 +107,31 @@ struct SphrParam{
 
     The corresponding second antiderivatives of h(z) are given in Table 2 of Dehnen&Binney 1998.
 */
+/// \name  Disk components
 ///@{
 
-#ifdef HAVE_CXX11
-    typedef std::unique_ptr<const math::IFunction> UPtrFunction;
-#else
-    typedef std::auto_ptr<const math::IFunction> UPtrFunction;
-#endif
-
 /** helper routine to create an instance of radial density function */
-UPtrFunction createRadialDiskFnc(const DiskParam& params);
+math::PtrFunction createRadialDiskFnc(const DiskParam& params);
 
 /** helper routine to create an instance of vertical density function */
-UPtrFunction createVerticalDiskFnc(const DiskParam& params);
+math::PtrFunction createVerticalDiskFnc(const DiskParam& params);
 
-/** Residual density profile of a disk component (eq.9 in Dehnen&Binney 1998) */
+/** Residual density profile of a separable disk model (eq.9 in Dehnen&Binney 1998) */
 class DiskResidual: public BaseDensity {
 public:
-    DiskResidual (const DiskParam& _params) : 
-        BaseDensity(), params(_params),
+    /// construct the density profile with provided parameters describing one of the above variants
+    DiskResidual(const DiskParam& _params) : 
         radialFnc  (createRadialDiskFnc(_params)),
         verticalFnc(createVerticalDiskFnc(_params)) {};
+    /// construct a generic profile with user-specified radial and vertical functions
+    DiskResidual(const math::PtrFunction& _radialFnc, const math::PtrFunction& _verticalFnc) :
+        radialFnc(_radialFnc), verticalFnc(_verticalFnc) {};
     virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DiskResidual"; };
 private:
-    const DiskParam params;     ///< copy of density profile parameters, needed for cloning
-    UPtrFunction radialFnc;     ///< function describing radial dependence of surface density
-    UPtrFunction verticalFnc;   ///< function describing vertical density profile
+    math::PtrFunction radialFnc;     ///< function describing radial dependence of surface density
+    math::PtrFunction verticalFnc;   ///< function describing vertical density profile
     virtual double densityCyl(const coord::PosCyl &pos) const;
     virtual double densityCar(const coord::PosCar &pos) const
     {  return densityCyl(toPosCyl(pos)); }
@@ -144,20 +139,43 @@ private:
     {  return densityCyl(toPosCyl(pos)); }
 };
 
+/** Density profile of a separable disk model */
+class DiskDensity: public BaseDensity {
+public:
+    /// construct the density profile with provided parameters
+    DiskDensity(const DiskParam& _params) : 
+        radialFnc  (createRadialDiskFnc(_params)),
+        verticalFnc(createVerticalDiskFnc(_params)) {};
+    /// construct a generic profile with user-specified radial and vertical functions
+    DiskDensity(const math::PtrFunction& _radialFnc, const math::PtrFunction& _verticalFnc) :
+        radialFnc(_radialFnc), verticalFnc(_verticalFnc) {};
+    virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
+    virtual const char* name() const { return myName(); };
+    static const char* myName() { return "DiskDensity"; };
+private:
+    math::PtrFunction radialFnc;     ///< function describing radial dependence of surface density
+    math::PtrFunction verticalFnc;   ///< function describing vertical density profile
+    virtual double densityCyl(const coord::PosCyl &pos) const;
+    virtual double densityCar(const coord::PosCar &pos) const
+    {  return densityCyl(toPosCyl(pos)); }
+    virtual double densitySph(const coord::PosSph &pos) const
+    {  return densityCyl(toPosCyl(pos)); }
+};
+    
 /** Part of the disk potential provided analytically as  4 pi f(r) H(z) */
 class DiskAnsatz: public BasePotentialCyl {
 public:
-    DiskAnsatz (const DiskParam& _params) : 
-        BasePotentialCyl(), params(_params),
+    DiskAnsatz(const DiskParam& _params) : 
         radialFnc  (createRadialDiskFnc(_params)),
         verticalFnc(createVerticalDiskFnc(_params)) {};
+    DiskAnsatz(const math::PtrFunction& _radialFnc, const math::PtrFunction& _verticalFnc) :
+        radialFnc(_radialFnc), verticalFnc(_verticalFnc) {};
     virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DiskAnsatz"; };
 private:
-    const DiskParam params;     ///< copy of density profile parameters, needed for cloning
-    UPtrFunction radialFnc;     ///< function describing radial dependence of surface density
-    UPtrFunction verticalFnc;   ///< function describing vertical density profile
+    math::PtrFunction radialFnc;     ///< function describing radial dependence of surface density
+    math::PtrFunction verticalFnc;   ///< function describing vertical density profile
     /** Compute _part_ of disk potential: f(r)*H(z) */
     virtual void evalCyl(const coord::PosCyl &pos,
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;

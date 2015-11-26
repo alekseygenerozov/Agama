@@ -84,8 +84,7 @@ int main()
 
     std::cout << std::setprecision(12);
     bool ok=true;
-    std::vector<double> xnodes(NNODES);
-    math::createNonuniformGrid(NNODES, XMIN, XMAX, true, xnodes);
+    std::vector<double> xnodes = math::createNonuniformGrid(NNODES, XMIN, XMAX, true);
     std::vector<double> xvalues(NPOINTS), yvalues1(NPOINTS), yvalues2(NPOINTS);
     for(int i=0; i<NPOINTS; i++) {
         xvalues [i] = rand()*XMAX/RAND_MAX;
@@ -122,7 +121,7 @@ int main()
     //-------- test cubic and quintic splines ---------//
     // accuracy of approximation of an oscillating fnc //
 
-    math::createNonuniformGrid(NNODES, XMIN, XMAX, false, xnodes);
+    xnodes = math::createNonuniformGrid(NNODES, XMIN, XMAX, false);
     xnodes[1]=(xnodes[1]+xnodes[2])/2;  // slightly squeeze grid spacing to allow
     xnodes[0]*=2;                       // a better interpolation of a strongly varying function
     std::vector<double> yvalues(NNODES), yderivs(NNODES);

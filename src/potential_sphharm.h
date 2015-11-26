@@ -224,6 +224,9 @@ public:
     DensitySphericalHarmonic(unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
         const BaseDensity& density, double Rmin=0, double Rmax=0);
 
+    DensitySphericalHarmonic(const std::vector<double> &gridRadii,
+        const std::vector< std::vector<double> > &coefs);
+
     virtual SymmetryType symmetry() const { return mysymmetry; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensitySphericalHarmonic"; };
@@ -239,8 +242,14 @@ public:
     /** return the integral of l-th coefficient times (r/r0)^n on the interval 0<=r1<=r2<=infinity */
     double integrate(double r1, double r2, int l, int n, double r0=1) const;
 
+    /** return the radii of spline nodes and the array of density expansion coefficients */
+    void getCoefs(std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const;
+
 private:
     std::vector<math::CubicSpline> splines;  ///< radial dependence of each sph.-harm. expansion term
+
+    void initSpline(const std::vector<double> &gridRadii,
+        const std::vector< std::vector<double> > &coefs);
 
     /** return the negative logarithmic slope \f$ -d\log\rho_l(r) / d\log r \f$ 
         of l-th expansion coefficient as r -> 0 */

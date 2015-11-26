@@ -54,6 +54,9 @@ public:
     /** check if the spline is everywhere monotonic on the given interval */
     bool isMonotonic() const;
 
+    /** return the array of spline nodes */
+    const std::vector<double>& xvalues() const { return xval; }
+
 private:
     std::vector<double> xval;  ///< grid nodes
     std::vector<double> yval;  ///< values of function at grid nodes
@@ -243,8 +246,9 @@ class SplineApproxImpl;
     is the approximated regression for input data,
     \f$ B_p(x) \f$ are its basis functions and \f$ w_p \f$ are weights to be found.
 
-    Basis functions are b-splines with knots at X[k], k=0..numKnots-1; the number of basis functions is numKnots+2.
-    Equivalently, the regression can be represented by clamped cubic spline with numKnots control points;
+    Basis functions are b-splines with knots at X[k], k=0..numKnots-1;
+    the number of basis functions is numKnots+2. Equivalently, the regression
+    can be represented by clamped cubic spline with numKnots control points;
     b-splines are only used internally.
 
     LLS fitting is done by solving the following linear system:
@@ -307,26 +311,38 @@ private:
 };
 
 
-/** generates a grid with exponentially growing spacing.
-    x[k] = (exp(Z k) - 1)/(exp(Z) - 1),
-    and the value of Z is computed so the the 1st element is at xmin and last at xmax.
-    \param[in]  nnodes   is the total number of grid points (>=2)
-    \param[in]  xmin     is the location of the innermost nonzero node (>0)     
-    \param[in]  xmax     is location of the last node (should be >=nnodes*xmin)
-    \param[in]  zeroelem -- if true, 0th node in the output array is placed at zero (otherwise at xmin)
-    \param[out] grid     is the array of grid nodes created by this routine
+/** generate a grid with exponentially spaced nodes, i.e., uniform in log(x):
+    log(x[k]) = log(xmin) + log(xmax/xmin) * k/(nnodes-1), k=0..nnodes-1.
+    \param[in]  nnodes   is the total number of grid points (>=2);
+    \param[in]  xmin     is the location of the innermost node (>0);
+    \param[in]  xmax     is the location of the outermost node (should be >xmin);
+    \return     the array of grid nodes.
 */
-void createNonuniformGrid(unsigned int nnodes, double xmin, double xmax, bool zeroelem, std::vector<double>& grid);
+std::vector<double> createExpGrid(unsigned int nnodes, double xmin, double xmax);
 
-/** creates an almost uniform grid so that each bin contains at least minbin points from input array.
-    input points are in srcpoints array and MUST BE SORTED in ascending order (assumed but not cheched).
-    \param[in]  srcpoints is the input array of points,
-    \param[in]  minbin    is the minimum number of points per bin,
-    \param[in]  gridsize  is the required length of the output array,
-    \param[out] grid      will contain the array of grid nodes. 
-    NB: in the present implementation, the algorithm is not very robust and works well only for gridsize*minbin << srcpoints.size,
-    assuming that 'problematic' bins only are found close to endpoints but not in the middle of the grid.
+/** generate a grid with exponentially growing spacing:
+    x[k] = (exp(Z k) - 1)/(exp(Z) - 1), i.e. coordinates of nodes increase nearly linearly
+    at the beginning and then nearly exponentially towards the end;
+    the value of Z is computed so the the 1st element is at xmin and last at xmax.
+    \param[in]  nnodes   is the total number of grid points (>=2);
+    \param[in]  xmin     is the location of the innermost nonzero node (>0);
+    \param[in]  xmax     is the location of the last node (should be >=nnodes*xmin);
+    \param[in]  zeroelem -- if true, 0th node in the output array is placed at zero (otherwise at xmin);
+    \return     the array of grid nodes.
 */
-void createAlmostUniformGrid(const std::vector<double> &srcpoints, unsigned int minbin, unsigned int& gridsize, std::vector<double>& grid);
+std::vector<double> createNonuniformGrid(unsigned int nnodes, double xmin, double xmax, bool zeroelem);
+
+/** create an almost uniform grid so that each bin contains at least minbin points from input array.
+    input points are in srcpoints array and MUST BE SORTED in ascending order (assumed but not cheched).
+    \param[in]  srcpoints is the input array of points;
+    \param[in]  minbin    is the minimum number of points per bin;
+    \param[in]  gridsize  is the required length of the output array;
+    \return     the array of grid nodes. 
+    NB: in the present implementation, the algorithm is not very robust 
+    and works well only for gridsize*minbin << srcpoints.size, assuming that 
+    'problematic' bins only are found close to endpoints but not in the middle of the grid.
+*/
+std::vector<double> createAlmostUniformGrid(const std::vector<double> &srcpoints,
+    unsigned int minbin, unsigned int& gridsize);
 
 }  // namespace

@@ -6,6 +6,10 @@
 #include <map>
 #include <algorithm>
 
+#ifdef VERBOSE_REPORT
+#include <iostream>
+#endif
+
 namespace math{
 
 namespace {  // internal namespace for Sampler class
@@ -87,8 +91,7 @@ namespace {  // internal namespace for Sampler class
 class Sampler{
 public:
     /** Construct an N-dimensional sampler object */
-    Sampler(const IFunctionNdim& fnc, const double xlower[], const double xupper[],
-        SamplingProgressReportCallback* callback);
+    Sampler(const IFunctionNdim& fnc, const double xlower[], const double xupper[]);
 
     /** Perform a number of samples from the distribution function with the current binning scheme,
         and computes the estimate of integral EI (stored internally) */
@@ -160,9 +163,6 @@ private:
     /// estimate of the error in the integral                            [ EE ]
     double integError;
 
-    /// progress reporting interface, if necessary
-    SamplingProgressReportCallback* callback;
-
     /** randomly sample an N-dimensional point, such that it has equal probability 
         of falling into each cell, and its location within the given cell
         has uniform probability distribution.
@@ -209,9 +209,8 @@ static const unsigned int MIN_SAMPLES_PER_CELL = 5;
 /// maximum number of bins in each dimension (MUST be a power of two)
 static const unsigned int MAX_BINS_PER_DIM = 16;
 
-Sampler::Sampler(const IFunctionNdim& _fnc, const double xlower[], const double xupper[],
-    SamplingProgressReportCallback* _callback) :
-    fnc(_fnc), Ndim(fnc.numVars()), callback(_callback)
+Sampler::Sampler(const IFunctionNdim& _fnc, const double xlower[], const double xupper[]) :
+    fnc(_fnc), Ndim(fnc.numVars())
 {
     volume      = 1.0;
     numCells    = 1;
@@ -280,7 +279,8 @@ void Sampler::evalFncLoop(unsigned int first, unsigned int count)
 {
     if(count==0) return;
     // loop over assigned points and compute the values of function (in parallel)
-    volatile bool badValueOccured = false;
+    bool badValueOccured = false;
+    std::string errorMsg;
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic,256)
 #endif
@@ -291,9 +291,8 @@ void Sampler::evalFncLoop(unsigned int first, unsigned int count)
         }
         // guard against possible exceptions, since they must not leave the OpenMP block
         catch(std::exception& e) {
-            if(callback)
-                callback->generalMessage(e.what());
-            val=NAN;
+            errorMsg = e.what();
+            val = NAN;
         }
         if(val<0 || !isFinite(val))
             badValueOccured = true;
@@ -301,7 +300,8 @@ void Sampler::evalFncLoop(unsigned int first, unsigned int count)
     }
     numCallsFnc += count;
     if(badValueOccured)
-        throw std::runtime_error("Error in sampleNdim: function value is negative or not finite");
+        throw std::runtime_error("Error in sampleNdim: " + 
+            (errorMsg.empty() ? "function value is negative or not finite" : errorMsg));
 }
 
 void Sampler::runPass(const unsigned int numSamples)
@@ -323,8 +323,6 @@ void Sampler::runPass(const unsigned int numSamples)
 
     // update the estimate of integral
     computeIntegral();
-    if(callback)
-        callback->reportIteration(0, integValue, integError, numCallsFnc);
 }
 
 void Sampler::computeIntegral()
@@ -336,6 +334,10 @@ void Sampler::computeIntegral()
         avg.add(weightedFncValues[i]);
     integValue = avg.mean() * numSamples;
     integError = sqrt(avg.disp() * numSamples);
+#ifdef VERBOSE_REPORT
+    std::cout <<  "Integral value= " << integValue <<
+        " +- " << integError << " using " << numCallsFnc << " function calls" << std::endl;
+#endif
 }
 
 void Sampler::readjustBins()
@@ -444,8 +446,14 @@ void Sampler::readjustBins()
         
         numCells /= 2;
     }
-    if(callback)
-        callback->reportBins(&binBoundaries.front());
+#ifdef VERBOSE_REPORT
+    for(unsigned int d=0; d<Ndim; d++) {
+        std::cout << "bins for D=" << d << ':';
+        for(unsigned int k=0; k<binBoundaries[d].size(); k++)
+            std::cout << ' ' << binBoundaries[d][k];
+        std::cout << std::endl;
+    }
+#endif
 }
 
 // put more samples into a cells, while decreasing the weights of existing samples in it
@@ -480,15 +488,14 @@ void Sampler::refineCellByAddingSamples(CellEnum indexCell, double refineFactor,
     sampleCoords.resize(numPrevSamples + numNewSamples, Ndim);
     weightedFncValues.resize(numPrevSamples + numNewSamples);
 
-    // assign coordinates for newly sampled points, but don't evaluate function yet
+    // assign coordinates for newly sampled points, but don't evaluate function yet --
+    // this will be performed once all cells have been refined
     for(unsigned int i=0; i<numNewSamples; i++) {
         double* coords = &(sampleCoords(numPrevSamples+i, 0));  // taking the entire row
         weightedFncValues[numPrevSamples+i] = 
             samplePointFromCell(indexCell, coords) / samplesPerThisCell;
         assert(cellIndex(coords) == indexCell);
     }
-    // now evaluate function
-    evalFncLoop(numPrevSamples, numNewSamples);
 }
 
 void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
@@ -506,6 +513,9 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
         // new samples we need to place into this cell: R = (N_new + N_existing) / N_existing )
         CellMap cellsForRefinement;
 
+#ifdef VERBOSE_REPORT
+        unsigned int numOverweightSamples=0, numCellsForRefinement=0;
+#endif
         // determine if any of our sampled points are too heavy for the requested number of output points
         for(unsigned int indexPoint=0; indexPoint<numSamples; indexPoint++) {
             double refineFactor = weightedFncValues[indexPoint] / maxWeight;
@@ -516,9 +526,9 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
                     cellsForRefinement.insert(std::make_pair(indexCell, refineFactor));
                 else if(iter->second < refineFactor)
                     iter->second = refineFactor;   // update the required refinement factor for this cell
-                if(callback)
-                    callback->reportOverweightSample(
-                        &sampleCoords(indexPoint, 0), refineFactor);
+#ifdef VERBOSE_REPORT
+                ++numOverweightSamples;
+#endif
             }
         }
         if(cellsForRefinement.empty())
@@ -533,22 +543,28 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
                 samplesInCell[iter->first].push_back(indexPoint);
         }
 
-        std::vector<double> lowerCorner(Ndim), upperCorner(Ndim);  // for reporting the cell corners
-        // loop over cells to be refined
+        // loop over cells to be refined: first assign coordinates and weight factors for new samples
         for(CellMap::const_iterator iter = cellsForRefinement.begin();
             iter != cellsForRefinement.end(); ++iter) {
             CellEnum indexCell  = iter->first;
             double refineFactor = iter->second*1.25;  // safety margin
-            if(callback) {
-                getBinBoundaries(indexCell, &lowerCorner.front(), &upperCorner.front());
-                callback->reportRefinedCell(&lowerCorner.front(), &upperCorner.front(), refineFactor);
-            }
+#ifdef VERBOSE_REPORT
+            ++numCellsForRefinement;
+#endif
             refineCellByAddingSamples(indexCell, refineFactor, samplesInCell[indexCell]);
         }
 
+        // then evaluate function values for all new samples
+        unsigned int numNewSamples = sampleCoords.numRows()-numSamples;
+#ifdef VERBOSE_REPORT
+        std::cout << "Iteration #" << nIter <<": refining " << numCellsForRefinement <<
+            " cells because of " << numOverweightSamples << " overweight samples"
+            " by making further " << numNewSamples << " function calls; " << std::endl;
+#endif
+        evalFncLoop(numSamples, numNewSamples);
+        
+        // update the integral estimate
         computeIntegral();
-        if(callback)
-            callback->reportIteration(nIter+1, integValue, integError, numCallsFnc);
     } while(++nIter<16);
     throw std::runtime_error(
         "Error in sampleNdim: refinement procedure did not converge in 16 iterations");
@@ -580,10 +596,9 @@ void Sampler::drawSamples(const unsigned int numOutputSamples, Matrix<double>& o
 
 void sampleNdim(const IFunctionNdim& fnc, const double xlower[], const double xupper[], 
     const unsigned int numSamples,
-    Matrix<double>& samples, int* numTrialPoints, double* integral, double* interror,
-    SamplingProgressReportCallback* callback)
+    Matrix<double>& samples, int* numTrialPoints, double* integral, double* interror)
 {
-    Sampler sampler(fnc, xlower, xupper, callback);
+    Sampler sampler(fnc, xlower, xupper);
 
     // first warmup run (actually, two) to collect statistics and adjust bins
     const unsigned int numWarmupSamples = std::max<unsigned int>(numSamples*0.2, 10000);

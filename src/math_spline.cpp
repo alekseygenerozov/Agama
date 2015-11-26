@@ -352,51 +352,49 @@ SplineApprox::SplineApprox(const std::vector<double> &xvalues, const std::vector
 
 SplineApprox::~SplineApprox()
 {
-    delete static_cast<SplineApproxImpl*>(impl);
+    delete impl;
 }
 
 bool SplineApprox::isSingular() const {
-    return static_cast<SplineApproxImpl*>(impl)->isSingular();
+    return impl->isSingular();
 }
 
 void SplineApprox::fitData(const std::vector<double> &yvalues, const double lambda,
     std::vector<double>& splineValues, double& deriv_left, double& deriv_right, double *rmserror, double* edf)
 {
-    SplineApproxImpl& imp = *static_cast<SplineApproxImpl*>(impl);
-    imp.loadyvalues(yvalues);
-    if(imp.isSingular() || lambda==0)
-        imp.computeWeights();
+    impl->loadyvalues(yvalues);
+    if(impl->isSingular() || lambda==0)
+        impl->computeWeights();
     else {
-        imp.initRoughnessMatrix();
-        imp.computeWeights(lambda);
+        impl->initRoughnessMatrix();
+        impl->computeWeights(lambda);
     }
-    imp.computeYvalues(splineValues, deriv_left, deriv_right);
-    imp.computeRMSandEDF(lambda, rmserror, edf);
+    impl->computeYvalues(splineValues, deriv_left, deriv_right);
+    impl->computeRMSandEDF(lambda, rmserror, edf);
 }
 
 void SplineApprox::fitDataOversmooth(const std::vector<double> &yvalues, const double deltaAIC,
     std::vector<double>& splineValues, double& deriv_left, double& deriv_right, 
     double *rmserror, double* edf, double *lambda)
 {
-    SplineApproxImpl& imp = *static_cast<SplineApproxImpl*>(impl);
-    imp.loadyvalues(yvalues);
+    impl->loadyvalues(yvalues);
     double lambdaFit = 0;
-    if(imp.isSingular()) {
-        imp.computeWeights();
+    if(impl->isSingular()) {
+        impl->computeWeights();
     } else {
-        imp.initRoughnessMatrix();
+        impl->initRoughnessMatrix();
         if(deltaAIC <= 0) {  // find optimal fit
-            SplineAICRootFinder fnc(imp, 0);
+            SplineAICRootFinder fnc(*impl, 0);
             lambdaFit = findMin(fnc, 0, INFINITY, NAN, 1e-6);  // no initial guess
         } else {  // allow for somewhat higher AIC value, to smooth more than minimum necessary amount
-            SplineAICRootFinder fnc(imp, imp.computeAIC(0) + deltaAIC);
+            SplineAICRootFinder fnc(*impl, impl->computeAIC(0) + deltaAIC);
             lambdaFit = findRoot(fnc, 0, INFINITY, 1e-6);
             if(!isFinite(lambdaFit))   // root does not exist, i.e. function is everywhere lower than target value
                 lambdaFit = INFINITY;  // basically means fitting with a linear regression
         }
     }
-    imp.computeYvalues(splineValues, deriv_left, deriv_right);
-    imp.computeRMSandEDF(lambdaFit, rmserror, edf);
+    impl->computeYvalues(splineValues, deriv_left, deriv_right);
+    impl->computeRMSandEDF(lambdaFit, rmserror, edf);
     if(lambda!=NULL)
         *lambda=lambdaFit;
 }
@@ -1148,7 +1146,20 @@ void QuinticSpline2d::evalDeriv(const double x, const double y,
 
 //------------ GENERATION OF UNEQUALLY SPACED GRIDS ------------//
 
-// Creation of grid with exponentially increasing cells
+std::vector<double> createExpGrid(unsigned int nnodes, double xmin, double xmax)
+{
+    if(nnodes<2 || xmin<=0 || xmax<=xmin)
+        throw std::invalid_argument("Invalid parameters for grid creation");
+    double logmin = log(xmin), logmax = log(xmax);
+    std::vector<double> grid(nnodes);
+    grid.front() = xmin;
+    grid.back()  = xmax;
+    for(int k=1; k<nnodes-1; k++)
+        grid[k] = exp(logmin + k*(logmax-logmin)/(nnodes-1));
+    return grid;
+}
+
+// Creation of grid with cells increasing first near-linearly, then near-exponentially
 class GridSpacingFinder: public IFunctionNoDeriv {
 public:
     GridSpacingFinder(double _dynrange, int _nnodes) : dynrange(_dynrange), nnodes(_nnodes) {};
@@ -1161,12 +1172,12 @@ private:
     int nnodes;
 };
 
-void createNonuniformGrid(unsigned int nnodes, double xmin, double xmax, bool zeroelem, std::vector<double>& grid)
+std::vector<double> createNonuniformGrid(unsigned int nnodes, double xmin, double xmax, bool zeroelem)
 {   // create grid so that x_k = B*(exp(A*k)-1)
     if(nnodes<2 || xmin<=0 || xmax<=xmin)
         throw std::invalid_argument("Invalid parameters for grid creation");
     double A, B, dynrange=xmax/xmin;
-    grid.resize(nnodes);
+    std::vector<double> grid(nnodes);
     int indexstart=zeroelem?1:0;
     if(zeroelem) {
         grid[0] = 0;
@@ -1175,7 +1186,7 @@ void createNonuniformGrid(unsigned int nnodes, double xmin, double xmax, bool ze
     if(fcmp(static_cast<double>(nnodes), dynrange, 1e-6)==0) { // no need for non-uniform grid
         for(unsigned int i=0; i<nnodes; i++)
             grid[i+indexstart] = xmin+(xmax-xmin)*i/(nnodes-1);
-        return;
+        return grid;
     }
     // solve for A:  dynrange = (exp(A*nnodes)-1)/(exp(A)-1)
     GridSpacingFinder F(dynrange, nnodes);
@@ -1198,6 +1209,7 @@ void createNonuniformGrid(unsigned int nnodes, double xmin, double xmax, bool ze
     for(unsigned int i=0; i<nnodes; i++)
         grid[i+indexstart] = B*(exp(A*(i+1))-1);
     grid[nnodes-1+indexstart] = xmax;
+    return grid;
 }
 
 /// creation of a grid with minimum guaranteed number of input points per bin
@@ -1212,13 +1224,13 @@ static void makegrid(std::vector<double>::iterator begin, std::vector<double>::i
     *(end-1)=endval;  // exact value
 }
 
-void createAlmostUniformGrid(const std::vector<double> &srcpoints, 
-    unsigned int minbin, unsigned int& gridsize, std::vector<double>& grid)
+std::vector<double> createAlmostUniformGrid(const std::vector<double> &srcpoints, 
+    unsigned int minbin, unsigned int& gridsize)
 {
     if(srcpoints.size()==0)
         throw std::invalid_argument("Error in creating a grid: input points array is empty");
     gridsize = std::max<size_t>(2, std::min<size_t>(gridsize, static_cast<size_t>(srcpoints.size()/minbin)));
-    grid.resize(gridsize);
+    std::vector<double> grid(gridsize);
     std::vector<double>::iterator gridbegin=grid.begin(), gridend=grid.end();
     std::vector<double>::const_iterator srcbegin=srcpoints.begin(), srcend=srcpoints.end();
     std::vector<double>::const_iterator srciter;
@@ -1291,7 +1303,7 @@ void createAlmostUniformGrid(const std::vector<double> &srcpoints,
                         numChangesDirection++;
                         if(numChangesDirection>10) {
 //                            my_message(FUNCNAME, "grid creation seems not to converge?");
-                            return;  // don't run forever but would not fulfill the minbin condition
+                            return grid;  // don't run forever but would not fulfill the minbin condition
                         }
                     } else {
                         // move gridend backward
@@ -1302,7 +1314,7 @@ void createAlmostUniformGrid(const std::vector<double> &srcpoints,
                             numChangesDirection++;
                             if(numChangesDirection>10) {
 //                                my_message(FUNCNAME, "grid creation seems not to converge?");
-                                return;  // don't run forever but would not fulfill the minbin condition
+                                return grid;  // don't run forever but would not fulfill the minbin condition
                             }
                         } else {
                             srcend=srciter-ptperbin+1;
@@ -1314,6 +1326,7 @@ void createAlmostUniformGrid(const std::vector<double> &srcpoints,
             }
         }
     } while(!ok);
+    return grid;
 }
 
 }  // namespace

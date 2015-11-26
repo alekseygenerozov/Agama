@@ -127,7 +127,7 @@ InterpEpicycleFreqs::InterpEpicycleFreqs(const potential::BasePotential& potenti
     if(!isZRotSymmetric(potential))
         throw std::invalid_argument("Potential is not axisymmetric, "
             "no meaningful definition of circular orbit is possible");
-    const double dlogR = 0.25;  // grid spacing in log radius
+    const double dlogR = 0.2;  // grid spacing in log radius
     // start the scan in radius from a reasonable value (half-mass radius)
     double logRinit = log(getRadiusByMass(potential, potential.totalMass()*0.5));
     if(!math::isFinite(logRinit))
@@ -170,6 +170,8 @@ InterpEpicycleFreqs::InterpEpicycleFreqs(const potential::BasePotential& potenti
                 logR = logRinit;  // restart from the middle
                 ++stage;          // switch direction in scanning, or finish
             }
+            if(np>=1000)
+                throw std::runtime_error("No convergence in epicyclic frequencies interpolator");
         }
         if(stage==0)
             logR -= dlogR;
@@ -183,7 +185,7 @@ InterpEpicycleFreqs::InterpEpicycleFreqs(const potential::BasePotential& potenti
     // otherwise don't fix the derivative and let the spline be linearly extrapolated in log-log space
     freqSum   = math::CubicSpline(Lc, fSum, math::isFinite(nu) ? 0 : NAN);
     freqKappa = math::CubicSpline(Lc, fKappa, 0, 0);  // set zero derivatives at both ends
-    freqNu    = math::CubicSpline(Lc, fNu, 0, 0);    
+    freqNu    = math::CubicSpline(Lc, fNu, 0, 0);
 }
 
 void InterpEpicycleFreqs::eval(double Lz, double& kappa, double& nu, double& Omega) const

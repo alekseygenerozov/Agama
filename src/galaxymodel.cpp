@@ -7,9 +7,10 @@
 #include <stdexcept>
 
 // this is a temporary measure
+#ifdef VERBOSE_REPORT
 #include "debug_utils.h"
 #include <iostream>
-const bool VERBOSE_REPORT = true;
+#endif
 
 namespace galaxymodel{
 
@@ -117,8 +118,10 @@ public:
                 throw std::runtime_error("DF is not finite");
         }
         catch(std::exception& e) {
+#ifdef VERBOSE_REPORT
             //!!! this is a temporary measure, should replace with a more sophisticated error reporting
-            std::cerr << e.what() <<" at "<<posvel<<" ("<<acts<<")\n";
+//            std::cout << e.what() <<" at "<<posvel<<" ("<<acts<<")\n";
+#endif
             dfval = 0;
         }
 
@@ -324,70 +327,6 @@ protected:
     }
 };
 
-
-//------- PROGRESS REPORTING INTERFACE -------//
-
-class ProgressReport: public math::SamplingProgressReportCallback {
-public:
-    ProgressReport(const DFIntegrandNdim& _fnc, std::ostream& _strm) :
-        fnc(_fnc), strm(_strm), numSamplesReported(0), numCellsReported(0) {};
-    
-private:
-    const DFIntegrandNdim& fnc;      ///< the N-dimensional integrand
-    std::ostream& strm;              ///< output stream for printing out progress report
-    unsigned int numSamplesReported; ///< keep track of the number of reported overweight samples
-    unsigned int numCellsReported;   ///< keep track of the number of refined cells
-    
-    virtual void generalMessage(const char* msg)
-    {
-        strm << msg << std::endl;
-    }
-    
-    virtual void reportIteration(int numIter, 
-        double integralValue, double integralError, unsigned int numCallsFnc)
-    {
-        strm << "Iteration #" << numIter << ": value= " << integralValue <<
-            " +- " << integralError << " using " << numCallsFnc << " function calls";
-        if(numSamplesReported>0 || numCellsReported>0)
-            strm << " and refining " << numCellsReported <<
-                " cells because of " << numSamplesReported << " overweight samples";
-        strm << std::endl;
-        numSamplesReported = numCellsReported = 0;
-    }
-    
-    virtual void reportBins(const std::vector<double> binBoundaries[])
-    {
-        if(!VERBOSE_REPORT) return;
-        for(unsigned int d=0; d<fnc.numVars(); d++) {
-            strm << "bins for D=" << d << ':';
-            for(unsigned int k=0; k<binBoundaries[d].size(); k++)
-                strm << ' ' << binBoundaries[d][k];
-            strm << std::endl;
-        }
-    }
-
-    virtual void reportOverweightSample(const double sampleCoords[], double fncValue)
-    {
-        if(++numSamplesReported <= 0 && VERBOSE_REPORT) {
-            double jac;
-            coord::PosVelCyl posvel = fnc.unscaleVars(sampleCoords, &jac);
-            strm << "f= " << (fncValue/jac) << " *Jac= " << jac << " at " << posvel << std::endl;
-        }
-    }
-    
-    virtual void reportRefinedCell(const double lowerCorner[], const double upperCorner[],
-        double refineFactor)
-    {
-        if(++numCellsReported <= 0 && VERBOSE_REPORT) {
-            std::vector<double> center(fnc.numVars());
-            for(unsigned int d=0; d<fnc.numVars(); d++)
-                center[d] = (lowerCorner[d] + upperCorner[d]) / 2;
-            strm << "Refining cell centered at " << fnc.unscaleVars(&center.front()) <<
-                " by factor of " << refineFactor << std::endl;
-        }
-    }
-};
-
 }  // unnamed namespace
 
 //------- DRIVER ROUTINES -------//
@@ -536,9 +475,7 @@ void generatePosVelSamples(const GalaxyModel& model, const unsigned int numSampl
     double totalMass, errorMass;      // total normalization of the distribution function and its estimated error
     double xlower[6] = {0,0,0,0,0,0}; // boundaries of sampling region in scaled coordinates
     double xupper[6] = {1,1,1,1,1,1};
-    ProgressReport callback(fnc, std::cerr);
-    math::sampleNdim(fnc, xlower, xupper, numSamples,
-        result, NULL, &totalMass, &errorMass, &callback);
+    math::sampleNdim(fnc, xlower, xupper, numSamples, result, NULL, &totalMass, &errorMass);
     const double pointMass = totalMass / result.numRows();
     points.data.clear();
     for(unsigned int i=0; i<result.numRows(); i++) {

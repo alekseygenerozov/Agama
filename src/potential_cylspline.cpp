@@ -84,6 +84,46 @@ double BesselIntegral::value(double a, double b, double c) const
     }
 }
 
+DensityCylGrid::DensityCylGrid(const std::vector<double>& gridR, const std::vector<double>& gridz,
+    const BaseDensity& srcDensity)
+{
+    int sizeR = gridR.size(), sizez = gridz.size();
+    if(sizeR<2 || sizez<2)
+        throw std::invalid_argument("Incorrect grid size in DensityCylGrid");
+    math::Matrix<double> val(sizeR, sizez);
+    int numPoints = sizeR * sizez;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for(int n=0; n<numPoints; n++) {
+        int indR = n % sizeR;  // index in radial grid
+        int indz = n / sizeR;  // index in vertical direction
+        val(indR, indz) = srcDensity.density(coord::PosCyl(gridR[indR], gridz[indz], 0));
+    }
+    double valmin = INFINITY, valmax = 0;
+    for(int n=0; n<numPoints; n++) {
+        valmin = fmin(valmin, val(n % sizeR, n / sizeR));
+        valmax = fmax(valmax, val(n % sizeR, n / sizeR));
+    }
+    if(!math::isFinite(valmax+valmin) || valmax<=0)  // may need a workaround
+        throw std::runtime_error("Density value is not finite in DensityCylGrid");
+    // add this to every density value to make the logarithm positive
+    valadd = valmin<valmax*1e-20 ? valmax*1e-20 - valmin : 0;
+    for(int n=0; n<numPoints; n++)
+        val(n % sizeR, n / sizeR) = log(val(n % sizeR, n / sizeR) + valadd);
+    if(valadd>0)  // store exact value to be subtracted from the interpolated one
+        valadd = exp(log(valadd));
+    grid = math::LinearInterpolator2d(gridR, gridz, val);
+}
+
+double DensityCylGrid::densityCyl(const coord::PosCyl &point) const {
+    double val = grid.value(point.R, fabs(point.z));
+    if(math::isFinite(val))
+        return exp(val) - valadd;
+    else
+        return 0;
+}
+    
 //-------- Auxiliary direct-integration potential --------//
 
 /** Direct computation of potential for any density profile, using double integration over space.
@@ -168,8 +208,7 @@ DirectPotential::DirectPotential(const BaseDensity& _density, unsigned int _mmax
     double Rmax = getRadiusByMass(*density, totalmass*0.99)*50.0;
     double delta=0.05;  // relative difference between grid nodes = log(x[n+1]/x[n]) 
     unsigned int numNodes = static_cast<unsigned int>(log(Rmax/Rmin)/delta);
-    std::vector<double> grid;
-    math::createNonuniformGrid(numNodes, Rmin, Rmax, true, grid);
+    std::vector<double> grid = math::createNonuniformGrid(numNodes, Rmin, Rmax, true);
     std::vector<double> gridz(2*grid.size()-1);
     for(unsigned int i=0; i<grid.size(); i++) {
         gridz[grid.size()-1-i] =-grid[i];
@@ -219,13 +258,8 @@ double DirectPotential::totalMass() const
     assert((density!=NULL) ^ (points!=NULL));  // either of the two regimes
     if(density!=NULL) 
         return density->totalMass();
-    else {
-        double mass=0;
-        for(particles::PointMassArray<coord::PosCyl>::ArrayType::const_iterator pt=points->data.begin(); 
-            pt!=points->data.end(); pt++) 
-            mass+=pt->second;
-        return mass;
-    }
+    else
+        return points->totalMass();
 }
 
 double DirectPotential::enclosedMass(const double r) const
@@ -460,13 +494,12 @@ void CylSplineExp::initPot(unsigned int _Ncoefs_R, unsigned int _Ncoefs_z, unsig
             //radius_min = radius_max/_Ncoefs_R;
             throw std::runtime_error("CylSplineExp: cannot determine inner radius for the grid");
     }
-    std::vector<double> splineRad;
-    math::createNonuniformGrid(_Ncoefs_R, radius_min, radius_max, true, splineRad);
+    std::vector<double> splineRad = math::createNonuniformGrid(_Ncoefs_R, radius_min, radius_max, true);
     grid_R = splineRad;
     if(z_max==0) z_max=radius_max;
     if(z_min==0) z_min=radius_min;
     z_min = std::min<double>(z_min, z_max/_Ncoefs_z);
-    math::createNonuniformGrid(_Ncoefs_z, z_min, z_max, true, splineRad);
+    splineRad = math::createNonuniformGrid(_Ncoefs_z, z_min, z_max, true);
     grid_z.assign(2*_Ncoefs_z-1,0);
     for(size_t i=0; i<_Ncoefs_z; i++) {
         grid_z[_Ncoefs_z-1-i] =-splineRad[i];
@@ -478,29 +511,39 @@ void CylSplineExp::initPot(unsigned int _Ncoefs_R, unsigned int _Ncoefs_z, unsig
     for(int m=mmax*mmin; m<=mmax; m+=mstep) {
         coefs[mmax+m].assign(Ncoefs_R*Ncoefs_z,0);
     }
-    // for some unknown reason, switching on the OpenMP parallelization makes the results 
-    // of computation of m=4 coef irreproducible (adds a negligible random error). 
-    // Assumed to be unimportant, thus OpenMP is enabled...
+    int numPoints = Ncoefs_R * (Ncoefs_z/2+1);  // total # of points in 2d grid
+    bool badValueEncountered = false;
+    std::string errorMsg;
 #ifdef _OPENMP
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic)
 #endif
-    for(int iR=0; iR<static_cast<int>(Ncoefs_R); iR++) {
-        for(size_t iz=0; iz<=Ncoefs_z/2; iz++) {
-            for(int m=mmax*mmin; m<=mmax; m+=mstep) {
-                double val=computePhi_m(grid_R[iR], grid_z[Ncoefs_z/2+iz], m, potential);
-                if(!math::isFinite(val)) {
-                    throw std::runtime_error("CylSplineExp: error in computing potential at R=" +
-                        utils::convertToString(grid_R[iR]) + ", z=" + 
-                        utils::convertToString(grid_z[iz+Ncoefs_z/2])+", m=" + utils::convertToString(m));
-                }
+    for(int ind=0; ind<numPoints; ind++) {  // combined index variable
+        unsigned int iR = ind / Ncoefs_R;
+        unsigned int iz = ind % Ncoefs_R;
+        for(int m=mmax*mmin; m<=mmax; m+=mstep) {
+            try{
+                double val = computePhi_m(grid_R[iR], grid_z[Ncoefs_z/2+iz], m, potential);
                 coefs[mmax+m][(Ncoefs_z/2+iz)*Ncoefs_R+iR] = val;
-                if(!zsymmetry && iz>0)   // no symmetry about x-y plane
+                if(!zsymmetry && iz>0 && math::isFinite(val))   // no symmetry about x-y plane
                     // compute potential at -z independently
-                    val=computePhi_m(grid_R[iR], grid_z[Ncoefs_z/2-iz], m, potential);
+                    val = computePhi_m(grid_R[iR], grid_z[Ncoefs_z/2-iz], m, potential);
                 coefs[mmax+m][(Ncoefs_z/2-iz)*Ncoefs_R+iR] = val;
+                if(!math::isFinite(val)) {
+                    errorMsg = "Invalid potential value "
+                        "at R=" + utils::convertToString(grid_R[iR]) +
+                        ", z="  + utils::convertToString(grid_z[iz+Ncoefs_z/2])+
+                        ", m="  + utils::convertToString(m);
+                    badValueEncountered = true;
+                }
+            }
+            catch(std::exception& e) {
+                errorMsg = e.what();
+                badValueEncountered = true;
             }
         }
     }
+    if(badValueEncountered)
+        throw std::runtime_error("Error in CylSplineExp: "+errorMsg);
     initSplines(coefs);
 }
 

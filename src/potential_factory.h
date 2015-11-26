@@ -139,6 +139,10 @@ PtrPotential readPotentialCoefs(const std::string& coefFileName);
 */
 void writePotentialCoefs(const std::string& coefFileName, const BasePotential& potential);
 
+class DensitySphericalHarmonic;  // forward declaration
+
+void writeDensityExpCoefs(const std::string& fileName, const DensitySphericalHarmonic& density);
+
 /// return file extension for writing the coefficients of a given potential type,
 /// or empty string if it is not one of the expansion types
 const char* getCoefFileExtension(const std::string& potName);
