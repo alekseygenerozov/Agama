@@ -50,7 +50,7 @@ enum PotentialType {
     PT_MULTIPOLE,    ///< axisymmetric multipole expansion from GalPot:  `Multipole`
 
     //  Components of Walter Dehnen's GalPot
-    PT_DISKANSATZ,   ///< separable disk density model:  `DiskAnsatz` and `DiskResidual`
+    PT_DISKANSATZ,   ///< separable disk density model:  `DiskAnsatz` and `DiskDensity`
     PT_SPHEROID,     ///< two-power-law spheroid density model:  `SpheroidDensity`
 
     //  Potentials with possibly infinite mass that can't be used as source density for a potential expansion
@@ -278,7 +278,7 @@ static DiskParam parseDiskParams(const utils::KeyValueMap& params, const units::
     config.modulationAmplitude = params.getDouble("modulationAmplitude");
     return config;
 };
-    
+
 static SphrParam parseSphrParams(const utils::KeyValueMap& params, const units::ExternalUnits& conv)
 {
     SphrParam config;
@@ -577,7 +577,25 @@ static void writePotentialCylExpCoefs(const std::string& fileName, const CylSpli
         throw std::runtime_error("Cannot write potential coefs to file "+fileName);
 }
 
-void writeDensityExpCoefs(const std::string& fileName, const DensitySphericalHarmonic& density)
+void writePotentialCoefs(const std::string& fileName, const BasePotential& potential)
+{
+    if(fileName.empty()) {
+        throw std::runtime_error("writePotentialCoefs: empty file name");
+    }
+    switch(getPotentialTypeByName(potential.name())) {
+    case PT_BSE:
+    case PT_SPLINE:
+        writePotentialExpCoefs(fileName, dynamic_cast<const BasePotentialSphericalHarmonic&>(potential));
+        break;
+    case PT_CYLSPLINE:
+        writePotentialCylExpCoefs(fileName, dynamic_cast<const CylSplineExp&>(potential));
+        break;
+    default:
+        throw std::invalid_argument("Unknown type of potential to write");
+    }
+}
+
+void writeDensityCoefs(const std::string& fileName, const DensitySphericalHarmonic& density)
 {
     std::ofstream strm(fileName.c_str(), std::ios::out);
     if(!strm) 
@@ -605,25 +623,29 @@ void writeDensityExpCoefs(const std::string& fileName, const DensitySphericalHar
         strm << '\n';
     }
     if(!strm.good())
-        throw std::runtime_error("Cannot write potential coefs to file "+fileName);
+        throw std::runtime_error("Cannot write density coefs to file "+fileName);
 }
 
-void writePotentialCoefs(const std::string& fileName, const BasePotential& potential)
+void writeDensityCoefs(const std::string& fileName, const DensityCylGrid& density)
 {
-    if(fileName.empty()) {
-        throw std::runtime_error("writePotentialCoefs: empty file name");
+    std::ofstream strm(fileName.c_str(), std::ios::out);
+    if(!strm) 
+        throw std::runtime_error("Cannot write density coefs to file "+fileName);  // file not writable
+    std::vector<double> gridR, gridz;
+    math::Matrix<double> densVal;
+    density.getCoefs(gridR, gridz, densVal);
+    strm << "#R\\z";
+    for(unsigned int iz=0; iz<gridz.size(); iz++)
+        strm << '\t' << gridz[iz];
+    strm << '\n';
+    for(unsigned int iR=0; iR<gridR.size(); iR++) {
+        strm << gridR[iR];
+        for(unsigned int iz=0; iz<gridz.size(); iz++)
+            strm << '\t' << densVal(iR, iz);
+        strm << '\n';
     }
-    switch(getPotentialTypeByName(potential.name())) {
-    case PT_BSE:
-    case PT_SPLINE:
-        writePotentialExpCoefs(fileName, dynamic_cast<const BasePotentialSphericalHarmonic&>(potential));
-        break;
-    case PT_CYLSPLINE:
-        writePotentialCylExpCoefs(fileName, dynamic_cast<const CylSplineExp&>(potential));
-        break;
-    default:
-        throw std::invalid_argument("Unknown type of potential to write");
-    }
+    if(!strm.good())
+        throw std::runtime_error("Cannot write density coefs to file "+fileName);
 }
 
 // load GalPot parameter file

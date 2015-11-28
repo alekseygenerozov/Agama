@@ -629,9 +629,9 @@ double CubicSpline::integrate(double x1, double x2, const IFunctionIntegral& f) 
 }
 
 // ------ Quintic spline ------- //
-QuinticSpline::QuinticSpline(const std::vector<double>& xvalues, 
-    const std::vector<double>& yvalues, const std::vector<double>& yderivs): 
-    xval(xvalues), yval(yvalues), yder(yderivs)
+QuinticSpline::QuinticSpline(const std::vector<double>& xgrid, 
+    const std::vector<double>& ygrid, const std::vector<double>& yderivs): 
+    xval(xgrid), yval(ygrid), yder(yderivs)
 {
     unsigned int numPoints = xval.size();
     if(yval.size() != numPoints || yder.size() != numPoints)
@@ -766,20 +766,18 @@ double QuinticSpline::deriv3(const double x) const
 // ------ INTERPOLATION IN 2D ------ //
 
 BaseInterpolator2d::BaseInterpolator2d(
-    const std::vector<double>& xvalues, const std::vector<double>& yvalues,
-    const Matrix<double>& zvalues)
+    const std::vector<double>& xgrid, const std::vector<double>& ygrid,
+    const Matrix<double>& zvalues) :
+    xval(xgrid), yval(ygrid), zval(zvalues)
 {
-    const unsigned int xsize = xvalues.size();
-    const unsigned int ysize = yvalues.size();
+    const unsigned int xsize = xgrid.size();
+    const unsigned int ysize = ygrid.size();
     if(xsize<2 || ysize<2)
         throw std::invalid_argument("Error in 2d interpolator initialization: number of nodes should be >=2 in each direction");
     if(zvalues.numRows() != xsize)
         throw std::invalid_argument("Error in 2d interpolator initialization: x and z array lengths differ");
     if(zvalues.numCols() != ysize)
         throw std::invalid_argument("Error in 2d interpolator initialization: y and z array lengths differ");
-    xval = xvalues;
-    yval = yvalues;
-    zval = zvalues;
 }
 
 // ------- Bilinear interpolation in 2d ------- //
@@ -830,31 +828,31 @@ void LinearInterpolator2d::evalDeriv(const double x, const double y,
 //------------ 2D CUBIC SPLINE -------------//
 // based on interp2d library by David Zaslavsky
 
-CubicSpline2d::CubicSpline2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+CubicSpline2d::CubicSpline2d(const std::vector<double>& xgrid, const std::vector<double>& ygrid,
     const Matrix<double>& zvalues,
     double deriv_xmin, double deriv_xmax, double deriv_ymin, double deriv_ymax) :
-    BaseInterpolator2d(xvalues, yvalues, zvalues)
+    BaseInterpolator2d(xgrid, ygrid, zvalues)
 {
-    const unsigned int xsize = xvalues.size();
-    const unsigned int ysize = yvalues.size();
+    const unsigned int xsize = xval.size();
+    const unsigned int ysize = yval.size();
     zx.resize (xsize, ysize);
     zy.resize (xsize, ysize);
     zxy.resize(xsize, ysize);
     std::vector<double> tmpvalues(ysize);
     for(unsigned int i=0; i<xsize; i++) {
         for(unsigned int j=0; j<ysize; j++)
-            tmpvalues[j] = zvalues(i, j);
-        CubicSpline spl(yvalues, tmpvalues, deriv_ymin, deriv_ymax);
+            tmpvalues[j] = zval(i, j);
+        CubicSpline spl(yval, tmpvalues, deriv_ymin, deriv_ymax);
         for(unsigned int j=0; j<ysize; j++)
-            spl.evalDeriv(yvalues[j], NULL, &zy(i, j));
+            spl.evalDeriv(yval[j], NULL, &zy(i, j));
     }
     tmpvalues.resize(xsize);
     for(unsigned int j=0; j<ysize; j++) {
         for(unsigned int i=0; i<xsize; i++)
-            tmpvalues[i] = zvalues(i, j);
-        CubicSpline spl(xvalues, tmpvalues, deriv_xmin, deriv_xmax);
+            tmpvalues[i] = zval(i, j);
+        CubicSpline spl(xval, tmpvalues, deriv_xmin, deriv_xmax);
         for(unsigned int i=0; i<xsize; i++)
-            spl.evalDeriv(xvalues[i], NULL, &zx(i, j));
+            spl.evalDeriv(xval[i], NULL, &zx(i, j));
     }
     for(unsigned int j=0; j<ysize; j++) {
         // if derivs at the boundary are specified, 2nd deriv must be zero
@@ -864,10 +862,10 @@ CubicSpline2d::CubicSpline2d(const std::vector<double>& xvalues, const std::vect
         } else {
             for(unsigned int i=0; i<xsize; i++)
                 tmpvalues[i] = zy(i, j);
-            CubicSpline spl(xvalues, tmpvalues,
+            CubicSpline spl(xval, tmpvalues,
                 isFinite(deriv_xmin) ? 0. : NAN, isFinite(deriv_xmax) ? 0. : NAN);
             for(unsigned int i=0; i<xsize; i++)
-                spl.evalDeriv(xvalues[i], NULL, &zxy(i, j));
+                spl.evalDeriv(xval[i], NULL, &zxy(i, j));
         }
     }
 }
@@ -1043,12 +1041,12 @@ void CubicSpline2d::evalDeriv(const double x, const double y,
 
 //------------ 2D QUINTIC SPLINE -------------//
 
-QuinticSpline2d::QuinticSpline2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+QuinticSpline2d::QuinticSpline2d(const std::vector<double>& xgrid, const std::vector<double>& ygrid,
     const Matrix<double>& zvalues, const Matrix<double>& dzdx, const Matrix<double>& dzdy) :
-    BaseInterpolator2d(xvalues, yvalues, zvalues), zx(dzdx), zy(dzdy)
+    BaseInterpolator2d(xgrid, ygrid, zvalues), zx(dzdx), zy(dzdy)
 {
-    const unsigned int xsize = xvalues.size();
-    const unsigned int ysize = yvalues.size();
+    const unsigned int xsize = xval.size();
+    const unsigned int ysize = yval.size();
     // 1. for each y do 1d quintic spline for z in x, and record d^3z/dx^3
     zxxx.resize(xsize, ysize);
     zyyy.resize(xsize, ysize);
@@ -1154,7 +1152,7 @@ std::vector<double> createExpGrid(unsigned int nnodes, double xmin, double xmax)
     std::vector<double> grid(nnodes);
     grid.front() = xmin;
     grid.back()  = xmax;
-    for(int k=1; k<nnodes-1; k++)
+    for(unsigned int k=1; k<nnodes-1; k++)
         grid[k] = exp(logmin + k*(logmax-logmin)/(nnodes-1));
     return grid;
 }

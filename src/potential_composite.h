@@ -21,6 +21,8 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "CompositeDensity"; };
 
+    unsigned int size() const { return components.size(); }
+    PtrDensity component(unsigned int index) const { return components.at(index); }
 private:
     std::vector<PtrDensity> components;
     virtual double densityCar(const coord::PosCar &pos) const;
@@ -40,6 +42,8 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "CompositePotential"; };
 
+    unsigned int size() const { return components.size(); }
+    PtrPotential component(unsigned int index) const { return components.at(index); }
 private:
     std::vector<PtrPotential> components;
     virtual void evalCyl(const coord::PosCyl &pos,

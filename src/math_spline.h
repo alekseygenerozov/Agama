@@ -100,6 +100,9 @@ public:
     /** check if the spline is initialized */
     bool isEmpty() const { return xval.size()==0; }
 
+    /** return the array of spline nodes */
+    const std::vector<double>& xvalues() const { return xval; }
+
 private:
     std::vector<double> xval;  ///< grid nodes
     std::vector<double> yval;  ///< values of function at grid nodes
@@ -146,6 +149,12 @@ public:
     /** check if the interpolator is initialized */
     bool isEmpty() const { return xval.size()==0 || yval.size()==0; }
 
+    /** return the array of grid nodes in x-coordinate */
+    const std::vector<double>& xvalues() const { return xval; }
+
+    /** return the array of grid nodes in y-coordinate */
+    const std::vector<double>& yvalues() const { return yval; }
+
 protected:
     std::vector<double> xval, yval;  ///< grid nodes in x and y directions
     Matrix<double> zval;             ///< flattened 2d array of z values
@@ -161,10 +170,10 @@ public:
         The latter is 2d array with the following indexing convention:  z[i][j] = f(x[i],y[j]).
         Values of x and y arrays should monotonically increase.
     */
-    LinearInterpolator2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+    LinearInterpolator2d(const std::vector<double>& xgrid, const std::vector<double>& ygrid,
         const Matrix<double>& zvalues) : 
-        BaseInterpolator2d(xvalues, yvalues, zvalues) {};
-    
+        BaseInterpolator2d(xgrid, ygrid, zvalues) {};
+
     /** Compute the value and/or derivatives of the interpolator;
         note that for the linear interpolator the 2nd derivatives are always zero. */
     virtual void evalDeriv(const double x, const double y,

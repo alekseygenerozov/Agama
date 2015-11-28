@@ -11,7 +11,7 @@
     model for both components. The rationale is that a reasonable guess for the total potential
     is already needed before constructing the DF for the disk component, since the latter relies
     upon plausible radially-varying epicyclic frequencies.
-    Both stages require a couple of iterations to converge.
+    Both stages require a few iterations to converge.
 */
 #include "df_halo.h"
 #include "df_disk.h"
@@ -35,33 +35,44 @@
 using potential::PtrDensity;
 using potential::PtrPotential;
 
+// various auxiliary functions for printing out information are non-essential
+// for the modelling itself; the essential workflow is contained in main().
+
 /// print the radial and angular dependence of a density profile into a text file
 void writeDensityProfile(const std::string& fileName, const potential::BaseDensity& density)
 {
+    if(density.name() == potential::DensityCylGrid::myName())
+        writeDensityCoefs(fileName, 
+        dynamic_cast<const potential::DensityCylGrid&>(density));
     if(density.name() == potential::DensitySphericalHarmonic::myName())
-        writeDensityExpCoefs(fileName,
-        static_cast<const potential::DensitySphericalHarmonic&>(density));
+        writeDensityCoefs(fileName,
+        dynamic_cast<const potential::DensitySphericalHarmonic&>(density));
 }
 
 /// print the rotation curve for a collection of potential components into a text file
-void writeRotationCurve(const std::string& fileName,
-    const std::vector<PtrPotential>& potentials)
+void writeRotationCurve(const std::string& fileName, const PtrPotential& potential)
 {
+    PtrPotential comp = potential->name()==potential::CompositeCyl::myName() ? potential :
+        PtrPotential(new potential::CompositeCyl(std::vector<PtrPotential>(1, potential)));
+    const potential::CompositeCyl& pot = dynamic_cast<const potential::CompositeCyl&>(*comp);
     std::ofstream strm(fileName.c_str());
     strm << "#radius";
-    for(unsigned int i=0; i<potentials.size(); i++)
-        strm << "\tcomp"<<i;
-    strm << "\ttotal\n";
+    for(unsigned int i=0; i<pot.size(); i++)
+        strm << "\t"<<pot.component(i)->name();
+    if(pot.size()>1)
+        strm << "\ttotal\n";
     for(double r=1./8; r<=30; r<1 ? r*=2 : r<16 ? r+=0.5 : r+=2) {
         strm << r;
         double v2sum = 0;
-        for(unsigned int i=0; i<potentials.size(); i++) {
+        for(unsigned int i=0; i<pot.size(); i++) {
             coord::GradCyl deriv;
-            potentials[i]->eval(coord::PosCyl(r, 0, 0), NULL, &deriv);
+            pot.component(i)->eval(coord::PosCyl(r, 0, 0), NULL, &deriv);
             v2sum += r*deriv.dR;
             strm << '\t' << sqrt(r*deriv.dR);
         }
-        strm << '\t' << sqrt(v2sum) << '\n';
+        if(pot.size()>1)
+            strm << '\t' << sqrt(v2sum);
+        strm << '\n';
     }
 }
 
@@ -104,65 +115,39 @@ void writeSurfaceDensityProfile(const std::string& fileName, const galaxymodel::
         strm << radii[i] << '\t' << surfDens[i] << '\t' << losvdisp[i] << '\t' << dens[i] << '\n';
 }
 
-/// assemble the density and potential parts of a single component
-PtrPotential getFullComponentPotential(const galaxymodel::BaseComponent& comp)
-{
-    PtrDensity dens  = comp.getDensity();
-    PtrPotential pot = comp.getPotential();
-    // need to combine possibly both density and potential objects to find out total density profile
-    if(dens && pot) {
-        std::cout << "*** " <<  pot->name() << " and " << dens->name() << " combined\n";
-        std::vector<PtrPotential> pcomp(2);
-        pcomp[0] = pot;
-        pcomp[1] = PtrPotential(new potential::Multipole(*dens, 0.1, 50, 100, 64));
-        return PtrPotential(new potential::CompositeCyl(pcomp));
-    } else if(dens) {
-        std::cout << "*** " << dens->name() << " only\n";
-        return PtrPotential(new potential::Multipole(*dens, 0.1, 50, 100, 64));
-    } else if(pot) {
-        std::cout << "*** " << pot->name() << " only\n";
-        return pot;
-    } else return PtrPotential();
-}
-
-void printoutPotentialInfo(const potential::BasePotential& potential)
-{
-    std::cout << "inner density slope=" << getInnerDensitySlope(potential) <<
-        ", Phi(0)="   << potential.value(coord::PosCyl(0,0,0)) <<
-        ", rho(R=1)=" << potential.density(coord::PosCyl(1,0,0)) <<
-        ", rho(z=1)=" << potential.density(coord::PosCyl(0,1,0)) <<
-        ", total mass=" << potential.totalMass() << '\n';
-}
-
 /// report progress after an iteration
 void printoutInfo(const galaxymodel::SelfConsistentModel& model, const std::string& iterationStr)
 {
-    std::vector<PtrPotential> comp(2);
-    std::cout << "Inner component: ";
-    comp[0] = getFullComponentPotential(*model.components[0]);
-    printoutPotentialInfo(*comp[0]);
-    std::cout << "Outer component: ";
-    comp[1] = getFullComponentPotential(*model.components[1]);
-    printoutPotentialInfo(*comp[1]);
-    std::cout << "Entire model: ";
-    printoutPotentialInfo(*model.totalPotential);
-    writeDensityProfile("dens_inner_iter"+iterationStr, *comp[0]);
-    writeDensityProfile("dens_outer_iter"+iterationStr, *model.components[1]->getDensity());
-    writeRotationCurve("rotcurve_iter"+iterationStr, comp);
+    const potential::BaseDensity& comp0 = *model.components[0]->getDensity();
+    const potential::BaseDensity& comp1 = *model.components[1]->getDensity();
+    std::cout << 
+        "Disk inner density slope=" << getInnerDensitySlope(comp0) <<
+        ", total mass=" << comp0.totalMass() <<
+        ", rho(R=1)=" << comp0.density(coord::PosCyl(1,0,0)) <<
+        ", rho(z=1)=" << comp0.density(coord::PosCyl(0,1,0)) << "\n"
+        "Halo inner density slope=" << getInnerDensitySlope(comp1) <<
+        ", total mass=" << comp1.totalMass() <<
+        ", rho(R=1)=" << comp1.density(coord::PosCyl(1,0,0)) <<
+        ", rho(z=1)=" << comp1.density(coord::PosCyl(0,1,0)) << "\n"
+        "Potential at origin="   << model.totalPotential->value(coord::PosCyl(0,0,0)) <<
+        ", total mass=" << model.totalPotential->totalMass() << '\n';
+    writeDensityProfile("dens_inner_iter"+iterationStr, comp0);
+    writeDensityProfile("dens_outer_iter"+iterationStr, comp1);
+    writeRotationCurve("rotcurve_iter"+iterationStr, model.totalPotential);
 }
 
 int main()
 {
     // parameters of the inner component (disk)
-    double dnorm   = 1.0;
+    double dnorm   = 1.0;   // approximately equals the total mass
     double Rdisk   = 2.0;   // scale radius of the disk
     double Hdisk   = 0.2;   // thickness of the (isothermal) disk
     double L0      = 0.0;   // angular momentum of transition from isotropic to rotating disk
     double Sigma0  = dnorm / (2*M_PI * pow_2(Rdisk));  // surface density normalization
-    double sigmaz0 = sqrt(2*M_PI * Sigma0 * Hdisk);
-    double sigmar0 = sigmaz0;
-    double sigmamin= sigmar0*0.1;
-    double Jphimin = 0.;   // lower limit on azimuthal action used for computing epicyclic freqs
+    double sigmaz0 = sqrt(2*M_PI * Sigma0 * Hdisk);    // vertical velocity dispersion scale
+    double sigmar0 = sigmaz0;     // same for radial velocity
+    double sigmamin= sigmar0*0.1; // lower bound on velocity dispersion
+    double Jphimin = 0.5;         // lower limit on azimuthal action used for computing epicyclic freqs
     const df::PseudoIsothermalParam paramInner = {dnorm,Rdisk,L0,Sigma0,sigmar0,sigmaz0,sigmamin,Jphimin};
     // parameters of disk density profile should be in rough agreement with the DF params
     const potential::DiskParam      paramPot(Sigma0, Rdisk, -Hdisk, 0, 0);
@@ -170,7 +155,7 @@ int main()
     // parameters of the outer component (halo)
     double hnorm = 5.0;   // approximately equals the total mass
     double alpha = 1.4;   // determines the inner density slope
-    double beta  = 5.0;   // same for the outer slope: rho ~ r^-(3+beta)/2
+    double beta  = 6.0;   // same for the outer slope: rho ~ r^-(3+beta)/2
     double j0    = 20.;   // determines the break radius in density profile
     double jcore = 0.0;   // inner plateau in density (disabled here)
     double ar    = 1.3;   // determines the velocity anisotropy in the inner region
@@ -185,10 +170,10 @@ int main()
 
     // set up parameters of the entire Self-Consistent Model
     galaxymodel::SelfConsistentModel model;
-    model.rminSph = 0.05;
+    model.rminSph = 0.1;
     model.rmaxSph = 500;        // range of radii for the logarithmic grid
     model.sizeRadialSph = 100;  // number of grid points in radius
-    model.lmaxAngularSph = 8;   // maximum order of angular-harmonic expansion (l_max)
+    model.lmaxAngularSph = 6;   // maximum order of angular-harmonic expansion (l_max)
     model.RminCyl = 0.2;
     model.RmaxCyl = 30;         // range of grid nodes in cylindrical radius
     model.zminCyl = 0.04;
@@ -196,38 +181,31 @@ int main()
     model.sizeRadialCyl = 30;   // number of grid nodes in cylindrical radius
     model.sizeVerticalCyl = 30; // number of grid nodes in vertical (z) direction
     int iteration=0;
-    std::string iterationStr("0");
 
     // First stage: we use a 'dead' (fixed) density profile for the inner (disk) component,
     // without specifying its DF, and a 'live' outer component specified by its DF.
     // The inner component itself is represented with a DiskAnsatz potential and
     // DiskResidual density profile, both of them 'deadweight'
-    potential::DiskDensity ppp(paramPot);
     model.components.push_back(galaxymodel::PtrComponent(
         new galaxymodel::ComponentStatic(
-        PtrDensity(new potential::DiskResidual(paramPot)), false /*not disk-like*/,
-        PtrPotential(new potential::DiskAnsatz(paramPot)))));
+        PtrDensity(new potential::DiskDensity(paramPot)), true /*disk-like*/)));
     model.components.push_back(galaxymodel::PtrComponent(
         new galaxymodel::ComponentWithSpheroidalDF(
         dfOuter, PtrDensity(new potential::Plummer(dfOuter->totalMass(), 10.0)),
-        0.2, 400., 50, model.lmaxAngularSph)));
+        0.2, 500., 40, model.lmaxAngularSph)));
 
     // do a few iterations
     for(int i=0; i<5; i++) {
-        std::cout << "Starting iteration #" << iteration << '\n';
+        std::cout << "Starting iteration #" << ++iteration << '\n';
         doIteration(model);
-        printoutInfo(model, iterationStr);
-        ++iteration;
-        iterationStr = utils::convertToString(iteration);
+        printoutInfo(model, utils::convertToString(iteration));
     }
-    writeNbodyDensity("dens_outer_iter"+iterationStr,
-        *model.components[1]->getDensity());
-    
+
     // now that we have a reasonable guess for the total potential,
     // we may initialize the DF of the disk component
     df::PtrDistributionFunction dfInner(new df::PseudoIsothermal(paramInner,
         potential::InterpEpicycleFreqs(*model.totalPotential)));
-    
+
     // we can compute the masses even though we don't know the density profile yet
     std::cout << "**** STARTING TWO-COMPONENT MODELLING ****\n"
         "Masses are " << dfInner->totalMass() << " and " << dfOuter->totalMass() << "\n";
@@ -236,21 +214,18 @@ int main()
     model.components[0] = galaxymodel::PtrComponent(
         new galaxymodel::ComponentWithDisklikeDF(
         dfInner, PtrDensity(new potential::DiskDensity(paramPot)),
-        math::createNonuniformGrid(20, Rdisk*0.1, Rdisk*10, true),
-        math::createNonuniformGrid(20, Hdisk*0.1, Hdisk*10, true) ));
+        math::createNonuniformGrid(15, Rdisk*0.1, Rdisk*10, true),
+        math::createNonuniformGrid(12, Hdisk*0.1, Hdisk*10, true) ));
 
     for(int i=0; i<5; i++) {
-        std::cout << "Starting iteration #" << iteration << '\n';
+        std::cout << "Starting iteration #" << ++iteration << '\n';
         doIteration(model);
-        printoutInfo(model, iterationStr);
-        //writeSurfaceDensityProfile("model_inner_iter"+iterationStr,
-        //    galaxymodel::GalaxyModel(*model.totalPotential, *model.actionFinder, *dfInner));
-        ++iteration;
-        iterationStr = utils::convertToString(iteration);
+        printoutInfo(model, utils::convertToString(iteration));
     }
 
     // export model to an N-body snapshot
     std::cout << "Creating an N-body representation of the model\n";
+    std::string iterationStr(utils::convertToString(iteration));
 
     // first create a representation of density profiles without velocities
     // (just for demonstration), by drawing samples from the density distribution
@@ -259,6 +234,8 @@ int main()
     writeNbodyDensity("dens_outer_iter"+iterationStr,
         *model.components[1]->getDensity());
     writeNbodyDensity("dens_total", *model.totalPotential);
+    writeSurfaceDensityProfile("model_inner_iter"+iterationStr,
+        galaxymodel::GalaxyModel(*model.totalPotential, *model.actionFinder, *dfInner));
 
     // now create genuinely self-consistent models of both components,
     // by drawing positions and velocities from the DF in the given (self-consistent) potential

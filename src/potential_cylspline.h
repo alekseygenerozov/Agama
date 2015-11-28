@@ -90,8 +90,12 @@ public:
     virtual potential::SymmetryType symmetry() const { return potential::ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensityCylGrid"; };
+
+    /** retrieve the values of density at the nodes of 2d grid used for interpolation */
+    void getCoefs(std::vector<double> &gridR, std::vector<double>& gridz, 
+        math::Matrix<double> &densityValues) const;
 private:
-    math::LinearInterpolator2d grid;  ///< spline for log(rho(R,z)+valadd)
+    math::CubicSpline2d grid;  ///< spline for log(rho(R,z)+valadd)
     double valadd;  ///< value added to the source density before taking its log (possibly zero)
 
     virtual double densityCar(const coord::PosCar &pos) const {

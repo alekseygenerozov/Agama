@@ -428,7 +428,9 @@ void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin,
         double epsin = 5.0/pow(Ncoefs_radial*1.0,3.0);
         Rmin  = getRadiusByMass(srcdensity, totalmass*epsin*0.1);
     }
-    std::vector<double> radii = math::createNonuniformGrid(Ncoefs_radial+1, Rmin, Rmax, true);
+    std::vector<double> radii = //math::createNonuniformGrid(Ncoefs_radial+1, Rmin, Rmax, true);
+    math::createExpGrid(Ncoefs_radial, Rmin, Rmax);
+    radii.insert(radii.begin(),0);
     std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);  // SHE coefficients to pass to initspline routine
     for(unsigned int i=0; i<=Ncoefs_radial; i++)
         coefsArray[i].assign(pow_2(1+Ncoefs_angular), 0);
@@ -468,7 +470,7 @@ void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin,
             for(size_t c=0; c<=Ncoefs_radial; c++) {
                 coefsArray[c][l*(l+1) + m] = ((c>0 ? coefsInner[c]*pow(radii[c], -l-1.0) : 0) + coefsOuter[c]*pow(radii[c], l*1.0)) *
                     -4*M_PI/(2*l+1) * (m==0 ? 1 : M_SQRT2);
-#ifdef VERBOSE_REPORT
+#if 0 //#ifdef VERBOSE_REPORT
                 std::cout << l<<'\t' << radii[c] << '\t' << 
                 (sqrt(2*l+1)*coefsArray[c][l*(l+1) + m]/(m==0 ? 1 : M_SQRT2)) << '\t' << 
                 (4*M_PI*sqrt(2*l+1)*coefsInner[c]*pow(radii[c],-l-1.0)/(m==0 ? 1 : M_SQRT2)) << '\t' << 
@@ -1041,28 +1043,12 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
     const BaseDensity& srcDensity, double rmin, double rmax):
     BaseDensity(), SphericalHarmonicCoefSet(numCoefsAngular)
 {
-    if(numCoefsAngular%2 != 0)
-        throw std::invalid_argument("DensitySphericalHarmonic: numCoefsAngular must be even");
     if(!isAxisymmetric(srcDensity))
         throw std::invalid_argument("DensitySphericalHarmonic is only apllicable to axisymmetric models");
-
-    // find inner/outermost radius if they were not provided
-    if(rmin<0 || rmax<0 || (rmax>0 && rmax<=rmin*numCoefsRadial))
+    if(numCoefsAngular%2 != 0)
+        throw std::invalid_argument("DensitySphericalHarmonic: numCoefsAngular must be even");
+    if(rmin<0 || rmax<=rmin)
         throw std::invalid_argument("DensitySphericalHarmonic: invalid choice of min/max grid radii");
-    double totMass = rmin==0 || rmax==0 ? srcDensity.totalMass() : 0;
-    if(!math::isFinite(totMass))
-        throw std::invalid_argument("DensitySphericalHarmonic: source density model has infinite mass");
-    // the algo for automatic determination rmin/max below is fairly arbitrary
-    if(rmax==0) {
-        // how far should be the outer node (leave out this fraction of mass)
-        double epsOut = 0.1/sqrt(pow_2(numCoefsRadial)+0.01*pow(numCoefsRadial*1.0,4.0));
-        rmax = getRadiusByMass(srcDensity, totMass*(1-epsOut));
-    }
-    if(rmin==0) {
-        // how close can we get to zero, in terms of innermost grid node
-        double epsIn = 5.0/pow(numCoefsRadial*1.0,3.0);
-        rmin  = getRadiusByMass(srcDensity, totMass*epsIn*0.1);
-    }
 
     //  create grid in radius
     std::vector<double> gridRadii = math::createExpGrid(numCoefsRadial, rmin, rmax);
@@ -1132,60 +1118,50 @@ void DensitySphericalHarmonic::initSpline(const std::vector<double> &gridRadii,
     const std::vector< std::vector<double> > &rhol)
 {
     unsigned int numCoefsRadial = gridRadii.size();
-    //  establish splines for rho_l(r)
-    splines.resize(lmax+1);
-    // We also check (and correct if necessary) the logarithmic slopes of multipole components
+    assert((int)rhol.size() == lmax+1);
+
+    // We check (and correct if necessary) the logarithmic slopes of multipole components
     // at the innermost and outermost grid radii, to ensure correctly behaving extrapolation.
     // slope = (1/rho) d(rho)/d(logr), is usually negative (at least at large radii);
     // put constraints on min inner and max outer slopes:
-    const double min_deriv_inner=-2.8, max_deriv_outer=-2.2;
-    const double max_deriv_inner=20.0, min_deriv_outer=-20.;
+    const double minDerivInner=-2.8, maxDerivOuter=-2.2;
+    const double maxDerivInner=20.0, minDerivOuter=-20.;
     // Note that the inner slope less than -2 leads to a divergent potential at origin,
     // but the enclosed mass is still finite if slope is greater than -3;
     // similarly, outer slope greater than -3 leads to a divergent total mass,
     // but the potential tends to a finite limit as long as the slope is less than -2.
     // Both these 'dangerous' semi-infinite regimes are allowed here, but likely may result
     // in problems elsewhere.
-    // The l>0 components must not have steeper/shallower slopes than the l=0 component,
-    // thus we store the slopes for the l=0 component (ensuring that they do not exceed
-    // the above defined limits), and then apply the same constraints on other components.
-    double deriv_inner_l0 = min_deriv_inner, deriv_outer_l0 = max_deriv_outer;
+    // The l>0 components must not have steeper/shallower slopes than the l=0 component.
+
+    splines.resize(lmax+1);
+    innerSlope.assign(lmax+1, minDerivInner);
+    outerSlope.assign(lmax+1, maxDerivOuter);
     for(int l=0; l<=lmax; l+=lstep) {
         //  determine asymptotic slopes of density profile at large and small r
-        double deriv_inner = log(rhol[l][1] / rhol[l][0]) / log(gridRadii[1] / gridRadii[0]);
-        double deriv_outer = log(rhol[l][numCoefsRadial-1] / rhol[l][numCoefsRadial-2]) /
+        double derivInner = log(rhol[l][1] / rhol[l][0]) / log(gridRadii[1] / gridRadii[0]);
+        double derivOuter = log(rhol[l][numCoefsRadial-1] / rhol[l][numCoefsRadial-2]) /
             log(gridRadii[numCoefsRadial-1] / gridRadii[numCoefsRadial-2]);
-        if( deriv_inner > max_deriv_inner)
-            deriv_inner = max_deriv_inner;
-        if( deriv_outer < min_deriv_outer)
-            deriv_outer = min_deriv_outer;
-        if(!math::isFinite(deriv_inner) || deriv_inner < deriv_inner_l0)
-            deriv_inner = deriv_inner_l0;
-        if(!math::isFinite(deriv_outer) || deriv_outer > deriv_outer_l0)
-            deriv_outer = deriv_outer_l0;
+        if( derivInner > maxDerivInner)
+            derivInner = maxDerivInner;
+        if( derivOuter < minDerivOuter)
+            derivOuter = minDerivOuter;
         if(rhol[l].front() == 0)
-            deriv_inner = 0;
+            derivInner = 0;
         if(rhol[l].back() == 0)
-            deriv_outer = 0;
-        if(l==0) {
-            // further ensure that if the innermost or outermost density values are negative,
-            // then the extrapolated slopes are forced to correspond to finite models
-            // in the sense described above, i.e. have a more conservative limit
-            // (DUBIOUS WHETHER IT's USEFUL AT ALL!)
-            if(rhol[0].front()<0)
-                deriv_inner = fmax(deriv_inner, -1.8);
-            if(rhol[0].back()<0)
-                deriv_outer = fmin(deriv_outer, -3.2);
-            // store the slopes for l=0 components, to be used as bounds for other l
-            deriv_inner_l0 = deriv_inner;
-            deriv_outer_l0 = deriv_outer;
-        }
+            derivOuter = 0;
+        if(!math::isFinite(derivInner) || derivInner < innerSlope[0])
+            derivInner = innerSlope[0];  // works even for l==0 since we have set it up in advance
+        if(!math::isFinite(derivOuter) || derivOuter > outerSlope[0])
+            derivOuter = outerSlope[0];
+        innerSlope[l] = derivInner;
+        outerSlope[l] = derivOuter;
 #ifdef VERBOSE_REPORT
-        std::cout << "l="<<l<<", inner slope="<<deriv_inner<<", outer="<<deriv_outer<<'\n';
+        //std::cout << "l="<<l<<", inner slope="<<derivInner<<", outer="<<derivOuter<<'\n';
 #endif
         splines[l] = math::CubicSpline(gridRadii, rhol[l], 
-            deriv_inner / gridRadii.front() * rhol[l].front(),
-            deriv_outer / gridRadii.back()  * rhol[l].back());
+            derivInner / gridRadii.front() * rhol[l].front(),
+            derivOuter / gridRadii.back()  * rhol[l].back());
     }
 }
 
@@ -1194,34 +1170,12 @@ void DensitySphericalHarmonic::getCoefs(
 {
     radii = splines[0].xvalues();
     coefsArray.resize(lmax+1);
-    for(unsigned int l=0; l<=lmax; l++) {
+    for(int l=0; l<=lmax; l++) {
         coefsArray[l].assign(radii.size(), 0);
         if(!splines[l].isEmpty())
             for(unsigned int i=0; i<radii.size(); i++)
                 coefsArray[l][i] = splines[l](radii[i]);
     }        
-}
-
-double DensitySphericalHarmonic::innerSlope(int l) const
-{
-    double val, der;
-    if(l>lmax || splines[l].isEmpty())
-        return 0;
-    else {
-        splines[l].evalDeriv(splines[l].xmin(), &val, &der);
-        return val==0 ? 0 : -splines[l].xmin()*der/val;
-    }
-}
-
-double DensitySphericalHarmonic::outerSlope(int l) const
-{
-    double val, der;
-    if(l>lmax || splines[l].isEmpty())
-        return 0;
-    else {
-        splines[l].evalDeriv(splines[l].xmax(), &val, &der);
-        return val==0 ? 0 : -splines[l].xmax()*der/val;
-    }
 }
 
 double DensitySphericalHarmonic::rho_l(double r, int l) const
@@ -1230,9 +1184,9 @@ double DensitySphericalHarmonic::rho_l(double r, int l) const
         return 0;
     double rmin=splines[0].xmin(), rmax=splines[0].xmax();
     if(r<rmin || r>rmax) {
-        double val, der, r0 = r<rmin ? rmin : rmax;
-        splines[l].evalDeriv(r0, &val, &der);
-        return val==0 ? 0 : val * pow(r/r0, r0*der/val);
+        double r0  = r<rmin ? rmin : rmax;
+        double val = splines[l](r0);
+        return val==0 ? 0 : val * pow(r/r0, r<rmin ? innerSlope[l] : outerSlope[l]);
     }
     return splines[l](r);
 }
@@ -1296,24 +1250,20 @@ double DensitySphericalHarmonic::integrate(double r1, double r2, int l, int n, d
     double rmin=splines[0].xmin(), rmax=splines[0].xmax();
     double result=0;
     if(r1<rmin) {
-        double val_rmin, der_rmin;
-        splines[l].evalDeriv(rmin, &val_rmin, &der_rmin);
+        double val_rmin = splines[l](rmin);
         if(val_rmin!=0) {
-            double gamma = -rmin * der_rmin / val_rmin;  // inner density slope
             double rr = fmin(rmin, r2);
-            result += val_rmin * pow(rmin/r0, gamma) * monomialInt(r1, rr, n-gamma, r0);
+            result += val_rmin * pow(r0/rmin, innerSlope[l]) * monomialInt(r1, rr, n+innerSlope[l], r0);
         }
         if(r2<=rmin)
             return result;
         r1=rmin;
     }
     if(r2>rmax) {
-        double val_rmax, der_rmax;
-        splines[l].evalDeriv(rmax, &val_rmax, &der_rmax);
+        double val_rmax = splines[l](rmax);
         if(val_rmax!=0) {
-            double gamma = -rmax * der_rmax / val_rmax;  // outer density slope
             double rr = fmax(rmax, r1);
-            result += val_rmax * pow(rmax/r0, gamma) * monomialInt(rr, r2, n-gamma, r0);
+            result += val_rmax * pow(r0/rmax, outerSlope[l]) * monomialInt(rr, r2, n+outerSlope[l], r0);
         }
         if(r1>=rmax)
             return result;

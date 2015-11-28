@@ -118,6 +118,16 @@ public:
     virtual unsigned int numValues() const { return 1; }
 };
 
+class test9: public math::IFunctionNoDeriv{
+    double q2, gamma2;
+public:
+    test9(double q, double gamma): q2(q*q), gamma2(gamma/2) {}
+    virtual double value(double costheta) const{
+        return pow(1-pow_2(costheta)*(1-1/q2), -gamma2);
+    }
+};
+
+
 int main()
 {
     std::cout << std::setprecision(10);
@@ -231,6 +241,7 @@ int main()
         " is "<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
     ok &= fabs(yresult[0]-c0) * fabs(yresult[1]-c1) * fabs(yresult[2]-c2) < 1e-10;
 
+#if 0
     numEval=0;
     double ymin[] = {-4,-4,-2};
     double ymax[] = {+4,+4,+2};
@@ -251,7 +262,6 @@ int main()
             fout << points(i,0) << "\t" << points(i,1) << "\t" << points(i,2) << "\n";
     }
 
-#if 0
     for(double p=-40; p<=40; p+=1.77) {
         test_powerlaw tpl(p);
         for(int n=8; n<=32; n*=2) {
@@ -266,6 +276,17 @@ int main()
         }
     }
 #endif
+    // test accuracy of fixed-order GL quadrature
+    test9 test9fnc1(0.25, 1.);
+    test9 test9fnc2(0.5, 2.);
+    test9 test9fnc3(0.5, 4.);
+    double exact1 = math::integrateAdaptive(test9fnc1, -1, 1, 1e-14);
+    double exact2 = math::integrateAdaptive(test9fnc2, -1, 1, 1e-14);
+    double exact3 = math::integrateAdaptive(test9fnc3, -1, 1, 1e-14);
+    for(int l=0; l<32; l+=1) {
+        std::cout << l << "\t" << (math::integrateGL(test9fnc1, -1, 1, l+1)-exact1) << '\t' <<
+        (math::integrateGL(test9fnc2, -1, 1, l+1)-exact2) << '\t' << (math::integrateGL(test9fnc3, -1, 1, l+1)-exact3) << '\n';
+    }
 
     if(ok)
         std::cout << "ALL TESTS PASSED\n";

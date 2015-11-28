@@ -423,10 +423,12 @@ private:
 }  // namespace potential
 
 namespace math{
-/// pointer to a one-dimensional function
+/// pointer to a function class
 #ifdef HAVE_CXX11
 typedef std::shared_ptr<const IFunction> PtrFunction;
+typedef std::shared_ptr<const IFunctionNdim> PtrFunctionNdim;
 #else
 typedef std::tr1::shared_ptr<const IFunction> PtrFunction;
+typedef std::tr1::shared_ptr<const IFunctionNdim> PtrFunctionNdim;
 #endif
 }

@@ -46,8 +46,12 @@ static double escapeVel(const coord::PosCyl& pos, const potential::BasePotential
         return 0;
     const double Phi_inf = 0;   // assume that the potential is zero at infinity
     const double vesc = sqrt(2. * (Phi_inf - poten.value(pos)));
-    if(!math::isFinite(vesc))
+    if(!math::isFinite(vesc)) {
+#ifdef VERBOSE_REPORT
+        std::cout << "Error in escape velocity at "<<pos<<", potential="<<poten.value(pos)<<"\n";
+#endif
         throw std::invalid_argument("Error in computing moments: escape velocity is undetermined");
+    }
     return vesc;
 }
 
@@ -97,23 +101,23 @@ public:
     /** compute one or more moments of distribution function. */
     virtual void eval(const double vars[], double values[]) const
     {
-        // 1. get the position/velocity components in cylindrical coordinates
-        double jac;   // jacobian of variable transformation
-        coord::PosVelCyl posvel = unscaleVars(vars, &jac);
-        if(jac == 0) {  // we can't compute actions, but pretend that DF*jac is zero
-            outputValues(posvel, 0, values);
-            return;
-        }
-
-        double dfval;
-        actions::Actions acts(NAN, NAN, NAN);
+        double dfval;  // value of distribution function
+        double jac;    // jacobian of variable transformation
+        coord::PosVelCyl posvel;
         try{
+            // 1. get the position/velocity components in cylindrical coordinates
+            posvel = unscaleVars(vars, &jac);
+            if(jac == 0) {  // we can't compute actions, but pretend that DF*jac is zero
+                outputValues(posvel, 0, values);
+                return;
+            }
+
             // 2. determine the actions
-            acts = model.actFinder.actions(posvel);
+            actions::Actions acts = model.actFinder.actions(posvel);
 
             // 3. compute the value of distribution function times the jacobian
             dfval = model.distrFunc.value(acts) * jac;
-            
+
             if(!math::isFinite(dfval))
                 throw std::runtime_error("DF is not finite");
         }
@@ -344,10 +348,10 @@ void computeMoments(const GalaxyModel& model,
 
     // perform the multidimensional integration using a suitable helper function, 
     // depending on the requested combination of output arguments
-    const DFIntegrandNdim* fnc = 
+    math::PtrFunctionNdim fnc (
         velocitySecondMoment!=NULL ? new DFIntegrandAtPointFirstAndSecondMoment(model, point) :
         velocityFirstMoment !=NULL ? new DFIntegrandAtPointFirstMoment(model, point) :
-        new DFIntegrandAtPoint(model, point);
+        new DFIntegrandAtPoint(model, point) );
     math::integrateNdim(*fnc, xlower, xupper, reqRelError, maxNumEval, result, error, &numEval);
 
     // store the results

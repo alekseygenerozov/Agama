@@ -221,9 +221,11 @@ private:
 /** Spherical-harmonic expansion of density with coefficients being spline functions of radius */
 class DensitySphericalHarmonic: public BaseDensity, public SphericalHarmonicCoefSet {
 public:
+    /** construct the object from the provided density model and grid parameters */
     DensitySphericalHarmonic(unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
         const BaseDensity& density, double Rmin=0, double Rmax=0);
 
+    /** construct the object from stored coefficients */
     DensitySphericalHarmonic(const std::vector<double> &gridRadii,
         const std::vector< std::vector<double> > &coefs);
 
@@ -246,17 +248,15 @@ public:
     void getCoefs(std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const;
 
 private:
-    std::vector<math::CubicSpline> splines;  ///< radial dependence of each sph.-harm. expansion term
+    /// radial dependence of each sph.-harm. expansion term
+    std::vector<math::CubicSpline> splines;
 
+    /// logarithmic density slopes 's' at small and large radii (rho ~ r^s)
+    std::vector<double> innerSlope, outerSlope;
+
+    /** construct the array of splines from the provided values at grid nodes */
     void initSpline(const std::vector<double> &gridRadii,
         const std::vector< std::vector<double> > &coefs);
-
-    /** return the negative logarithmic slope \f$ -d\log\rho_l(r) / d\log r \f$ 
-        of l-th expansion coefficient as r -> 0 */
-    double innerSlope(int l) const;
-
-    /** return the slope of l-th coefficient as r -> infinity */
-    double outerSlope(int l) const;
 
     /** evaluate density at the position specified in cartesian coordinates */
     virtual double densityCar(const coord::PosCar &pos) const {

@@ -84,6 +84,8 @@ double BesselIntegral::value(double a, double b, double c) const
     }
 }
 
+// ------- 2d interpolation of axisymmetric density ------- //
+
 DensityCylGrid::DensityCylGrid(const std::vector<double>& gridR, const std::vector<double>& gridz,
     const BaseDensity& srcDensity)
 {
@@ -92,6 +94,8 @@ DensityCylGrid::DensityCylGrid(const std::vector<double>& gridR, const std::vect
         throw std::invalid_argument("Incorrect grid size in DensityCylGrid");
     math::Matrix<double> val(sizeR, sizez);
     int numPoints = sizeR * sizez;
+    // the intended application of this class is for storing and interpolating the density
+    // which is expensive to compute - that's why the loop below is parallelized
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
@@ -113,7 +117,7 @@ DensityCylGrid::DensityCylGrid(const std::vector<double>& gridR, const std::vect
         val(n % sizeR, n / sizeR) = log(val(n % sizeR, n / sizeR) + valadd);
     if(valadd>0)  // store exact value to be subtracted from the interpolated one
         valadd = exp(log(valadd));
-    grid = math::LinearInterpolator2d(gridR, gridz, val);
+    grid = math::CubicSpline2d(gridR, gridz, val);
 }
 
 double DensityCylGrid::densityCyl(const coord::PosCyl &point) const {
@@ -123,7 +127,18 @@ double DensityCylGrid::densityCyl(const coord::PosCyl &point) const {
     else
         return 0;
 }
-    
+
+void DensityCylGrid::getCoefs(std::vector<double> &gridR, std::vector<double>& gridz, 
+    math::Matrix<double> &densityValues) const
+{
+    gridR = grid.xvalues();
+    gridz = grid.yvalues();
+    densityValues.resize(gridR.size(), gridz.size());
+    for(unsigned int iR=0; iR<gridR.size(); iR++)
+        for(unsigned int iz=0; iz<gridz.size(); iz++)
+            densityValues(iR, iz) = densityCyl(coord::PosCyl(gridR[iR], gridz[iz], 0));
+}
+
 //-------- Auxiliary direct-integration potential --------//
 
 /** Direct computation of potential for any density profile, using double integration over space.
@@ -657,6 +672,15 @@ void CylSplineExp::evalCyl(const coord::PosCyl &pos,
     if(pos.R>=grid_R.back() || fabs(pos.z)>=grid_z.back()) 
     {   // fallback mechanism for extrapolation beyond grid definition region
         double Z2 = pow_2(pos.z), R2 = pow_2(pos.R), r2 = R2+Z2;
+        if(r2==INFINITY) {  // special, honorary treatment...
+            if(potential!=NULL)
+                *potential = 0;
+            if(grad!=NULL)
+                grad->dR = grad->dz = grad->dphi = 0;
+            if(hess!=NULL)
+                hess->dR2 = hess->dz2 = hess->dphi2 = hess->dRdz = hess->dRdphi = hess->dzdphi = 0;
+            return;
+        }
         double R2r2 = R2/r2, Z2r2 = Z2/r2;
         double cos2phi = cos(2*pos.phi);
         double sin2phi = sin(2*pos.phi);

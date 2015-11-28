@@ -1,20 +1,10 @@
 /*
-
-galpot.cc 
-
-C++ code 
-
 Copyright Walter Dehnen, 1996-2004 
 e-mail:   walter.dehnen@astro.le.ac.uk 
 address:  Department of Physics and Astronomy, University of Leicester 
           University Road, Leicester LE1 7RH, United Kingdom 
 
-Modifications by Eugene Vasiliev, June 2015 
-
 ------------------------------------------------------------------------
-
-source code for class GalaxyPotential and dependencies 
-
 Version 0.0    15. July      1997 
 Version 0.1    24. March     1998 
 Version 0.2    22. September 1998 
@@ -25,7 +15,11 @@ Version 0.6    05. February  2003
 Version 0.7    23. September 2004
 Version 0.8    24. June      2005
 
-----------------------------------------------------------------------*/
+----------------------------------------------------------------------
+Modifications by Eugene Vasiliev, 2015 
+(so extensive that almost nothing of the original code remains)
+
+*/
 #include "potential_galpot.h"
 #include "potential_composite.h"
 #include "potential_sphharm.h"
@@ -171,16 +165,6 @@ math::PtrFunction createVerticalDiskFnc(const DiskParam& params) {
         return math::PtrFunction(new DiskDensityVerticalThin());
 }
 
-double DiskResidual::densityCyl(const coord::PosCyl &pos) const
-{
-    if(pos.z==0) return 0;
-    double h, H, Hp, F, f, fp, fpp, r=hypot(pos.R, pos.z);
-    verticalFnc->evalDeriv(pos.z, &H, &Hp, &h);
-    radialFnc  ->evalDeriv(r, &f, &fp, &fpp);
-    radialFnc  ->evalDeriv(pos.R, &F);
-    return (F-f)*h - 2*fp*(H+pos.z*Hp)/r - fpp*H;
-}
-
 double DiskDensity::densityCyl(const coord::PosCyl &pos) const
 {
     double h;
@@ -233,8 +217,8 @@ SpheroidDensity::SpheroidDensity (const SphrParam &_params) :
         throw std::invalid_argument("Spheroid axis ratio cannot be <=0");
     if(params.outerCutoffRadius<0)
         throw std::invalid_argument("Spheroid outer cutoff radius cannot be <0");
-    if(params.gamma<0 || params.gamma>=3)
-        throw std::invalid_argument("Spheroid inner slope gamma must be between 0 and 3");
+    if(params.gamma>=3)
+        throw std::invalid_argument("Spheroid inner slope gamma must be less than 3");
     if(params.beta<=2 && params.outerCutoffRadius==0)
         throw std::invalid_argument("Spheroid outer slope beta must be greater than 2, "
             "or a positive cutoff radius must be provided");
@@ -262,29 +246,56 @@ double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
 
 //----- multipole potential -----//
 
-Multipole::Multipole(const BaseDensity& source_density,
-                     double Rmin, double Rmax,
-                     int gridSizeR, int numCoefsAngular)
+/** helper function to determine the coefficients for potential extrapolation:
+    assuming that 
+        Phi(r) = W * (r/r0)^v + U * (r/r0)^s              if s!=v, or
+        Phi(r) = W * (r/r0)^v + U * (r/r0)^s * ln(r/r0)   if s==v,
+    compute the values of U and W from the following identities at r=r0:
+        Phi            = -(P1 + P2)
+        d Phi / d ln r = -(P1 * v - P2 * (v+1) )
+*/
+static void computeUW(double s, double v, double P1, double P2, double& U, double& W)
 {
-    if(gridSizeR<=2 || numCoefsAngular<0 || Rmin<=0 || Rmax<=Rmin)
+    if(s != v) {
+        U = (2*v+1) / (s-v) * P2;
+        W = (s+v+1) / (v-s) * P2 - P1;
+    } else {
+        U = (2*v+1) * P2;
+        W = -(P1+P2);
+    }
+}
+
+Multipole::Multipole(const BaseDensity& sourceDensity,
+    double rmin, double rmax, int gridSizeR, int numCoefsAngular)
+{
+    if(gridSizeR<=2 || numCoefsAngular<0 || rmin<=0 || rmax<=rmin)
         throw std::invalid_argument("Error in Multipole expansion: invalid grid parameters");
-    if(!isAxisymmetric(source_density))
+    if(!isAxisymmetric(sourceDensity))
         throw std::invalid_argument("Error in Multipole expansion: source density must be axisymmetric");
     numCoefsAngular = std::min<int>(numCoefsAngular, MAX_NCOEFS_ANGULAR-1);
     const int numMultipoles = numCoefsAngular/2+1;   // number of multipoles (only even-l terms are used)
     const int gridSizeC     = 2*numCoefsAngular+1;   // number of grid points for theta in [0,pi/2]
 
     // set up radial grid
-    std::vector<double> r = math::createExpGrid(gridSizeR, Rmin, Rmax);
+    std::vector<double> r = math::createExpGrid(gridSizeR, rmin, rmax);
+    // add extra cells at the upper end:
+    // the potential is computed and the spline initialized over the enlarged grid,
+    // but the coefficients for extrapolation to large r are computed at the original rmax,
+    // i.e. the original upper boundary, and extrapolation will be used for all r>{original rmax};
+    // this decreases the influence of boundary effects in the 2d spline
+    unsigned int imin = 0, imax=gridSizeR-1;
+    r.push_back(rmax*1.1);
+    r.push_back(rmax*1.2);
+    gridSizeR = r.size();
     
     // check if the input density is of a spherical-harmonic type already...
-    bool useExistingSphHarm = source_density.name() == DensitySphericalHarmonic::myName();
+    bool useExistingSphHarm = sourceDensity.name() == DensitySphericalHarmonic::myName();
     // ...and construct a fresh spherical-harmonic expansion of density if it wasn't such.
     PtrDensity mySphHarm(useExistingSphHarm ? NULL :
-        new DensitySphericalHarmonic(gridSizeR*2, numCoefsAngular, source_density, Rmin, Rmax));
+        new DensitySphericalHarmonic(gridSizeR, numCoefsAngular, sourceDensity, r.front(), r.back()));
     // for convenience, this reference points to either the original or internally created SH density
-    const DensitySphericalHarmonic& densh = static_cast<const DensitySphericalHarmonic&>(
-        useExistingSphHarm ? source_density : *mySphHarm);
+    const DensitySphericalHarmonic& densh = dynamic_cast<const DensitySphericalHarmonic&>(
+        useExistingSphHarm ? sourceDensity : *mySphHarm);
 
     // accumulate the 'inner' (Pint) and 'outer' (Pext) parts of the potential at radial grid points:
     // Pint_l(r) = r^{-l-1} \int_0^r \rho_l(s) s^{l+2} ds,
@@ -298,23 +309,28 @@ Multipole::Multipole(const BaseDensity& source_density,
     // Finally, \Phi_l(r) is computed as -4\pi ( Pint_l(r) + Pext_l(r) ), and similarly its derivative.
     math::Matrix<double> Phil(gridSizeR, numMultipoles), dPhil(gridSizeR, numMultipoles);
     std::vector<double>  Pint(gridSizeR), Pext(gridSizeR);
-    innerSlopes.assign(numMultipoles, 0);
-    outerSlopes.assign(numMultipoles, 0);
-    innerValues.assign(numMultipoles, 0);
-    outerValues.assign(numMultipoles, 0);
+    innerSlope.assign(numMultipoles, 0);
+    innerCoefU.assign(numMultipoles, 0);
+    innerCoefW.assign(numMultipoles, 0);
+    outerSlope.assign(numMultipoles, 0);
+    outerCoefU.assign(numMultipoles, 0);
+    outerCoefW.assign(numMultipoles, 0);
 
     for(int l=0; l<=numCoefsAngular; l+=2) {
         // inner part
-        Pint[0] = densh.integrate(0, Rmin, l, l+2, Rmin) * Rmin;
+        Pint[0] = densh.integrate(0, r[0], l, l+2, r[0]) * r[0];
+        if(!math::isFinite(Pint[0]))
+            throw std::runtime_error("Error in Multipole: mass is divergent at origin");
         for(int k=1; k<gridSizeR; k++) {
             double s = densh.integrate(r[k-1], r[k], l, l+2, r[k]);
             Pint[k] = Pint[k-1] * math::powInt(r[k-1]/r[k], l+1) + s * r[k];
         }
 
         // outer part
-        Pext[gridSizeR-1] = densh.integrate(Rmax, INFINITY, l, 1-l, Rmax) * Rmax;
+        Pext[gridSizeR-1] = densh.integrate(r[gridSizeR-1], INFINITY,
+            l, 1-l, r[gridSizeR-1]) * r[gridSizeR-1];
         if(!math::isFinite(Pext[gridSizeR-1]))
-            Pext[gridSizeR-1] = 0;
+            throw std::runtime_error("Error in Multipole: potential is divergent at infinity");
         for(int k=gridSizeR-2; k>=0; k--) {
             double s = densh.integrate(r[k], r[k+1], l, 1-l, r[k]);
             Pext[k] = Pext[k+1] * math::powInt(r[k]/r[k+1], l) + s * r[k];
@@ -325,73 +341,55 @@ Multipole::Multipole(const BaseDensity& source_density,
         for(int k=0; k<gridSizeR; k++) {
             Phil (k, l/2) = -4*M_PI * (Pint[k] + Pext[k]);           // Phi_l
             dPhil(k, l/2) =  4*M_PI * ( (l+1)*Pint[k] - l*Pext[k]);  // dPhi_l/dlogr
+            if(!math::isFinite(Phil(k,l/2)))
+                throw std::runtime_error("Error in Multipole: bad value of potential");
 #ifdef VERBOSE_REPORT
-            //std::cout << l << '\t' << r[k] << '\t' << Phil(k,l/2) << '\t' <<
+            //std::cout << l << '\t' << r[k] << '\t' << Phil(k,l/2) << '\t' << 
             //(4*M_PI*Pint[k]) << '\t' << (4*M_PI*Pext[k]) << '\n';
 #endif
         }
 
-        // store the values and derivatives of multipole terms
-        // used for extrapolating to large and small radii (beyond the grid definition region)
-        if(l==0) {
-            // determine the central value of potential
-            innerValues[0] = 4*M_PI * (densh.integrate(0, r[0], 0, 1) - Pint[0]);
-            Phi0 = Phil(0, 0) - innerValues[0];   // innerValues[0] is Phi(rmin)-Phi(0)
-            // if the central value is finite, we derive the value of inner density slope gamma
-            // assuming that Phi(r) = Phi(0) + (Phi(rmin) - Phi(0)) * (r/rmin)^(2-gamma)
-            if(math::isFinite(innerValues[0]) && innerValues[0]!=0)
-                innerSlopes[0] = dPhil(0, 0) / innerValues[0];
-            else {
-                // otherwise we take the ratio between enclosed mass within rmin, given by Pint(rmin),
-                // and the value of density at this radius, assuming that it varies as 
-                // rho(r) = rho(rmin) * (r/rmin)^(-gamma)  for r<rmin
-                innerSlopes[0] = densh.rho_l(Rmin, 0) * pow_2(Rmin) / Pint.front() - 1.;
-                innerValues[0];
-            }
-            if(!math::isFinite(innerSlopes[0]) || innerSlopes[0] < -0.5)
-                innerSlopes[0] = 0;  // rather arbitrary..
+        // determine the density slope at small and large radii:
+        // [r<rmin] assume that rho(r) = rho(rmin) * (r/rmin)^{s-2}  with some slope s
+        double densrmin = densh.rho_l(r[imin], l);
+        // try to derive the 'mean' density slope inside rmin, using the integral over density
+        innerSlope[l/2] =  densrmin * pow_2(r[imin]) / Pint[imin] - l-1;
+        if(!math::isFinite(innerSlope[l/2]) || innerSlope[l/2] <= -l-1)
+            innerSlope[l/2] = 2;  // safe value: for l=0 it corresponds to a constant-density core
+        //if(fabs(innerSlope[l/2])<0.001) innerSlope[l/2]=0;
 
-            // determine the outer slope of density profile rho ~ r^-beta
-            double densRmax = densh.rho_l(Rmax, 0);
-            double betaminustwo = densRmax * pow_2(Rmax) / Pext.back();
-            if(!math::isFinite(betaminustwo) || fabs(Pext.back()) < fabs(densRmax) * pow_2(Rmax) * 0.01) {
-                betaminustwo = 0;    // discard all remaining density outside Rmax,
-                Pext.back() = 0;       // if the density profile seems to be too steeply falling
-                densRmax = 0;
-            } else if(betaminustwo<0.2 || fabs(betaminustwo-1.)<0.01)
-                betaminustwo = 1.1;  // beta=3 would need a different treatment of the asymptotic law
-            //!!! FIXME: leads to crazy results if density is negative at Rmax and falling off too slowly
-            outerValueMain = -4*M_PI * (Pint.back() + Pext.back() * betaminustwo / (betaminustwo-1));
-            outerValues[0] =  4*M_PI * Pext.back() / (betaminustwo-1);
-            outerSlopes[0] = -betaminustwo;
+        // [r>rmax], same exercise to determine the outer slope (one node behind the end of grid)
+        double densrmax = densh.rho_l(r[imax], l);
+        outerSlope[l/2] = -densrmax * pow_2(r[imax]) / Pext[imax] + l;
+        if(!math::isFinite(outerSlope[l/2]) || outerSlope[l/2] >= l)
+            outerSlope[l/2] = -2;  // safe value: for l=0 it corresponds to r^-4 falloff
+
+        // determine the coefficients U and W for extrapolating to large and small radii
+        // (beyond the definition region of 2d interpolating spline), see comments in evalCyl
+        computeUW(innerSlope[l/2], l,    4*M_PI*Pext[imin], 4*M_PI*Pint[imin],
+            innerCoefU[l/2], innerCoefW[l/2]);
+        computeUW(outerSlope[l/2], -l-1, 4*M_PI*Pint[imax], 4*M_PI*Pext[imax],
+            outerCoefU[l/2], outerCoefW[l/2]);
+
 #ifdef VERBOSE_REPORT
-            std::cout << "Multipole: inner density profile "
-                "rho=" << densh.rho_l(Rmin, 0) << "*r^" << (innerSlopes[0]-2) <<
-                ", outer rho=" << densRmax << "*r^" << (-betaminustwo-2) << "\n";
+        std::cout << "Multipole: density profile for l=" << l << 
+            ": inner rho=" << densrmin << "*r^" << (innerSlope[l/2]-2) <<
+            ", outer rho=" << densrmax << "*r^" << (outerSlope[l/2]-2) << "\n";
 #endif
-        } else {
-            innerValues[l/2] = Phil(0, l/2);
-            if(Phil(0, l/2) != 0)
-                innerSlopes[l/2] = dPhil(0, l/2) / Phil(0, l/2);
-            outerValues[l/2] = Phil(gridSizeR-1, l/2);
-            if(Phil(gridSizeR-1, l/2) != 0)
-                outerSlopes[l/2] = fmin(-1, dPhil(gridSizeR-1, l/2) / Phil(gridSizeR-1, l/2));
-        }
     }
 
-    // Put potential and its derivatives on a 2D grid in log[r] & cos[theta]
-    //
-    // set linear grid in theta, i.e. non-uniform in cos(theta), with denser spacing close to z-axis
-    //
+    // Put potential and its derivatives on a 2D grid in log[r] & cos[theta]:
+    // set up linear grid in theta, i.e. non-uniform in cos(theta), with denser spacing close to z-axis
     std::vector<double> gridR(gridSizeR), gridC(gridSizeC);
     for(int i=0; i<gridSizeR; i++)
         gridR[i] = log(r[i]);
+    logrmin = gridR[imin];
+    logrmax = gridR[imax];  // revert back to the original upper bound (rmax) without extra cells
     for(int i=0; i<gridSizeC-1; i++) 
         gridC[i] = sin(M_PI_2 * i / (gridSizeC-1));
     gridC[gridSizeC-1] = 1.0;
-    //
-    // set dPhi/dlogr & dPhi/dcos[theta] 
-    //
+
+    // assign Phi, dPhi/dlogr & dPhi/dcos[theta] 
     math::Matrix<double> Phi_val(gridSizeR, gridSizeC);
     math::Matrix<double> Phi_dR (gridSizeR, gridSizeC);
     math::Matrix<double> Phi_dC (gridSizeR, gridSizeC);
@@ -400,7 +398,7 @@ Multipole::Multipole(const BaseDensity& source_density,
         math::legendrePolyArray(numCoefsAngular, 0, gridC[i], &Pl.front(), &dPl.front());
         for(int k=0; k<gridSizeR; k++) {
             double val=0, dR=0, dC=0;
-            for(int l=0; l<numMultipoles; l+=2) {
+            for(int l=0; l<=numCoefsAngular; l+=2) {
                 val += Phil (k, l/2) *  Pl[l];   // Phi
                 dR  += dPhil(k, l/2) *  Pl[l];   // d Phi / d log(r)
                 dC  += Phil (k, l/2) * dPl[l];   // d Phi / d cos(theta)
@@ -411,15 +409,13 @@ Multipole::Multipole(const BaseDensity& source_density,
         }
     }
 
-    //
     // establish 2D quintic spline of Phi in log[r] & cos[theta]
-    //
     spl = math::QuinticSpline2d(gridR, gridC, Phi_val, Phi_dR, Phi_dC);
 
     // determine if the potential is spherically-symmetric
     // (could determine this explicitly by analyzing the angular dependence of Phi(r,theta),
     // but for now simply ask the source density model
-    isSpherical = (source_density.symmetry() & ST_SPHERICAL) == ST_SPHERICAL;
+    isSpherical = (sourceDensity.symmetry() & ST_SPHERICAL) == ST_SPHERICAL;
 }
 
 void Multipole::evalCyl(const coord::PosCyl &pos,
@@ -428,69 +424,61 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
     double r=hypot(pos.R, pos.z);
     double ct=pos.z/r, st=pos.R/r;  // cos(theta), sin(theta)
     if(r==0 || r==INFINITY) {ct=st=0;}
-    double logr = log(r);
-    // coordinates on the scaled grid
-    const double logRmin = spl.xmin(), logRmax = spl.xmax();
-    double valR = fmin(logRmax, fmax(logRmin, logr));
-    double valC = fabs(ct);
-    // value and derivatives of spline by its arguments (log r, z/r)
+    double logr  = log(r);
+    double absct = fabs(ct);
+    // value and derivatives of spline by its arguments (ln r, z/r)
     double Phi=0, PhiR=0, PhiC=0, PhiRR=0, PhiRC=0, PhiCC=0;
 
-    if(logr > logRmax) {  // extrapolation at large radii
+    if(logr < logrmin || logr > logrmax) {  // extrapolation at small or large radii
+        // use statically-sized arrays for Legendre polynomials, to avoid dynamic memory allocation
         double Pl[MAX_NCOEFS_ANGULAR], dPl[MAX_NCOEFS_ANGULAR];
-        math::legendrePolyArray(outerValues.size()*2-2, 0, ct, Pl, dPl);
-        // special treatment for l==0: we assume that the density falls off
-        // as a power law in radius, and potential then behaves as 
-        // V * (rmax/r) + \sum_{l=0}^{lmax} V_l * (r/rmax)^{\alpha_l}
-        // here V_l and \alpha_l are 'outerValues' and 'outerSlopes'
-        double V = outerValueMain * exp(logRmax-logr);
-        Phi   += V;
-        PhiR  -= V;
-        PhiRR += V;
-        for(unsigned int l2=0; l2<outerValues.size(); l2++) {
-            int l = l2*2;
-            double alpha = outerSlopes[l2];
-            double rfact = outerValues[l2] * exp( (logr-logRmax) * alpha );
-            Phi  += rfact * Pl[l];          // Phi
-            PhiR += rfact * Pl[l] * alpha;  // d Phi / d log(r)
-            PhiC += rfact * dPl[l];         // d Phi / d cos(theta)
+        math::legendrePolyArray(innerSlope.size()*2-2, 0, ct, Pl, dPl);
+
+        // define {v=l, r0=rmin} for the inner or {v=-l-1, r0=rmax} for the outer extrapolation;
+        // Phi_l(r) = U_l * (r/r0)^s            + W_l * (r/r0)^v   if s!=v,
+        // Phi_l(r) = U_l * (r/r0)^s * ln(r/r0) + W_l * (r/r0)^v   if s==v.
+        for(unsigned int l2=0; l2<innerSlope.size(); l2++) {
+            int l  = l2*2;
+            double s, v, U, W, dr;
+            if(logr < logrmin) {
+                s = innerSlope[l2];
+                v = l;
+                U = innerCoefU[l2];
+                W = innerCoefW[l2];
+                dr= logr - logrmin;
+            } else {
+                s = outerSlope[l2];
+                v = -l-1;
+                U = outerCoefU[l2];
+                W = outerCoefW[l2];
+                dr= logr - logrmax;
+            }
+            double rv  = v!=0 ? exp( dr * v ) : 1;                // (r/r0)^v
+            double rs  = s!=v ? (s!=0 ? exp( dr * s ) : 1) : rv;  // (r/r0)^s
+            double Urs = U * rs * (s!=v || U==0 ? 1 : dr);  // if s==v, multiply by ln(r/r0)
+            double Wrv = W * rv;
+            Phi  +=  Pl[l] * (Urs + Wrv);  // Phi
+            PhiC += dPl[l] * (Urs + Wrv);  // d Phi / d cos(theta)
+            double der = Urs*s + Wrv*v + (s!=v ? 0 : U*rs);
+            PhiR +=  Pl[l] * der;          // d Phi / d ln(r)
             if(deriv2) {
-                PhiRR += rfact * Pl[l] * pow_2(alpha);
-                PhiRC += rfact * dPl[l] * alpha;
-                double d2Pl = valC<1 ? 
+                PhiRR +=  Pl[l] * (Urs*s*s + Wrv*v*v + (s!=v ? 0 : 2*s*U*rs));
+                PhiRC += dPl[l] * der;
+                double d2Pl = absct<1 ? 
                     (2*ct*dPl[l] - l*(l+1)*Pl[l]) / (1-pow_2(ct)) :
                     (l-1)*l*(l+1)*(l+2) / 8.;  // limiting value for |cos(theta)|==1
-                PhiCC += rfact * d2Pl;
+                PhiCC += d2Pl * (Urs + Wrv);
             }
         }
-    } else {
+    } else {  // normal interpolation within the radial range of the spline
         if(deriv2)
-            spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC, &PhiRR, &PhiRC, &PhiCC);
+            spl.evalDeriv(logr, absct, &Phi, &PhiR, &PhiC, &PhiRR, &PhiRC, &PhiCC);
         else if(deriv)
-            spl.evalDeriv(valR, valC, &Phi, &PhiR, &PhiC);
+            spl.evalDeriv(logr, absct, &Phi, &PhiR, &PhiC);
         else
-            spl.evalDeriv(valR, valC, &Phi);
+            spl.evalDeriv(logr, absct, &Phi);
         PhiC  *= math::sign(ct);
         PhiRC *= math::sign(ct);
-        if(logr < logRmin) {  // extrapolation at small radii -- NEEDS UPDATE!!!
-            if(innerSlopes[0]>0) {
-                double coef = exp(innerSlopes[0]*(logr-valR));
-                Phi   = (Phi-Phi0)*coef;
-                PhiR  = innerSlopes[0]*Phi;
-                PhiRR = pow_2(innerSlopes[0])*Phi;
-                Phi  += Phi0;
-                PhiC *= coef;
-                PhiCC*= coef;
-            } else if(innerSlopes[0]==0) {
-                PhiR  = Phi/logRmin;
-                PhiRR = 0.;
-                Phi  *= logr/logRmin;
-            } else {
-                Phi  *= exp(innerSlopes[0]*(logr-valR));
-                PhiR  = innerSlopes[0]*Phi;
-                PhiRR = pow_2(innerSlopes[0])*Phi;
-            }
-        }
     }
     if(potential)
         *potential = Phi;
@@ -514,11 +502,11 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
 
 //----- GalaxyPotential refactored into a Composite potential -----//
 std::vector<PtrPotential> createGalaxyPotentialComponents(
-    const std::vector<DiskParam>& DiskParams, 
-    const std::vector<SphrParam>& SphrParams)
+    const std::vector<DiskParam>& diskParams, 
+    const std::vector<SphrParam>& sphrParams)
 {
     // keep track of length scales of all components
-    double lengthMin=1e100, lengthMax=0;
+    double lengthMin=INFINITY, lengthMax=0;
     
     // assemble the set of density components for the multipole
     // (all spheroids and residual part of disks),
@@ -526,25 +514,26 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
     // (the flattened part of disks, eventually to be joined by the multipole itself)
     std::vector<PtrDensity> componentsDens;
     std::vector<PtrPotential> componentsPot;
-    for(unsigned int i=0; i<DiskParams.size(); i++) {
-        // the two 1d functions shared between DiskAnsatz and DiskResidual
-        math::PtrFunction radialFnc(createRadialDiskFnc(DiskParams[i]));
-        math::PtrFunction verticalFnc(createVerticalDiskFnc(DiskParams[i]));
-        // the two parts of disk profile
-        componentsPot.push_back(PtrPotential(new DiskAnsatz(DiskParams[i])));
-        componentsDens.push_back(PtrDensity(new DiskResidual(DiskParams[i])));
+    for(unsigned int i=0; i<diskParams.size(); i++) {
+        // the two parts of disk profile: DiskAnsatz goes to the list of potentials...
+        componentsPot.push_back(PtrPotential(new DiskAnsatz(diskParams[i])));
+        // ...and gets subtracted from the entire DiskDensity for the list of density components
+        componentsDens.push_back(PtrDensity(new DiskDensity(diskParams[i])));
+        DiskParam negDisk(diskParams[i]);
+        negDisk.surfaceDensity *= -1;  // subtract the density of DiskAnsatz
+        componentsDens.push_back(PtrDensity(new DiskAnsatz(negDisk)));
         // keep track of characteristic lengths
-        lengthMin = fmin(lengthMin, DiskParams[i].scaleRadius);
-        lengthMax = fmax(lengthMax, DiskParams[i].scaleRadius);
-        if(DiskParams[i].innerCutoffRadius>0)
-            lengthMin = fmin(lengthMin, DiskParams[i].innerCutoffRadius);
+        lengthMin = fmin(lengthMin, diskParams[i].scaleRadius);
+        lengthMax = fmax(lengthMax, diskParams[i].scaleRadius);
+        if(diskParams[i].innerCutoffRadius>0)
+            lengthMin = fmin(lengthMin, diskParams[i].innerCutoffRadius);
     }
-    for(unsigned int i=0; i<SphrParams.size(); i++) {
-        componentsDens.push_back(PtrDensity(new SpheroidDensity(SphrParams[i])));
-        lengthMin = fmin(lengthMin, SphrParams[i].scaleRadius);
-        lengthMax = fmax(lengthMax, SphrParams[i].scaleRadius);
-        if(SphrParams[i].outerCutoffRadius) 
-            lengthMax = fmax(lengthMax, SphrParams[i].outerCutoffRadius);
+    for(unsigned int i=0; i<sphrParams.size(); i++) {
+        componentsDens.push_back(PtrDensity(new SpheroidDensity(sphrParams[i])));
+        lengthMin = fmin(lengthMin, sphrParams[i].scaleRadius);
+        lengthMax = fmax(lengthMax, sphrParams[i].scaleRadius);
+        if(sphrParams[i].outerCutoffRadius) 
+            lengthMax = fmax(lengthMax, sphrParams[i].outerCutoffRadius);
     }
     if(componentsDens.size()==0)
         throw std::invalid_argument("Empty parameters in GalPot");

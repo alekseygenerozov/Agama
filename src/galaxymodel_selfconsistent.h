@@ -11,35 +11,70 @@ it over velocities; in doing so, the transformation between position/velocity an
 action/angle variables (the latter are the arguments of DF) is provided by
 the action finder associated with the total potential.
 Not every component needs to be generated from a DF: it may present a static
-density or potential profile.
+density and/or potential profile.
+
 In the present implementation, the overall potential is assembled from the contributions
-of each component that provide a potential (not all of them need to do so), plus a single
-multipole potential that is computed from the overall density profile of all components
-that provide them.
-For instance, a single static disk-like object (without a DF) could be represented by
-two components: a DiskAnsatz potential and a DiskResidual density profile, which together
-generate the required density distribution of a separable disk model - same as in GalPot.
-Alternatively, a disk specified by DF can provide an appropriately tuned DiskAnsatz potential,
-plus a residual density model that is obtained by subtracting the DiskAnsatz's density profile
-from the density computed from a DF.
-Finally, a halo-like DF component provides only a density computed from DF.
+of each component that provide a potential (not all of them need to do so),
+plus two more potential expansions (Multipole for spheroidal components and CylSplineExp for
+disk-like components) constructed from the sum of density profiles of all relevant components.
+The rationale is that the multipole expansion is obviously not efficient for strongly
+flattened density profiles, but on the other hand, CylSpline is less suitable for extended
+envelopes and/or density cusps; so a combination of them suits the needs of both worlds.
  
+For instance, a single static disk-like object (without a DF) could be represented by
+two components: a DiskAnsatz potential and a composite density profile (sum of DiskDensity
+plus DiskAnsatz with negative sign of surface density density, i.e. the residual), which together
+generate the required density distribution of a separable disk model - same as in GalPot.
+Alternatively, a disk specified by DF provides a density profile which will be used to
+construct a CylSpline expansion for the potential, while a halo-like component with DF 
+provides density in the form of spherical-harmonic expansion to be used in Multipole potential.
+
 The workflow of self-consistent modelling is the following:
-1) assemble the list of components and generate the first guess for the overall potential;
-2) initialize the action finder for the total potential
+1) assemble the list of components; 
+2) generate the first guess for the overall potential and initialize the action finder
+for the total potential;
 3) recompute the density profiles of all components that have a specified DF (are not static);
-4) recalculate the multipole expansion and put together all potential constituents to form
-an updated potential;
+4) recalculate the potential expansion(s) and put together all potential constituents to form
+an updated potential and reinitialize the action finder;
 5) repeat from step 2 until convergence.
+6) if necessary, modify the list of components, e.g. by replacing a static profile with
+a DF-based one: this is typically needed for disk-like components, whose DF depends implicitly
+on the overall potential through tabulated epicyclic frequencies, so to construct a DF, one
+needs to have a first guess for the total potential to start with.
+
+The self-consistend model is described by a structure containing the parameters for
+constructing both types of potential expansions, the overall potential and its associated
+action finder, and the array of model components.
+The workflow described above is split between classes as follows: 
+(3) is performed by each component's `update` method, which receives the total potential
+and the action finder as arguments.
+(4) is performed by a non-member function `updateTotalPotential` that operates on
+an instance of SelfConsistentModel structure.
+Alternatively, steps 3 and 4 together (and optionally step 2 if it hasn't been done before)
+are performed by another function `doIteration`.
+There are presently no methods for testing the convergence (step 5), so the end-user
+may simply repeat the loop a few times and hope that it converged.
+Steps 1 and 6 are left at the discretion of the end-user.
+
+A technical note on the potential expansions, in particular the Multipole.
+Recall that a component specified by its DF provides its density profile 
+already in terms of a spherical-harmonic expansion. If this is the only density
+component, its density is directly used in the Multipole potential, while if 
+there are several density constituents, another spherical-harmonic expansion of
+the combined density is created. This double work has in fact a negligible overhead,
+because most of the computational effort is spent on the first stage (computing 
+the density profile by integration over DF, and taking its spherical-harmonic expansion).
+Moreover, a transformation between two spherical-harmonic expansions is exact
+if the order of the second one (used in the Multipole potential) is the same or greater
+than the first one (provided by components), and if their radial grids coincide;
+if the latter is not true, it introduces a generally small additional interpolation error.
+
 */
 #pragma once
 #include "potential_base.h"
 #include "actions_base.h"
 #include "df_base.h"
 #include <vector>
-
-// forward declaration
-namespace potential{ struct DiskParam; }
 
 namespace galaxymodel{
 
@@ -55,15 +90,15 @@ public:
     virtual ~BaseComponent() {};
 
     /** recalculate the density profile (and possibly the additional potential)
-        by integrating the DF over velocities in the given total potential.
-        In case that the component does not have a DF, this method does nothing.
+        by integrating the DF over velocities in the given total potential;
+        in case that the component does not have a DF, this method does nothing.
     */
     virtual void update(const potential::BasePotential& totalPotential,
         const actions::BaseActionFinder& actFinder) = 0;
 
     /** return the pointer to the internally used density profile for the given component;
-        if it returns NULL, then this component does not participate in 
-        the spherical-harmonic density expansion of the SelfConsistentModel.
+        if it returns NULL, then this component does not provide any density to contribute
+        to the Multipole or CylSpline potential expansions of the SelfConsistentModel.
     */    
     virtual potential::PtrDensity   getDensity()   const = 0;
 
@@ -74,8 +109,8 @@ public:
     
     /** in case the component has an associated density profile, it may be used
         in construction of either multipole (spherical-harmonic) potential expansion,
-        or a 'CylSpline' expansion of potential in the meridional plane.
-        The former is more suitable for spheroidal and the latter for disk-like components.
+        or a 'CylSpline' expansion of potential in the meridional plane;
+        the former is more suitable for spheroidal and the latter for disk-like components.
     */
     const bool isDensityDisklike;
 private:
@@ -86,8 +121,8 @@ private:
 
 
 /** A specialization for the component that provides static (unchanging) density and/or
-    potential profiles. For instance, a disk-like structure may be described by
-    a combination of DiskAnsatz potential and DiskResidual density profile. */
+    potential profiles. For the density, it is necessary to specify whether it will be
+    used in Multipole or CylSpline potential expansions. */
 class ComponentStatic: public BaseComponent {
 public:
     ComponentStatic(const potential::PtrDensity& dens, bool _isDensityDisklike) :
@@ -131,7 +166,7 @@ public:
     /** return the pointer to the internal density profile */
     virtual potential::PtrDensity   getDensity()   const { return density; }
 
-    /** no additional potential component is provided, i.e. an empty pointer is returned */
+    /** no additional potential component is provided, i.e., an empty pointer is returned */
     virtual potential::PtrPotential getPotential() const { return potential::PtrPotential(); }
 
 protected:
@@ -204,7 +239,7 @@ public:
     */
     ComponentWithDisklikeDF(const df::PtrDistributionFunction& df,
         const potential::PtrDensity& initDensity,
-        const std::vector<double> _gridR, const std::vector<double> _gridz,
+        const std::vector<double> gridR, const std::vector<double> gridz,
         double relError=1e-3, unsigned int maxNumEval=1e5);
 
     /** recompute both the analytic disk potential and the spherical-harmonic expansion
@@ -216,49 +251,6 @@ private:
 };
 
 
-#if 0
-/** A further modification of a component specified by a DF, suitable for disk-like profiles.
-    It provides two contributions to the total model: first, an analytic potential of
-    of a strongly flattened density distribution (DiskAnsatz); second, the difference
-    between the true density generated by this DF and the Laplacian of the analytic potential.
-    The latter is provided in terms of a spherical-harmonic expansion of this residual density
-    profile, which is not strongly confined to the disk plane and should be efficiently
-    approximated with a moderate number of terms in the angular expansion.
-*/
-class ComponentWithDisklikeDF: public ComponentWithDF {
-public:
-    /** create the component with the given DF, parameters of the grid for representing
-        the spherical-harmonic expansion of the residual density, and parameters of the analytic
-        potential. Most arguments are the same as for `ComponentWithDF`.
-        \param[in] df -- the distribution function;
-        \param[in] rmin,rmax -- the extent of the logarithmic grid in radius;
-        \param[in] numCoefsRadial -- the size of radial grid;
-        \param[in] numCoefsAngular -- the maximum order of spherical-harmonic expansion (l_max);
-        \param[in] diskParams -- parameters of the analytic potential (DiskAnsatz);
-        \param[in] relError -- relative accuracy in density computation;
-        \param[in] maxNumEval -- maximum # of DF evaluations for a single density value.
-    */
-    ComponentWithDisklikeDF(
-        const df::PtrDistributionFunction& df,
-        double rmin, double rmax,
-        unsigned int numCoefsRadial, unsigned int numCoefsAngular,
-        const potential::DiskParam& diskParams,
-        double relError=1e-3,
-        unsigned int maxNumEval=1e5);
-
-    /** recompute both the analytic disk potential and the spherical-harmonic expansion
-        of the residual density profile. */
-    virtual void update(const potential::BasePotential& pot, const actions::BaseActionFinder& af);
-
-    /** return the pointer to the internal analytic potential model */
-    virtual potential::PtrPotential getPotential() const { return diskAnsatzPotential; }
-private:
-    math::PtrFunction radialFncBase, verticalFncBase;
-    potential::PtrPotential diskAnsatzPotential;  ///< analytic potential
-    std::vector<double> radialNodes, verticalNodes;
-};
-#endif
-
 /// smart pointer to the model component
 #ifdef HAVE_CXX11
 typedef std::shared_ptr<BaseComponent> PtrComponent;
@@ -266,41 +258,31 @@ typedef std::shared_ptr<BaseComponent> PtrComponent;
 typedef std::tr1::shared_ptr<BaseComponent> PtrComponent;
 #endif
 
-/// array of components
-typedef std::vector<PtrComponent> ComponentArray;
 
-/** The driver class for self-consistend modelling.
-    The list of model components is provided at initialization;
-    each component may be 'dead' (with a fixed density profile and unspecified DF) 
-    or 'live' (with a specified DF, which stays constant throughout the iterative procedure).
-    All components have associated density and/or potential profiles
-    (either fixed at the beginning for 'dead' components, or recomputed from DF after 
-    each iteration for 'live' components).
-    The total potential consists of a multipole expansion, computed from the sum of density 
-    profiles of all components that provide them, plus any additional potential models
-    that may be provided by the components.
-    Recall that a component specified by its DF provides its density profile 
-    already in terms of a spherical-harmonic expansion. If this is the only density
-    component, its density is directly used in the Multipole potential, while if 
-    there are several density constituents, another spherical-harmonic expansion of
-    the combined density is created. This double work has in fact a negligible overhead,
-    because most of the computational effort is spent on the first stage (computing 
-    the density profile by integration over DF, and taking its spherical-harmonic expansion).
-    Moreover, a transformation between two spherical-harmonic expansions is exact
-    if the order of the second one (used in the Multipole potential) is the same or greater
-    than the first one (provided by components), and if their radial grids coincide;
-    if the latter is not true, it introduces a generally small additional interpolation error.
-    The overall potential is in turn used in recomputing the live density profiles through
-    integration of their DFs over velocities. This two-stage process is performed 
-    at each iteration: first the density recomputation, then the potential update.
-    The overall potential may be queried at any time, returning a shared pointer, which,
-    if assigned, continues to exist even after the `SelfConsistentModel` object is destroyed;
-    same is true for the density profiles returned by each component.
-    One may use them to initialize a new SelfConsistentModel from the already computed 
-    approximations for the density, possibly with a different combination of dead/live components.
+/** The main object that puts together all ingredients of a self-consistent model:
+    list of components, total potential and action finder, and the parameters of
+    the two potential expansions that are constructed from the overall density.
+    Note that this is not a class but a simple structure with no methods and no private members;
+    all parameters of potential expansions must be explicitly initialized by the user
+    before doing any modelling (the rationale is that there are too many of them to
+    be meaningfully used in a constructor in the absense of named arguments in C++).
+    Array of components should also be filled by the user before doing the modelling;
+    however, potential and action finders will be initialized by the model iteration step
+    automatically. Moreover, the list of components may be changed manually at any time
+    between the iterations, and the overall potential and action finder may be retrieved
+    by the user at any time.
 */
 struct SelfConsistentModel {
 public:
+    /// array of model components
+    std::vector<PtrComponent> components;
+
+    /// total gravitational potential of all components (empty at the beginning)
+    potential::PtrPotential totalPotential;
+
+    /// action finder associated with the total potential (empty at the beginning)
+    actions::PtrActionFinder actionFinder;
+
     /** parameters of grid for computing the multipole expansion of the combined
         density profile of spheroidal components;
         in general, these parameters should encompass the range of analogous parameters 
@@ -318,26 +300,17 @@ public:
     double zminCyl, zmaxCyl;      ///< innermost and outermost grid nodes in vertical direction
     unsigned int sizeRadialCyl;   ///< number of grid nodes in cylindrical radius
     unsigned int sizeVerticalCyl; ///< number of grid nodes in vertical (z) direction
-
-    /// total gravitational potential of all components (empty at the beginning)
-    potential::PtrPotential totalPotential;
-
-    /// action finder associated with the total potential (empty at the beginning)
-    actions::PtrActionFinder actionFinder;
-
-    /// array of model components
-    ComponentArray components;
 };
 
-/// recompute the total potential using the current density profiles for all components,
-/// and reinitialize the action finder;
-/// throws a runtime_error exception if the total potential does not have any constituents
+/** recompute the total potential using the current density profiles for all components,
+    and reinitialize the action finder;
+    \throws a runtime_error exception if the total potential does not have any constituents.
+*/
 void updateTotalPotential(SelfConsistentModel& model);
 
-/** Main iteration step: recompute the densities of all components
-    (if appropriate, i.e. if they have a specified DFs and can recompute 
-    their density profile using the current total potential), 
-    and then update the total potential and reinit action finder.
+/** Main iteration step: recompute the densities of all components, and then call 
+    `updateTotalPotential`; if no potential is present at the beginning, it is initialized
+    by a call to the same `updateTotalPotential` before recomputing the densities.
 */
 void doIteration(SelfConsistentModel& model);
     

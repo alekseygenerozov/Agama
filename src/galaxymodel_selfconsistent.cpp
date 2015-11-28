@@ -9,10 +9,6 @@
 #include <cassert>
 #include <cmath>
 
-#ifdef VERBOSE_REPORT
-#include <iostream>
-#endif
-
 namespace galaxymodel{
 
 using potential::PtrDensity;
@@ -99,6 +95,7 @@ gridR(_gridR), gridz(_gridz)
 {
     if(gridR[0]!=0 || gridR.size()<2 || gridz[0]!=0 || gridz.size()<2)
         throw std::invalid_argument("ComponentWithDisklikeDF: Invalid grid parameters");
+    gridR[0] = gridR[1]*1e-3;  ///!!! FIXME: apparently there is a problem for points exactly on z axis
     // in principle should also check if the grid is monotonic,
     // but this will be done by 2d interpolator anyway
 }
@@ -115,169 +112,6 @@ void ComponentWithDisklikeDF::update(
     density.reset(new potential::DensityCylGrid(gridR, gridz, densityWrapper));
 }
 
-#if 0
-// old approach, not used anymore //
-//---------- Component with disk-like DF and its auxiliary routines ----------//
-
-/** Disk radial and vertical functions are modified by multiplying by a spline function */
-class FncTimesSpline: public math::IFunction {
-public:
-    FncTimesSpline(const math::PtrFunction& _fnc, const math::CubicSpline& _spl) :
-        fnc(_fnc), spl(_spl) {};
-private:
-    const math::PtrFunction fnc;  /// shared pointer to another function
-    const math::CubicSpline spl;  /// exclusively owned spline function
-    /**  evaluate  f(x) and optionally its two derivatives, if these arguments are not NULL  */
-    virtual void evalDeriv(double x, double* val=NULL, double* der=NULL, double* der2=NULL) const {
-        double fval, fder, fder2, sval, sder, sder2;
-        bool der1 = der2!=NULL || der!=NULL;
-        fnc->evalDeriv(x, &fval, der1 ? &fder : NULL, der2 ? &fder2 : NULL);
-        spl. evalDeriv(x, &sval, der1 ? &sder : NULL, der2 ? &sder2 : NULL);
-        if(val)
-            *val = fval * sval;
-        if(der)
-            *der = fval * sder + fder * sval;
-        if(der2)
-            *der2 = fder2 * sval + 2 * fder * sder + fval * sder2;
-    }
-    virtual unsigned int numDerivs() const { return 2; }
-};
-
-class SeparableDiskFittingFnc: public math::IFunctionNdim {
-public:
-    SeparableDiskFittingFnc(const potential::DensitySphericalHarmonic& densOrig,
-        const math::PtrFunction& _radialFncBase, const math::PtrFunction& _verticalFncBase,
-        const std::vector<double>& _radialNodes, const std::vector<double>& _verticalNodes) :
-    radialFncBase(_radialFncBase), verticalFncBase(_verticalFncBase),
-    radialNodes(_radialNodes), verticalNodes(_verticalNodes) {
-        densOrig.getCoefs(radii, coefsOrig);
-    }
-
-    void assembleResidualCoefs(const PtrPotential& diskAnsatz,
-        std::vector< std::vector<double> >& coefsResidual) const
-    {
-        // create another sph-harm expansion for the analytic disk component to be subtracted
-        potential::DensitySphericalHarmonic densSubtract(
-            radii.size(), coefsOrig.size()-1, *diskAnsatz, radii.front(), radii.back());
-        std::vector<double> radii1;
-        densSubtract.getCoefs(radii1, coefsResidual);
-        assert(radii.size() == radii1.size());
-        assert(coefsOrig.size() == coefsResidual.size());
-        for(unsigned int l=0; l<coefsOrig.size(); l++) {
-            assert(coefsOrig[l].size() == coefsResidual[l].size());
-            for(unsigned int n=0; n<coefsOrig[l].size(); n++)
-                coefsResidual[l][n] = coefsOrig[l][n] - coefsResidual[l][n];
-        }
-    }
-
-    PtrPotential createDiskAnsatz(const double vars[]) const {
-        std::vector<double> valRad(radialNodes.size()), valVer(verticalNodes.size());
-        for(unsigned int i=0; i<radialNodes.size(); i++)
-            valRad[i] = vars[i];
-        for(unsigned int i=0; i<verticalNodes.size(); i++)
-            valVer[i] = vars[i+radialNodes.size()];
-        return PtrPotential(new potential::DiskAnsatz(
-            math::PtrFunction(new FncTimesSpline(radialFncBase,
-                math::CubicSpline(radialNodes,   valRad))),
-            /*math::PtrFunction(new FncTimesSpline(verticalFncBase,
-                math::CubicSpline(verticalNodes, valVer, 0, 0)))*/
-            verticalFncBase
-        ) );
-    }
-
-    PtrDensity createDiskResidual(const PtrPotential& diskAnsatz) const {
-        std::vector< std::vector<double> > coefsResidual;
-        assembleResidualCoefs(diskAnsatz, coefsResidual);
-        return PtrDensity(new potential::DensitySphericalHarmonic(radii, coefsResidual));
-    }
-
-    double computeResidual(const std::vector< std::vector<double> >& coefsResidual) const {
-        double sum = 0;
-        potential::DensitySphericalHarmonic densRes(radii, coefsResidual);
-        for(unsigned int k=0; k<radii.size(); k++)
-            sum += pow_2(/*densInPlane[k] -*/ densRes.density(coord::PosCyl(radii[k],0,0))) *
-                pow_2(radii[k]) * (radii[k] - (k>0 ? radii[k-1] : 0));
-        return sum;
-    }
-
-    virtual void eval(const double vars[], double values[]) const {
-        PtrPotential diskAnsatz = createDiskAnsatz(vars);
-        std::vector< std::vector<double> > coefsResidual;
-        assembleResidualCoefs(diskAnsatz, coefsResidual);
-        values[0] = computeResidual(coefsResidual);
-#ifdef VERBOSE_REPORT
-        std::cout << ": ";
-        for(unsigned int i=0; i<numVars(); i++)
-            std::cout << vars[i] << ' ';
-        std::cout << "= " << values[0] << '\n';
-#endif
-    }
-
-    virtual unsigned int numVars() const { return radialNodes.size() + verticalNodes.size(); }
-    virtual unsigned int numValues() const { return 1; }
-private:
-    math::PtrFunction radialFncBase;
-    math::PtrFunction verticalFncBase;
-    std::vector<double> radialNodes;
-    std::vector<double> verticalNodes;
-    std::vector<double> radii;
-    std::vector< std::vector<double> > coefsOrig;
-};
-
-ComponentWithDisklikeDF::ComponentWithDisklikeDF(
-    const df::PtrDistributionFunction& df,
-    double _rmin, double _rmax,
-    unsigned int _numCoefsRadial, unsigned int _numCoefsAngular,
-    const potential::DiskParam& params,
-    double _relError, unsigned int _maxNumEval) :
-ComponentWithDF(df, _rmin, _rmax, _numCoefsRadial, _numCoefsAngular, 
-    PtrDensity(new potential::DiskResidual(params)), _relError, _maxNumEval),
-radialFncBase(createRadialDiskFnc(params)),
-verticalFncBase(createVerticalDiskFnc(params)),
-diskAnsatzPotential(new potential::DiskAnsatz(radialFncBase, verticalFncBase))
-{
-    radialNodes.assign(5,0);
-    //verticalNodes.assign(5,0);
-    for(int i=1; i<5; i++) {   // place nodes at 0, 0.5, 1, 2, 4
-        radialNodes[i]   = params.scaleRadius * pow(2., i-2.);
-        //verticalNodes[i] = fabs(params.scaleHeight) * pow(2., i-2.);
-    }
-}
-
-void ComponentWithDisklikeDF::update(
-    const potential::BasePotential& totalPotential,
-    const actions::BaseActionFinder& actionFinder)
-{
-    // first compute the spherical-harmonic expansion of the entire density profile
-    ComponentWithDF::update(totalPotential, actionFinder);
-    const potential::DensitySphericalHarmonic& densOrig =
-        static_cast<const potential::DensitySphericalHarmonic&>(*density);
-#ifdef VERBOSE_REPORT
-    writeDensityExpCoefs("dens_orig", densOrig);
-#endif
-
-    const unsigned int NNODES = radialNodes.size() + verticalNodes.size();
-    std::vector<double> initVals(NNODES), initSteps(NNODES), optimalVals(NNODES);
-    for(unsigned int i=0; i<NNODES; i++) {
-        initVals[i]  = 1.0;
-        initSteps[i] = 0.1;
-    }
-    SeparableDiskFittingFnc fnc(densOrig, radialFncBase, verticalFncBase, radialNodes, verticalNodes);
-#ifdef VERBOSE_REPORT
-    writeDensityExpCoefs("dens_resid_init",
-        static_cast<const potential::DensitySphericalHarmonic&>(
-        *fnc.createDiskResidual(fnc.createDiskAnsatz(&initVals.front()))));
-#endif
-    math::findMinNdim(fnc, &initVals.front(), &initSteps.front(), 1e-2, 1000, &optimalVals.front());
-
-    diskAnsatzPotential = fnc.createDiskAnsatz(&optimalVals.front());
-    density = fnc.createDiskResidual(diskAnsatzPotential);
-#ifdef VERBOSE_REPORT
-    writeDensityExpCoefs("dens_residual", 
-        static_cast<const potential::DensitySphericalHarmonic&>(*density));
-#endif
-}
-#endif
 
 //------------ Driver routines for self-consistent modelling ------------//
 

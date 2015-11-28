@@ -9,6 +9,7 @@
 #include "utils.h"
 #include "utils_config.h"
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <cstdlib>
 #include <cstdio>
@@ -43,11 +44,11 @@ void make_hernquist(int nbody, double q, double p, particles::PointMassArrayCar&
 {
     out.data.clear();
     for(int i=0; i<nbody; i++) {
-        double m = rand()*1.0/RAND_MAX;
+        double m = math::random()*1.0/RAND_MAX;
         double r = 1/(1/sqrt(m)-1);
-        double costheta = rand()*2.0/RAND_MAX - 1;
+        double costheta = math::random()*2.0/RAND_MAX - 1;
         double sintheta = sqrt(1-pow_2(costheta));
-        double phi = rand()*2*M_PI/RAND_MAX;
+        double phi = math::random()*2*M_PI/RAND_MAX;
         out.add(coord::PosVelCar(r*sintheta*cos(phi), r*sintheta*sin(phi)*q, r*costheta*p, 0, 0, 0), 1./nbody);
     }
 }
@@ -97,11 +98,12 @@ void test_average_error(const potential::BasePotential& p1, const potential::Bas
         "_gamma" + utils::convertToString(gamma);
     std::ofstream strm(fileName.c_str());
     const double dlogR=0.25;
-    const int nptbin=1000;
+    const int nptbin=100;
     for(double logR=-4; logR<4; logR+=dlogR) {
         math::Averager difPhi, difForce, difDens;
         for(int n=0; n<nptbin; n++) {
-            coord::PosSph point( pow(10., logR+dlogR*n/nptbin), acos(math::random()*2-1), math::random()*2*M_PI);
+            coord::PosSph point( pow(10., logR+dlogR*n/nptbin),
+                acos(math::random()*2-1), math::random()*2*M_PI);
             coord::GradCar g1, g2;
             double v1, v2, f1, f2, d1, d2;
             p1.eval(coord::toPosCar(point), &v1, &g1);
@@ -197,56 +199,17 @@ void test_axi_dens()
     }
 }
 
-#if 0
-// using the original implementation of GalPot (not part of this library!)
-#include "falPot.h"
-
-class OldGalpotWrapper: public potential::BasePotentialCyl{
-public:
-    OldGalpotWrapper() {
-        SphrPar par;
-        par[1] = 0.5;  // axis ratio
-        par[2] = 1.0;  // gamma
-        par[3] = 4.0;  // beta
-        par[0] = (3-par[2])/(4*M_PI*par[1]);  // rho_0
-        par[4] = 1.0;  // r_0
-        par[5] = 0.0;  // cutoff
-        gp=new GalaxyPotential(0,NULL,1,&par,1e-3,1e3,201);
-    }
-    virtual ~OldGalpotWrapper() { delete gp; }
-    virtual void evalCyl(const coord::PosCyl &pos,
-        double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const {
-        double dPhidR, dPhidz;
-        double Phi = (*gp)(pos.R, pos.z, dPhidR, dPhidz);
-        if(potential)
-            *potential = Phi / Units::G;
-        if(deriv) {
-            deriv->dR = dPhidR / Units::G;
-            deriv->dz = dPhidz / Units::G;
-            deriv->dphi = 0;
-        }
-    }
-    virtual double densityCyl(const coord::PosCyl& pos) const {
-        return gp->Laplace(pos.R, pos.z) / Units::fPiG;
-    }
-    virtual potential::SymmetryType symmetry() const { return potential::ST_AXISYMMETRIC; }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "GalPot"; };
-private:
-    GalaxyPotential* gp;
-};
-#endif
-
 int main() {
-    srand(42);
     bool ok=true;
+
+#if __GNUC__ and (__GNUC__ <= 4) and (__GNUC_MINOR__ <= 2)
+    std::cout << "Cannot compile this test:"
+        " the current version of GNU compiler "<<__GNUC__<<'.'<<__GNUC_MINOR__<<
+        " does not allow temporary objects without copy constructors to be passed as references\n";
+#else
     make_hernquist(100000, 0.8, 0.6, points);
 
     //test_axi_dens();
-#if __GNUC__ and (__GNUC__ <= 4) and (__GNUC_MINOR__ <= 2)
-    std::cout << "Cannot compile this test: the current version of GNU compiler "<<__GNUC__<<'.'<<__GNUC_MINOR__<<
-        " does not allow temporary objects without copy constructors to be passed as references\n";
-#else
     // spherical, cored
     const potential::Plummer plum(10., 5.);
     ok &= test_suite(potential::BasisSetExp(0., 30, 2, plum), plum, 1e-5);
@@ -273,9 +236,9 @@ int main() {
     ok &= test_suite(*create_from_file(points, potential::CylSplineExp::myName()), hernq, 2e-2);
 
     // axisymmetric multipole
-    const potential::Dehnen hernqa(1., 1., 1., .5, 1.2);
-    test_average_error(potential::Multipole(hernqa, 1e-3, 1e3, 100, 16), hernqa);
-    test_average_error(potential::SplineExp(100, 16, hernqa, 1e-3, 1e3), hernqa);
+    const potential::Dehnen deh1(1., 1., 1., .5, 1.2);
+    test_average_error(potential::Multipole(deh1, 1e-3, 1e3, 100, 16), deh1);
+    test_average_error(potential::SplineExp(50, 8, deh1, 1e-3, 1e3), deh1);
 #endif
 
     if(ok)

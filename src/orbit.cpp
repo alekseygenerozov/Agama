@@ -125,28 +125,21 @@ unsigned int integrate(const potential::BasePotential& potential,
     OrbitIntegrator<coordT> odeSystem(potential);
     math::OdeStateType vars(odeSystem.size());
     initialConditions.unpack_to(&vars.front());
-    math::BaseOdeSolver* solver = new math::OdeSolverDOP853(odeSystem, 0, accuracy);
-    TrajectoryOutput<coordT> trajOutput(*solver, outputTimestep, outputTrajectory);
-    try{
-        solver->init(vars);
-        bool finished = false;
-        unsigned int numSteps = 0;
-        while(!finished) {
-            if(solver->step() <= 0 || numSteps >= ODE_MAX_NUM_STEP)  // signal of error
-                finished = true;
-            else {
-                numSteps++;
-                finished = solver->getTime() >= totalTime;
-            }
-            trajOutput.processStep();
+    math::OdeSolverDOP853 solver(odeSystem, 0, accuracy);
+    TrajectoryOutput<coordT> trajOutput(solver, outputTimestep, outputTrajectory);
+    solver.init(vars);
+    bool finished = false;
+    unsigned int numSteps = 0;
+    while(!finished) {
+        if(solver.step() <= 0 || numSteps >= ODE_MAX_NUM_STEP)  // signal of error
+            finished = true;
+        else {
+            numSteps++;
+            finished = solver.getTime() >= totalTime;
         }
-        delete solver;
-        return numSteps;
+        trajOutput.processStep();
     }
-    catch(...) {
-        delete solver;
-        throw;
-    }
+    return numSteps;
 }
 
 // explicit template instantiations to make sure all of them get compiled

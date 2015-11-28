@@ -11,7 +11,7 @@ address:  Department of Physics and Astronomy, University of Leicester
 Put into the Torus code (with a minimum of fuss) by Paul McMillan, Oxford 2010
 email: p.mcmillan1@physics.ox.ac.uk
 
-Modifications by Eugene Vasiliev, June 2015
+Modifications by Eugene Vasiliev, 2015
 
 
 The method, explained in Dehnen & Binney (1998, MNRAS, 294, 429) and based 
@@ -43,12 +43,18 @@ approximation.
 
 In the present modification, the GalaxyPotential class is replaced by a more generic Composite 
 potential, which contains one Multipole potential and possibly several DiskAnsatz components.
-The latter come in pairs with DiskResidual density components, so that the sum of densities 
-in each pair equals the input density profile of that disk model. 
-A composite density model with all DiskResidual and all SpheroidDensity components is used 
-to initialize the Multipole potential. Of course this input may be generalized to contain 
-other density components, and the Composite potential may also contain some other potential 
-models apart from DiskAnsatz and Multipole. 
+The latter come in pairs with DiskDensity density components, so that the difference between
+the full input density and the one provided by DiskAnsatz is used in the multipole expansion.
+A composite density model with all SpheroidDensity components and all pairs of DiskDensity minus 
+DiskAnsatz components is used to initialize the Multipole potential.
+Of course this input may be generalized to contain other density components, and the Composite
+potential may also contain some other potential models apart from DiskAnsatz and Multipole. 
+
+The Multipole potential solves the Poisson equation using the spherical-harmonic expansion
+of its input density profile, and then stores the values and derivatives of potential on 
+a 2d grid in (r,theta) plane, so that the potential evaluation uses 2d spline-interpolated 
+values; however, if the radius lies outside the grid definition region, the potential is computed
+by summing up appropriately extrapolated multipole components (unlike the original GalPot).
 
 For compatibility with the original implementation, an utility function `readGalaxyPotential`
 is provided in potential_factory.h, taking the name of parameter file and the Units object as parameters.
@@ -61,10 +67,26 @@ is provided in potential_factory.h, taking the name of parameter file and the Un
 
 namespace potential{
 
-/// \name  Parameters of disk and spheroidal components
+/// \name  Separable disk density profile
 ///@{
 
-/// parameters that describe a disk component
+/** parameters that describe a disk component.
+
+    Specification of a disk density profile separable in R and z requires two auxiliary function,
+    f(R) and H(z)  (the former essentially describes the surface density of the disk,
+    and the latter is the second antiderivative of vertical density profile h(z) ).
+    They are used by both DiskAnsatz potential and DiskDensity density classes.
+    In the present implementation they are the same as in GalPot:
+
+    \f$  f(R) = \Sigma_0  \exp [ -R_0/R - R/R_d + \epsilon \cos(R/R_d) ]  \f$,
+
+    \f$  h(z) = \delta(z)                 \f$  for  h=0, or 
+    \f$  h(z) = 1/(2 h)  * exp(-|z/h|)    \f$  for  h>0, or
+    \f$  h(z) = 1/(4|h|) * sech^2(|z/2h|) \f$  for  h<0.
+
+    The corresponding second antiderivatives of h(z) are given in Table 2 of Dehnen&Binney 1998.
+    Alternatively, one may provide two arbitrary 1d functions to be used in the separable profile.
+*/
 struct DiskParam{
     double surfaceDensity;      ///< surface density normalisation Sigma_0 [Msun/kpc^2]
     double scaleRadius;         ///< scale length R_d [kpc]
@@ -79,65 +101,11 @@ struct DiskParam{
         innerCutoffRadius(_innerCutoffRadius), modulationAmplitude(_modulationAmplitude) {};
 };
 
-/// parameters describing a spheroidal component
-struct SphrParam{
-    double densityNorm;         ///< density normalization rho_0 [Msun/kpc^3] 
-    double axisRatio;           ///< axis ratio q (z/R)
-    double gamma;               ///< inner power slope gamma 
-    double beta;                ///< outer power slope beta 
-    double scaleRadius;         ///< transition radius r_0 [kpc] 
-    double outerCutoffRadius;   ///< outer cut-off radius r_t [kpc] 
-    SphrParam(double _densityNorm=0, double _axisRatio=1, double _gamma=0, double _beta=0,
-        double _scaleRadius=0, double _outerCutoffRadius=0) :
-        densityNorm(_densityNorm), axisRatio(_axisRatio), gamma(_gamma), beta(_beta),
-        scaleRadius(_scaleRadius), outerCutoffRadius(_outerCutoffRadius) {};
-};
-///@}
-/** Specification of a disk density profile separable in R and z requires two auxiliary function,
-    f(R) and H(z)  (the former essentially describes the surface density of the disk,
-    and the latter is the second antiderivative of vertical density profile h(z) ).
-    They are used by both DiskAnsatz potential and DiskResidual density classes.
-    In the present implementation they are the same as in GalPot:
-
-    \f$  f(R) = \Sigma_0  \exp [ -R_0/R - R/R_d + \epsilon \cos(R/R_d) ]  \f$,
-
-    \f$  h(z) = \delta(z)                 \f$  for  h=0, or 
-    \f$  h(z) = 1/(2 h)  * exp(-|z/h|)    \f$  for  h>0, or
-    \f$  h(z) = 1/(4|h|) * sech^2(|z/2h|) \f$  for  h<0.
-
-    The corresponding second antiderivatives of h(z) are given in Table 2 of Dehnen&Binney 1998.
-*/
-/// \name  Disk components
-///@{
-
 /** helper routine to create an instance of radial density function */
 math::PtrFunction createRadialDiskFnc(const DiskParam& params);
 
 /** helper routine to create an instance of vertical density function */
 math::PtrFunction createVerticalDiskFnc(const DiskParam& params);
-
-/** Residual density profile of a separable disk model (eq.9 in Dehnen&Binney 1998) */
-class DiskResidual: public BaseDensity {
-public:
-    /// construct the density profile with provided parameters describing one of the above variants
-    DiskResidual(const DiskParam& _params) : 
-        radialFnc  (createRadialDiskFnc(_params)),
-        verticalFnc(createVerticalDiskFnc(_params)) {};
-    /// construct a generic profile with user-specified radial and vertical functions
-    DiskResidual(const math::PtrFunction& _radialFnc, const math::PtrFunction& _verticalFnc) :
-        radialFnc(_radialFnc), verticalFnc(_verticalFnc) {};
-    virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "DiskResidual"; };
-private:
-    math::PtrFunction radialFnc;     ///< function describing radial dependence of surface density
-    math::PtrFunction verticalFnc;   ///< function describing vertical density profile
-    virtual double densityCyl(const coord::PosCyl &pos) const;
-    virtual double densityCar(const coord::PosCar &pos) const
-    {  return densityCyl(toPosCyl(pos)); }
-    virtual double densitySph(const coord::PosSph &pos) const
-    {  return densityCyl(toPosCyl(pos)); }
-};
 
 /** Density profile of a separable disk model */
 class DiskDensity: public BaseDensity {
@@ -183,8 +151,22 @@ private:
 };
 
 ///@}
-/// \name  Spheroical components
+/// \name  Spheroical density profile
 ///@{
+
+/// parameters describing a spheroidal component
+struct SphrParam{
+    double densityNorm;         ///< density normalization rho_0 [Msun/kpc^3] 
+    double axisRatio;           ///< axis ratio q (z/R)
+    double gamma;               ///< inner power slope gamma 
+    double beta;                ///< outer power slope beta 
+    double scaleRadius;         ///< transition radius r_0 [kpc] 
+    double outerCutoffRadius;   ///< outer cut-off radius r_t [kpc] 
+    SphrParam(double _densityNorm=0, double _axisRatio=1, double _gamma=0, double _beta=0,
+        double _scaleRadius=0, double _outerCutoffRadius=0) :
+        densityNorm(_densityNorm), axisRatio(_axisRatio), gamma(_gamma), beta(_beta),
+        scaleRadius(_scaleRadius), outerCutoffRadius(_outerCutoffRadius) {};
+};
 
 /** Two-power-law spheroidal density profile with optional cutoff and flattening 
     along the minor axis.
@@ -208,6 +190,10 @@ private:
     {  return densityCyl(toPosCyl(pos)); }
 };
 
+///@}
+/// \name  Multipole potential expansion
+///@{
+    
 /** Multipole expansion for axisymmetric potentials, generated from a given axisymmetric 
     density profile (which may well be an instance of a CompositeDensity class).
 */
@@ -229,14 +215,14 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "AxisymmetricMultipole"; };
 private:
-    math::QuinticSpline2d spl;   ///< 2d spline in meridional plane for interpolating the potential
-    bool isSpherical;            ///< degree of symmetry of the original density profile
-    double Phi0;                 ///< value of potential at origin
-    double outerValueMain;       ///< main contribution to the potential at large r (scales as 1/r)
+    math::QuinticSpline2d spl; ///< 2d spline in meridional plane for interpolating the potential
+    bool isSpherical;          ///< degree of symmetry of the original density profile
+    double logrmin, logrmax;   ///< radial extent of the grid
     /// power-law slopes of multipole components at small and large radii
-    std::vector<double> innerSlopes, outerSlopes;
-    /// values of multipole components at the inner and outer radii of the grid
-    std::vector<double> innerValues, outerValues;
+    std::vector<double> innerSlope, outerSlope;
+    /// coefficients for extrapolating the multipole components at small and large radii
+    std::vector<double> innerCoefU, innerCoefW;
+    std::vector<double> outerCoefU, outerCoefW;
 
     virtual void evalCyl(const coord::PosCyl &pos,
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
