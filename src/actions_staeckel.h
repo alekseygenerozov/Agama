@@ -12,13 +12,14 @@ Most sub-steps are shared between the two methods;
 only the computation of integrals of motion, and the auxiliary function that enters 
 the expression for canonical momentum, are specific to each method.
 
-The implementation is inspired by the code written by Jason Sanders, but virtually nothing 
-of the original code remains.
+The implementation is inspired by the code written by Jason Sanders,
+but virtually nothing of the original code remains.
 */
 #pragma once
 #include "actions_base.h"
 #include "actions_interfocal_distance_finder.h"
 #include "potential_perfect_ellipsoid.h"
+#include "smart.h"
 
 namespace actions {
 

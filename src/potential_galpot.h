@@ -63,6 +63,7 @@ is provided in potential_factory.h, taking the name of parameter file and the Un
 #pragma once
 #include "potential_base.h"
 #include "math_spline.h"
+#include "smart.h"
 #include <vector>
 
 namespace potential{
@@ -199,18 +200,41 @@ private:
 */
 class Multipole: public BasePotentialCyl{
 public:
-    /** Compute the potential using the multi expansion and approximate it 
+    /** Compute the potential using the multipole expansion and approximate it 
         by a two-dimensional spline in (R,z) plane. 
         \param[in]  source_density  is the density model that serves as an input 
                     to the potential approximation, a std::runtime_error exception 
                     is raised if it is not axisymmetric;
         \param[in]  r_min, r_max    give the radial grid extent;
         \param[in]  gridSizeR       is the size of logarithmic spline grid in R;
-        \param[in]  numCoefsAngular is the order of multipole expansion (l_max)
+        \param[in]  numCoefsAngular is the order of multipole expansion (l_max).
     */
-    Multipole (const BaseDensity& source_density,
-               const double r_min, const double r_max,
-               const int gridSizeR, const int numCoefsAngular);
+    Multipole(const BaseDensity& source_density,
+        double r_min, double r_max,
+        unsigned int gridSizeR, unsigned int numCoefsAngular);
+
+    /** construct the potential from the set of spherical-harmonic coefficients.
+        \param[in]  radii  is the grid in radius;
+        \param[in]  Phi  is the matrix of harmonic coefficients for the potential;
+                    its first dimension is equal to the number of radial grid points,
+                    and the second gives the number of coefficients (=l_max/2+1);
+        \param[in]  dPhi  is the matrix of (log-)radial derivatives of harmonic coefs
+                    (same size as Phi, each element is  r dPhi_l(r) / dr ).
+    */
+    Multipole(const std::vector<double> &radii,
+        const std::vector<std::vector<double> > &Phi,
+        const std::vector<std::vector<double> > &dPhi);
+
+    /** return the array of spherical-harmonic expansion coefficients.
+        \param[out] radii  will contain the radii of grid nodes;
+        \param[out] Phi  will contain the spherical-harmonic expansion coefficients
+                    for the potential at the given radii;
+        \param[out] dPhi will contain the derivatives of these coefs wrt ln(r).
+    */
+    void getCoefs(std::vector<double> &radii,
+        std::vector<std::vector<double> > &Phi,
+        std::vector<std::vector<double> > &dPhi) const;
+
     virtual SymmetryType symmetry() const { return isSpherical ? ST_SPHERICAL : ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "AxisymmetricMultipole"; };
@@ -223,6 +247,11 @@ private:
     /// coefficients for extrapolating the multipole components at small and large radii
     std::vector<double> innerCoefU, innerCoefW;
     std::vector<double> outerCoefU, outerCoefW;
+
+    /** construct interpolating spline from the values and derivatives of harmonic coefficients */
+    void initSpline(const std::vector<double> &radii,
+        const std::vector<std::vector<double> > &Phi,
+        const std::vector<std::vector<double> > &dPhi);
 
     virtual void evalCyl(const coord::PosCyl &pos,
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;

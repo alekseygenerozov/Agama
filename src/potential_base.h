@@ -6,12 +6,6 @@
 #pragma once
 #include "coord.h"
 
-#ifdef HAVE_CXX11
-#include <memory>
-#else
-#include <tr1/memory>
-#endif
-
 /** Classes and auxiliary routines related to creation and manipulation of 
     density models and gravitational potential models.
 
@@ -191,18 +185,6 @@ protected:
     virtual double densityCyl(const coord::PosCyl &pos) const;
     virtual double densitySph(const coord::PosSph &pos) const;
 };  // class BasePotential
-
-///@}
-/// \name   Smart pointers to density and potential classes
-///@{
-    
-#ifdef HAVE_CXX11
-typedef std::shared_ptr<const BaseDensity>    PtrDensity;
-typedef std::shared_ptr<const BasePotential>  PtrPotential;
-#else
-typedef std::tr1::shared_ptr<const BaseDensity>    PtrDensity;
-typedef std::tr1::shared_ptr<const BasePotential>  PtrPotential;
-#endif
 
 ///@}
 /// \name   Base classes for potentials that implement the computations in a particular coordinate system
@@ -421,14 +403,3 @@ private:
 
 ///@}
 }  // namespace potential
-
-namespace math{
-/// pointer to a function class
-#ifdef HAVE_CXX11
-typedef std::shared_ptr<const IFunction> PtrFunction;
-typedef std::shared_ptr<const IFunctionNdim> PtrFunctionNdim;
-#else
-typedef std::tr1::shared_ptr<const IFunction> PtrFunction;
-typedef std::tr1::shared_ptr<const IFunctionNdim> PtrFunctionNdim;
-#endif
-}

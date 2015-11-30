@@ -16,6 +16,7 @@
 #include "potential_base.h"
 #include "particles_base.h"
 #include "units.h"
+#include "smart.h"
 #include <string>
 
 // forward declaration
@@ -119,33 +120,31 @@ inline PtrPotential readGalaxyPotential(
 }
 
 /** Create a potential expansion from coefficients stored in a text file.
-    The file must contain coefficients for BasisSetExp, SplineExp, or CylSplineExp;
+    The file must contain coefficients for BasisSetExp, SplineExp, CylSplineExp, or Multipole;
     the potential type is determined automatically from the first line of the file.
     \param[in] coefFileName specifies the file to read.
     \return    a new instance of PtrPotential on success.
     \throws    std::invalid_argument or std::runtime_error or other potential-specific exception
     on failure (e.g., if the file does not exist, or does not contain valid coefficients)
 */
-PtrPotential readPotentialCoefs(const std::string& coefFileName);
+PtrPotential readPotential(const std::string& coefFileName);
 
-/** Write potential expansion coefficients to a text file.
+/** Write density or potential expansion coefficients to a text file.
     The potential must be one of the following expansion classes: 
-    `BasisSetExp`, `SplineExp`, `CylSplineExp`.
+    `BasisSetExp`, `SplineExp`, `CylSplineExp`, `Multipole`,
+    or the density may be `DensitySphericalHarmonic` or `DensityCylGrid`.
     The coefficients stored in a file may be later loaded by `readPotential()` function.
     \param[in] coefFileName is the output file
     \param[in] potential is the reference to potential
-    \throws    std::invalid_argument if the potential is of inappropriate type,
-    or std::runtime error if the file is not writeable.
+    \return    success or failure (the latter may also mean that export is 
+    not available for this type of potential.
 */
-void writePotentialCoefs(const std::string& coefFileName, const BasePotential& potential);
+bool writeDensity(const std::string& fileName, const BaseDensity& density);
 
-// forward declarations
-class DensitySphericalHarmonic;
-class DensityCylGrid;
+/// alias to writeDensity
+inline bool writePotential(const std::string& fileName, const BasePotential& potential) {
+    return writeDensity(fileName, potential); }
 
-/// write density to a text file
-void writeDensityCoefs(const std::string& fileName, const DensitySphericalHarmonic& density);
-void writeDensityCoefs(const std::string& fileName, const DensityCylGrid& density);
 
 /// return file extension for writing the coefficients of a given potential type,
 /// or empty string if it is not one of the expansion types

@@ -27,6 +27,7 @@ Modifications by Eugene Vasiliev, 2015
 #include "math_specfunc.h"
 #include <cmath>
 #include <stdexcept>
+#include <cassert>
 
 #ifdef VERBOSE_REPORT
 #include <iostream>
@@ -246,53 +247,25 @@ double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
 
 //----- multipole potential -----//
 
-/** helper function to determine the coefficients for potential extrapolation:
-    assuming that 
-        Phi(r) = W * (r/r0)^v + U * (r/r0)^s              if s!=v, or
-        Phi(r) = W * (r/r0)^v + U * (r/r0)^s * ln(r/r0)   if s==v,
-    compute the values of U and W from the following identities at r=r0:
-        Phi            = -(P1 + P2)
-        d Phi / d ln r = -(P1 * v - P2 * (v+1) )
-*/
-static void computeUW(double s, double v, double P1, double P2, double& U, double& W)
-{
-    if(s != v) {
-        U = (2*v+1) / (s-v) * P2;
-        W = (s+v+1) / (v-s) * P2 - P1;
-    } else {
-        U = (2*v+1) * P2;
-        W = -(P1+P2);
-    }
-}
-
 Multipole::Multipole(const BaseDensity& sourceDensity,
-    double rmin, double rmax, int gridSizeR, int numCoefsAngular)
+    double rmin, double rmax, unsigned int gridSizeR, unsigned int numCoefsAngular)
 {
     if(gridSizeR<=2 || numCoefsAngular<0 || rmin<=0 || rmax<=rmin)
-        throw std::invalid_argument("Error in Multipole expansion: invalid grid parameters");
+        throw std::invalid_argument("Error in Multipole: invalid grid parameters");
     if(!isAxisymmetric(sourceDensity))
-        throw std::invalid_argument("Error in Multipole expansion: source density must be axisymmetric");
-    numCoefsAngular = std::min<int>(numCoefsAngular, MAX_NCOEFS_ANGULAR-1);
-    const int numMultipoles = numCoefsAngular/2+1;   // number of multipoles (only even-l terms are used)
-    const int gridSizeC     = 2*numCoefsAngular+1;   // number of grid points for theta in [0,pi/2]
+        throw std::invalid_argument("Error in Multipole: source density must be axisymmetric");
+    numCoefsAngular = std::min<unsigned int>(numCoefsAngular, MAX_NCOEFS_ANGULAR-1);
+    // number of multipoles (only even-l terms are used)
+    const unsigned int numMultipoles = numCoefsAngular/2+1;
 
     // set up radial grid
     std::vector<double> r = math::createExpGrid(gridSizeR, rmin, rmax);
-    // add extra cells at the upper end:
-    // the potential is computed and the spline initialized over the enlarged grid,
-    // but the coefficients for extrapolation to large r are computed at the original rmax,
-    // i.e. the original upper boundary, and extrapolation will be used for all r>{original rmax};
-    // this decreases the influence of boundary effects in the 2d spline
-    unsigned int imin = 0, imax=gridSizeR-1;
-    r.push_back(rmax*1.1);
-    r.push_back(rmax*1.2);
-    gridSizeR = r.size();
     
     // check if the input density is of a spherical-harmonic type already...
     bool useExistingSphHarm = sourceDensity.name() == DensitySphericalHarmonic::myName();
     // ...and construct a fresh spherical-harmonic expansion of density if it wasn't such.
     PtrDensity mySphHarm(useExistingSphHarm ? NULL :
-        new DensitySphericalHarmonic(gridSizeR, numCoefsAngular, sourceDensity, r.front(), r.back()));
+        new DensitySphericalHarmonic(gridSizeR, numCoefsAngular, sourceDensity, rmin, rmax));
     // for convenience, this reference points to either the original or internally created SH density
     const DensitySphericalHarmonic& densh = dynamic_cast<const DensitySphericalHarmonic&>(
         useExistingSphHarm ? sourceDensity : *mySphHarm);
@@ -307,21 +280,19 @@ Multipole::Multipole(const BaseDensity& sourceDensity,
     // density  \rho_l(s)  uses  (s/r_{i+1})^{l+2}  as the radius-dependent weight function -
     // this avoids over/underflows when both l and r are large or small.
     // Finally, \Phi_l(r) is computed as -4\pi ( Pint_l(r) + Pext_l(r) ), and similarly its derivative.
-    math::Matrix<double> Phil(gridSizeR, numMultipoles), dPhil(gridSizeR, numMultipoles);
-    std::vector<double>  Pint(gridSizeR), Pext(gridSizeR);
-    innerSlope.assign(numMultipoles, 0);
-    innerCoefU.assign(numMultipoles, 0);
-    innerCoefW.assign(numMultipoles, 0);
-    outerSlope.assign(numMultipoles, 0);
-    outerCoefU.assign(numMultipoles, 0);
-    outerCoefW.assign(numMultipoles, 0);
-
-    for(int l=0; l<=numCoefsAngular; l+=2) {
+    std::vector<double> Pint(gridSizeR), Pext(gridSizeR);
+    std::vector<std::vector<double> > Phil(gridSizeR), dPhil(gridSizeR);
+    for(unsigned int k=0; k<gridSizeR; k++) {
+        Phil[k].assign(numMultipoles, 0);
+        dPhil[k].assign(numMultipoles, 0);
+    }
+    for(unsigned int il=0; il<numMultipoles; il++) {
+        int l = il*2;
         // inner part
         Pint[0] = densh.integrate(0, r[0], l, l+2, r[0]) * r[0];
         if(!math::isFinite(Pint[0]))
             throw std::runtime_error("Error in Multipole: mass is divergent at origin");
-        for(int k=1; k<gridSizeR; k++) {
+        for(unsigned int k=1; k<gridSizeR; k++) {
             double s = densh.integrate(r[k-1], r[k], l, l+2, r[k]);
             Pint[k] = Pint[k-1] * math::powInt(r[k-1]/r[k], l+1) + s * r[k];
         }
@@ -331,77 +302,191 @@ Multipole::Multipole(const BaseDensity& sourceDensity,
             l, 1-l, r[gridSizeR-1]) * r[gridSizeR-1];
         if(!math::isFinite(Pext[gridSizeR-1]))
             throw std::runtime_error("Error in Multipole: potential is divergent at infinity");
-        for(int k=gridSizeR-2; k>=0; k--) {
-            double s = densh.integrate(r[k], r[k+1], l, 1-l, r[k]);
-            Pext[k] = Pext[k+1] * math::powInt(r[k]/r[k+1], l) + s * r[k];
+        for(unsigned int k=gridSizeR-1; k>0; k--) {
+            double s = densh.integrate(r[k-1], r[k], l, 1-l, r[k-1]);
+            Pext[k-1] = Pext[k] * math::powInt(r[k-1]/r[k], l) + s * r[k-1];
         }
 
         // put together inner and outer parts to compute the potential and its radial derivative,
         // for each spherical-harmonic term
-        for(int k=0; k<gridSizeR; k++) {
-            Phil (k, l/2) = -4*M_PI * (Pint[k] + Pext[k]);           // Phi_l
-            dPhil(k, l/2) =  4*M_PI * ( (l+1)*Pint[k] - l*Pext[k]);  // dPhi_l/dlogr
-            if(!math::isFinite(Phil(k,l/2)))
+        for(unsigned int k=0; k<gridSizeR; k++) {
+            Phil [k][il] = -4*M_PI * (Pint[k] + Pext[k]);           // Phi_l
+            dPhil[k][il] =  4*M_PI * ( (l+1)*Pint[k] - l*Pext[k]);  // dPhi_l/dlogr
+            if(!math::isFinite(Phil[k][l/2]))
                 throw std::runtime_error("Error in Multipole: bad value of potential");
-#ifdef VERBOSE_REPORT
-            //std::cout << l << '\t' << r[k] << '\t' << Phil(k,l/2) << '\t' << 
-            //(4*M_PI*Pint[k]) << '\t' << (4*M_PI*Pext[k]) << '\n';
-#endif
         }
+    }
+    // finish initialization by constructing the 2d spline and determining extrapolation coefs
+    initSpline(r, Phil, dPhil);
+}
 
-        // determine the density slope at small and large radii:
-        // [r<rmin] assume that rho(r) = rho(rmin) * (r/rmin)^{s-2}  with some slope s
-        double densrmin = densh.rho_l(r[imin], l);
-        // try to derive the 'mean' density slope inside rmin, using the integral over density
-        innerSlope[l/2] =  densrmin * pow_2(r[imin]) / Pint[imin] - l-1;
-        if(!math::isFinite(innerSlope[l/2]) || innerSlope[l/2] <= -l-1)
-            innerSlope[l/2] = 2;  // safe value: for l=0 it corresponds to a constant-density core
-        //if(fabs(innerSlope[l/2])<0.001) innerSlope[l/2]=0;
+Multipole::Multipole(const std::vector<double> &radii,
+    const std::vector<std::vector<double> > &Phi,
+    const std::vector<std::vector<double> > &dPhi)
+{
+    unsigned int gridSizeR = radii.size();
+    bool correct = gridSizeR > 2 && gridSizeR == Phi.size() && gridSizeR == dPhi.size();
+    unsigned int numCoefs = 0;
+    for(unsigned int k=0; correct && k<radii.size(); k++) {
+        if(k==0)
+            numCoefs = Phi[0].size();
+        else
+            correct &= radii[k] > radii[k-1];
+        correct &= Phi[k].size() == numCoefs && dPhi[k].size() == numCoefs;
+    }
+    if(!correct)
+        throw std::invalid_argument("Error in Multipole: invalid size of input arrays");
+    initSpline(radii, Phi, dPhi);
+}
 
-        // [r>rmax], same exercise to determine the outer slope (one node behind the end of grid)
-        double densrmax = densh.rho_l(r[imax], l);
-        outerSlope[l/2] = -densrmax * pow_2(r[imax]) / Pext[imax] + l;
-        if(!math::isFinite(outerSlope[l/2]) || outerSlope[l/2] >= l)
-            outerSlope[l/2] = -2;  // safe value: for l=0 it corresponds to r^-4 falloff
+/** helper function to compute the second derivative of a function f(x) at x=x1,
+    given the values f and first derivatives df of this function at three points x0,x1,x2.
+*/
+static double der2f(double f0, double f1, double f2,
+    double df0, double df1, double df2, double x0, double x1, double x2)
+{
+    // construct a divided difference table to evaluate 2nd derivative via Hermite interpolation
+    double dx10 = x1-x0, dx21 = x2-x1, dx20 = x2-x0;
+    double df10 = (f1   - f0  ) / dx10;
+    double df21 = (f2   - f1  ) / dx21;
+    double dd10 = (df10 - df0 ) / dx10;
+    double dd11 = (df1  - df10) / dx10;
+    double dd21 = (df21 - df1 ) / dx21;
+    double dd22 = (df2  - df21) / dx21;
+    return ( -2 * (pow_2(dx21)*(dd10-2*dd11) + pow_2(dx10)*(dd22-2*dd21)) +
+        4*dx10*dx21 * (dx10*dd21 + dx21*dd11) / dx20 ) / pow_2(dx20);
+}
 
-        // determine the coefficients U and W for extrapolating to large and small radii
-        // (beyond the definition region of 2d interpolating spline), see comments in evalCyl
-        computeUW(innerSlope[l/2], l,    4*M_PI*Pext[imin], 4*M_PI*Pint[imin],
-            innerCoefU[l/2], innerCoefW[l/2]);
-        computeUW(outerSlope[l/2], -l-1, 4*M_PI*Pint[imax], 4*M_PI*Pext[imax],
-            outerCoefU[l/2], outerCoefW[l/2]);
+/** helper function to determine the coefficients for potential extrapolation:
+    assuming that 
+        Phi(r) = W * (r/r1)^v + U * (r/r1)^s              if s!=v, or
+        Phi(r) = W * (r/r1)^v + U * (r/r1)^s * ln(r/r1)   if s==v,
+    and given v and the values of Phi and its derivatives w.r.t. ln(r)
+    at three points r0<r1<r2, determine the coefficients s, U and W.
+    Here v = l for the inward and v = -l-1 for the outward extrapolation.
+    This corresponds to the density profile extrapolated as rho ~ r^(s-2).
+*/
+static void computeExtrapolationCoefs(double Phi0, double Phi1, double Phi2,
+    double dPhi0, double dPhi1, double dPhi2, double lnr0, double lnr1, double lnr2,
+    int v, double& s, double& U, double& W)
+{
+    double d2Phi1 = der2f(Phi0, Phi1, Phi2, dPhi0, dPhi1, dPhi2, lnr0, lnr1, lnr2);
+    s = (d2Phi1 - v*dPhi1) / (dPhi1 - v*Phi1);
+    int signv = v>=0 ? 1 : -1;
+    if(!math::isFinite(s) || s * signv <= -v-1)  // safeguard against weird slope determination
+        // results in a constant-density core for the inward or r^-4 falloff for the outward extrapolation
+        s = 2 * signv;
+    if(s != v) {
+        U = (dPhi1 - v*Phi1) / (s-v);
+        W = (dPhi1 - s*Phi1) / (v-s);
+    } else {
+        U = dPhi1 - v*Phi1;
+        W = Phi1;
+    }
+}
 
+/** Set up non-uniform grid in cos(theta), with denser spacing close to z-axis.
+    We want (some of) the nodes of the grid to coincide with the nodes of Gauss-Legendre
+    quadrature on the interval -1 <= cos(theta) <= 1, which ensures that the values
+    of 2d spline at these angles exactly equals the input values, thereby making
+    the forward and reverse Legendre transformation invertible to machine precision.
+    So we first compute these nodes for the given order of sph.-harm. expansion lmax,
+    and then take only the non-negative half of them for the spline in cos(theta),
+    plus one at theta=0.
+    To achieve better accuracy in approximating the Legendre polynomials by quintic
+    splines, we insert additional nodes in between the original ones.
+*/
+static std::vector<double> createGridInCosTheta(unsigned int lmax)
+{
+    unsigned int numPointsGL = lmax+1;  // lmax is even, numPointsGL is odd
+    std::vector<double> theta(numPointsGL+1), dummy(numPointsGL);
+    math::prepareIntegrationTableGL(-1, 1, numPointsGL, &theta.front(), &dummy.front());
+    // convert GL nodes (cos theta) to theta (only the upper half of the original interval)
+    for(unsigned int iGL=numPointsGL/2; iGL<numPointsGL; iGL++)
+        theta[iGL] = acos(theta[iGL]);
+    theta.back() = 0.;  // add point at the end of original interval (GL nodes are all interior)
+    // use this number of grid points for each original GL node (accuracy better than 1e-6)
+    unsigned int oversampleFactor = 3;
+    // number of grid points for spline in 0 <= cos(theta) <= 1
+    unsigned int gridSizeC = (lmax/2+1) * oversampleFactor + 1;
+    std::vector<double> gridC(gridSizeC);
+    for(unsigned int iGL = numPointsGL/2; iGL<numPointsGL; iGL++)  // covers lmax/2+1 GL nodes
+        for(unsigned int iover=0; iover<oversampleFactor; iover++) {
+            gridC[(iGL-numPointsGL/2) * oversampleFactor + iover] = cos(
+                (theta[iGL] * (oversampleFactor-iover) + theta[iGL+1] * iover) / oversampleFactor);
+        }
+    gridC.front() = 0.;
+    gridC.back()  = 1.;
+    return gridC;
+}
+
+void Multipole::initSpline(const std::vector<double> &radii,
+    const std::vector<std::vector<double> > &Phil, const std::vector<std::vector<double> > &dPhil)
+{
+    unsigned int gridSizeR = radii.size();
+    assert(gridSizeR > 2 && gridSizeR == Phil.size() &&
+        gridSizeR == dPhil.size() && Phil[0].size() >= 1);
+
+    // determine the indices of grid radii at which the extrapolation values are computed
+    unsigned int imin = 1;
+    unsigned int imax = gridSizeR-2;
+    unsigned int numMultipoles = Phil[0].size();
+    unsigned int lmax = 2*(numMultipoles-1);
+
+    // set up a 2D grid in log[r] & cos[theta]:
+    std::vector<double> gridR(gridSizeR);
+    for(unsigned int i=0; i<gridSizeR; i++)
+        gridR[i] = log(radii[i]);
+    logrmin = gridR[imin];
+    logrmax = gridR[imax];
+    std::vector<double> gridC = createGridInCosTheta(lmax);
+    unsigned int gridSizeC = gridC.size();
+
+    innerSlope.assign(numMultipoles, 0);
+    innerCoefU.assign(numMultipoles, 0);
+    innerCoefW.assign(numMultipoles, 0);
+    outerSlope.assign(numMultipoles, 0);
+    outerCoefU.assign(numMultipoles, 0);
+    outerCoefW.assign(numMultipoles, 0);
+    isSpherical = true;
+
+    for(unsigned int il=0; il<numMultipoles; il++) {
+        int l = il*2;
+        if(l>0)  // check if non-spherical components are identically zero
+            for(unsigned int k=0; k<gridSizeR; k++)
+                isSpherical &= Phil[k][il]==0 && dPhil[k][il]==0;
+
+        // determine the coefficients for potential extrapolation at small and large radii
+        computeExtrapolationCoefs(
+            Phil [imin-1][il],  Phil[imin][il],  Phil[imin+1][il],
+            dPhil[imin-1][il], dPhil[imin][il], dPhil[imin+1][il],
+            gridR[imin-1],     gridR[imin],     gridR[imin+1],   l,
+            /*output*/ innerSlope[il], innerCoefU[il], innerCoefW[il]);
+        computeExtrapolationCoefs(
+            Phil [imax-1][il],  Phil[imax][il],  Phil[imax+1][il],
+            dPhil[imax-1][il], dPhil[imax][il], dPhil[imax+1][il],
+            gridR[imax-1],     gridR[imax],     gridR[imax+1], -l-1,
+            /*output*/ outerSlope[il], outerCoefU[il], outerCoefW[il]);
 #ifdef VERBOSE_REPORT
-        std::cout << "Multipole: density profile for l=" << l << 
-            ": inner rho=" << densrmin << "*r^" << (innerSlope[l/2]-2) <<
-            ", outer rho=" << densrmax << "*r^" << (outerSlope[l/2]-2) << "\n";
+        std::cout << "Multipole: for l=" << l << 
+            ": inner density slope=" << (innerSlope[il]-2) <<
+            ", outer density slope=" << (outerSlope[il]-2) << "\n";
 #endif
     }
-
-    // Put potential and its derivatives on a 2D grid in log[r] & cos[theta]:
-    // set up linear grid in theta, i.e. non-uniform in cos(theta), with denser spacing close to z-axis
-    std::vector<double> gridR(gridSizeR), gridC(gridSizeC);
-    for(int i=0; i<gridSizeR; i++)
-        gridR[i] = log(r[i]);
-    logrmin = gridR[imin];
-    logrmax = gridR[imax];  // revert back to the original upper bound (rmax) without extra cells
-    for(int i=0; i<gridSizeC-1; i++) 
-        gridC[i] = sin(M_PI_2 * i / (gridSizeC-1));
-    gridC[gridSizeC-1] = 1.0;
-
+    
     // assign Phi, dPhi/dlogr & dPhi/dcos[theta] 
     math::Matrix<double> Phi_val(gridSizeR, gridSizeC);
     math::Matrix<double> Phi_dR (gridSizeR, gridSizeC);
     math::Matrix<double> Phi_dC (gridSizeR, gridSizeC);
-    std::vector<double>  Pl(numCoefsAngular+1), dPl(numCoefsAngular+1);
-    for(int i=0; i<gridSizeC; i++) {
-        math::legendrePolyArray(numCoefsAngular, 0, gridC[i], &Pl.front(), &dPl.front());
-        for(int k=0; k<gridSizeR; k++) {
+    std::vector<double>  Pl(lmax+1), dPl(lmax+1);
+    for(unsigned int i=0; i<gridSizeC; i++) {
+        math::legendrePolyArray(lmax, 0, gridC[i], &Pl.front(), &dPl.front());
+        for(unsigned int k=0; k<gridSizeR; k++) {
             double val=0, dR=0, dC=0;
-            for(int l=0; l<=numCoefsAngular; l+=2) {
-                val += Phil (k, l/2) *  Pl[l];   // Phi
-                dR  += dPhil(k, l/2) *  Pl[l];   // d Phi / d log(r)
-                dC  += Phil (k, l/2) * dPl[l];   // d Phi / d cos(theta)
+            for(unsigned int il=0; il<numMultipoles; il++) {
+                val += Phil [k][il] *  Pl[il*2];   // Phi
+                dR  += dPhil[k][il] *  Pl[il*2];   // d Phi / d log(r)
+                dC  += Phil [k][il] * dPl[il*2];   // d Phi / d cos(theta)
             }
             Phi_val(k, i) = val;
             Phi_dR (k, i) = dR;
@@ -411,11 +496,6 @@ Multipole::Multipole(const BaseDensity& sourceDensity,
 
     // establish 2D quintic spline of Phi in log[r] & cos[theta]
     spl = math::QuinticSpline2d(gridR, gridC, Phi_val, Phi_dR, Phi_dC);
-
-    // determine if the potential is spherically-symmetric
-    // (could determine this explicitly by analyzing the angular dependence of Phi(r,theta),
-    // but for now simply ask the source density model
-    isSpherical = (sourceDensity.symmetry() & ST_SPHERICAL) == ST_SPHERICAL;
 }
 
 void Multipole::evalCyl(const coord::PosCyl &pos,
@@ -497,6 +577,38 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
         deriv2->dRdz= (PhiRR*ct*st - PhiCC*ct*st*R2 + PhiRC*st*(R2-z2)
             - PhiR*2*ct*st + PhiC*st*(2*z2-R2)) / (r*r);  // d2/dRdz
         deriv2->dRdphi = deriv2->dzdphi = deriv2->dphi2 = 0;
+    }
+}
+
+void Multipole::getCoefs(std::vector<double> &radii,
+    std::vector<std::vector<double> > &Phi,
+    std::vector<std::vector<double> > &dPhi) const
+{
+    // we compute the values and radial derivatives of potential at values of cos(theta)
+    // corresponding to nodes of Gauss-Legendre quadrature of order lmax+1 on the interval [-1:1]
+    unsigned int lmax = innerSlope.size()*2-2;
+    LegendreTransform transf(lmax);
+    unsigned int numPointsGL = lmax+1;
+    std::vector<double> values(numPointsGL), derivs(numPointsGL), output(numPointsGL);
+    radii = spl.xvalues();  // get log-radii of spline grid nodes
+    Phi. resize(radii.size());
+    dPhi.resize(radii.size());
+    for(unsigned int k=0; k<radii.size(); k++) {
+        for(unsigned int i=numPointsGL/2; i<numPointsGL; i++) {
+            double val, der;  // Phi and dPhi/d(ln r)
+            spl.evalDeriv(radii[k], transf.x(i), &val, &der);
+            values[i] = values[numPointsGL-1-i] = val;
+            derivs[i] = derivs[numPointsGL-1-i] = der;
+        }
+        Phi[k].resize(lmax/2+1);
+        transf.forward(&values.front(), &output.front());
+        for(unsigned int l=0; l<=lmax; l+=2)
+            Phi[k][l/2] = output[l] * (2*l+1)/2;
+        dPhi[k].resize(lmax/2+1);
+        transf.forward(&derivs.front(), &output.front());
+        for(unsigned int l=0; l<=lmax; l+=2)
+            dPhi[k][l/2] = output[l] * (2*l+1)/2;
+        radii[k] = exp(radii[k]);
     }
 }
 

@@ -1274,4 +1274,33 @@ double DensitySphericalHarmonic::integrate(double r1, double r2, int l, int n, d
     return result;
 }
 
+LegendreTransform::LegendreTransform(unsigned int _lmax):
+    lmax(_lmax)
+{
+    nodes.resize(lmax+1);
+    weights.resize(lmax+1);
+    math::prepareIntegrationTableGL(-1, 1, lmax+1, &nodes.front(), &weights.front());
+    legPoly.resize(pow_2(lmax+1));
+    for(unsigned int i=0; i<=lmax; i++)
+        math::legendrePolyArray(lmax, 0, nodes[i], &legPoly[ i * (lmax+1) ]);
+}
+
+void LegendreTransform::forward(const double values[], double coefs[]) const
+{
+    for(unsigned int l=0; l<=lmax; l++) {
+        coefs[l]=0;
+        for(unsigned int i=0; i<=lmax; i++)
+            coefs[l] += values[i] * weights[i] * legPoly[ i * (lmax+1) + l ];
+    }
+}
+
+void LegendreTransform::inverse(const double coefs[], double values[]) const
+{
+    for(unsigned int i=0; i<=lmax; i++) {
+        values[i]=0;
+        for(unsigned int l=0; l<=lmax; l++)
+            values[i] += coefs[l] * legPoly[ i * (lmax+1) + l ] * (1+2*l)/2;
+    }
+}
+
 }; // namespace

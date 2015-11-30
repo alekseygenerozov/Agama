@@ -273,7 +273,7 @@ void IOSnapshotNemo::writeSnapshot(const PointMassArrayCar& points)
 
 // creates an instance of appropriate snapshot reader, according to the file format 
 // determined by reading first few bytes, or throw an exception if a file doesn't exist
-BaseIOSnapshot* createIOSnapshotRead (const std::string &fileName, 
+PtrIOSnapshot createIOSnapshotRead (const std::string &fileName, 
     const units::ExternalUnits& unitConverter)
 {
     std::ifstream strm(fileName.c_str(), std::ios::in);
@@ -285,7 +285,7 @@ BaseIOSnapshot* createIOSnapshotRead (const std::string &fileName,
     if(buffer[0]==-110 &&  // NEMO signature: open block
         (buffer[2]=='c' || buffer[2]=='i' || buffer[2]=='f' || buffer[2]=='d' || buffer[2]=='('))  // nemo block type
     {
-        return new IOSnapshotNemo(fileName, unitConverter);
+        return PtrIOSnapshot(new IOSnapshotNemo(fileName, unitConverter));
     } else
 #ifdef HAVE_UNSIO
     if( (buffer[0]==8 && buffer[1]==0 && buffer[2]==0 && buffer[3]==0) ||
@@ -293,31 +293,33 @@ BaseIOSnapshot* createIOSnapshotRead (const std::string &fileName,
         (buffer[0]==0 && buffer[1]==0 && buffer[2]==8 && buffer[3]==0) ||
         (buffer[0]==0 && buffer[1]==0 && buffer[2]==0 && buffer[3]==1) )
     {
-        return new IOSnapshotGadget(fileName, unitConverter);
+        return PtrIOSnapshot(new IOSnapshotGadget(fileName, unitConverter));
     } else
 #endif
     {   // anything else is a text file by default (might not work out anyway)
-        return new IOSnapshotText(fileName, unitConverter);
+        return PtrIOSnapshot(new IOSnapshotText(fileName, unitConverter));
     }
 };
 
 // creates an instance of snapshot writer for a given format name, 
 // or throw an exception if the format name string is incorrect
-BaseIOSnapshot* createIOSnapshotWrite(const std::string &fileName, 
+PtrIOSnapshot createIOSnapshotWrite(const std::string &fileName, 
     const units::ExternalUnits& unitConverter, const std::string &fileFormat,
     const std::string& header, const double time, const bool append)
 {
     if(fileFormat.empty() || fileName.empty())
         throw std::runtime_error("Snapshot file name or format is empty");
     if(tolower(fileFormat[0])=='t')
-        return new IOSnapshotText(time==0 ? fileName : (fileName + utils::convertToString(time)), unitConverter);
+        return PtrIOSnapshot(new IOSnapshotText(
+            time==0 ? fileName : (fileName + utils::convertToString(time)), unitConverter) );
     else 
     if(tolower(fileFormat[0])=='n')
-        return new IOSnapshotNemo(fileName, unitConverter, header, time, append);
+        return PtrIOSnapshot(new IOSnapshotNemo(fileName, unitConverter, header, time, append));
 #ifdef HAVE_UNSIO
     else 
     if(tolower(fileFormat[0])=='g')
-        return new IOSnapshotGadget(time==0 ? fileName : (fileName + utils::convertToString(time)), unitConverter);
+        return PtrIOSnapshot(new IOSnapshotGadget(
+            time==0 ? fileName : (fileName + utils::convertToString(time)), unitConverter) );
 #endif
     else
         throw std::runtime_error("Snapshot file format not recognized");   // error - format name not found

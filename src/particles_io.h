@@ -14,6 +14,7 @@
 #pragma once
 #include "particles_base.h"
 #include "units.h"
+#include "smart.h"
 #include <string>
 
 namespace particles {
@@ -87,15 +88,21 @@ private:
 };
 #endif
 
+/// smart pointer to snapshot interface
+#ifdef HAVE_CXX11
+typedef std::unique_ptr<BaseIOSnapshot> PtrIOSnapshot;
+#else
+typedef std::auto_ptr<BaseIOSnapshot> PtrIOSnapshot;
+#endif
 
 /// creates an instance of appropriate snapshot reader, according to the file format 
 /// determined by reading first few bytes, or throw a std::runtime_error if a file doesn't exist
-BaseIOSnapshot* createIOSnapshotRead (const std::string &fileName, 
+PtrIOSnapshot createIOSnapshotRead (const std::string &fileName, 
     const units::ExternalUnits& unitConverter);
 
 /// creates an instance of snapshot writer for a given format name, 
 /// or throw a std::runtime_error if the format name string is incorrect or file name is empty
-BaseIOSnapshot* createIOSnapshotWrite(const std::string &fileName, 
+PtrIOSnapshot createIOSnapshotWrite(const std::string &fileName, 
     const units::ExternalUnits& unitConverter, const std::string &fileFormat="Text",
     const std::string& header="", const double time=0, const bool append=false);
 
@@ -108,9 +115,7 @@ BaseIOSnapshot* createIOSnapshotWrite(const std::string &fileName,
 inline void readSnapshot(const std::string& fileName, 
     const units::ExternalUnits& unitConverter, PointMassArrayCar& points)
 {
-    BaseIOSnapshot* snap = createIOSnapshotRead(fileName, unitConverter);
-    snap->readSnapshot(points);
-    delete snap;
+    createIOSnapshotRead(fileName, unitConverter)->readSnapshot(points);
 }
 
 /** convenience function for writing an N-body snapshot in the given format.
@@ -123,9 +128,7 @@ inline void writeSnapshot(const std::string& fileName,
     const units::ExternalUnits& unitConverter, const PointMassArrayCar& points,
     const std::string &fileFormat="Text")
 {
-    BaseIOSnapshot* snap = createIOSnapshotWrite(fileName, unitConverter, fileFormat);
-    snap->writeSnapshot(points);
-    delete snap;
+    createIOSnapshotWrite(fileName, unitConverter, fileFormat)->writeSnapshot(points);
 }
 
 /** convenience function for writing an N-body snapshot that contains only positions.
@@ -139,14 +142,12 @@ void writeSnapshot(const std::string& fileName,
     const units::ExternalUnits& unitConverter, const PointMassArray<coord::PosT<CoordT> >& points,
     const std::string &fileFormat="Text")
 {
-    BaseIOSnapshot* snap = createIOSnapshotWrite(fileName, unitConverter, fileFormat);
     PointMassArrayCar tmpPoints;
     tmpPoints.data.reserve(points.size());
     for(unsigned int i=0; i<points.size(); i++)
         tmpPoints.data.push_back(std::make_pair(coord::PosVelCar(toPosCar(points[i].first),
             coord::VelCar(0,0,0)), points[i].second));  // convert the position and assign zero velocity
-    snap->writeSnapshot(tmpPoints);
-    delete snap;
+    createIOSnapshotWrite(fileName, unitConverter, fileFormat)->writeSnapshot(tmpPoints);
 }
 
 /* ------ Correspondence between file format names and types ------- */

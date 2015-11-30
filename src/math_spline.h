@@ -13,6 +13,9 @@ Spline interpolation class is based on the GSL implementation by G.Jungman;
 
 namespace math{
 
+///@{
+/// \name One-dimensional interpolation
+
 /** Class that defines a cubic spline with natural or clamped boundary conditions */
 class CubicSpline: public IFunction, public IFunctionIntegral {
 public:
@@ -111,8 +114,12 @@ private:
 };
 
 
+///@}
+/// \name Two-dimensional interpolation
+///@{
+
 /** Generic two-dimensional interpolator class */
-class BaseInterpolator2d {
+class BaseInterpolator2d: public IFunctionNdim {
 public:
     BaseInterpolator2d() {};
     /** Initialize a 2d interpolator from the provided values of x, y and z.
@@ -121,8 +128,6 @@ public:
     */
     BaseInterpolator2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
         const Matrix<double>& zvalues);
-
-    virtual ~BaseInterpolator2d() {};
 
     /** compute the value of the interpolating function and optionally its derivatives at point x,y;
         if the input location is outside the definition region, the result is NaN.
@@ -139,6 +144,13 @@ public:
         evalDeriv(x, y, &v);
         return v;
     }
+
+    /** IFunctionNdim interface */
+    virtual void eval(const double vars[], double values[]) const {
+        evalDeriv(vars[0], vars[1], values);
+    }
+    virtual unsigned int numVars() const { return 2; }    
+    virtual unsigned int numValues() const { return 1; }
 
     /** return the boundaries of definition region */
     double xmin() const { return xval.size()? xval.front(): NAN; }
@@ -232,6 +244,10 @@ private:
 };
 
 
+///@}
+/// \name Penalized spline approximation (1d)
+///@{
+
 /// opaque internal data for SplineApprox
 class SplineApproxImpl;
 
@@ -319,6 +335,9 @@ private:
     SplineApprox(const SplineApprox&);              ///< copy constructor forbidden
 };
 
+///@}
+/// \name Auxiliary routines for grid generation
+///@{
 
 /** generate a grid with exponentially spaced nodes, i.e., uniform in log(x):
     log(x[k]) = log(xmin) + log(xmax/xmin) * k/(nnodes-1), k=0..nnodes-1.
@@ -354,4 +373,5 @@ std::vector<double> createNonuniformGrid(unsigned int nnodes, double xmin, doubl
 std::vector<double> createAlmostUniformGrid(const std::vector<double> &srcpoints,
     unsigned int minbin, unsigned int& gridsize);
 
+///@}
 }  // namespace

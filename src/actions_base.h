@@ -6,12 +6,6 @@
 #pragma once
 #include "coord.h"
 
-#ifdef HAVE_CXX11
-#include <memory>
-#else
-#include <tr1/memory>
-#endif
-
 /** Classes and routines for transformations between position/velocity and action/angle phase spaces */
 namespace actions {
 
@@ -82,17 +76,5 @@ private:
     BaseActionMapper(const BaseActionMapper&);
     BaseActionMapper& operator= (const BaseActionMapper&);
 };
-
-#ifdef HAVE_CXX11
-typedef std::shared_ptr<const BaseActionFinder>  PtrActionFinder;
-typedef std::unique_ptr<const BaseActionFinder> UPtrActionFinder;
-typedef std::shared_ptr<const BaseActionMapper>  PtrActionMapper;
-typedef std::unique_ptr<const BaseActionMapper> UPtrActionMapper;
-#else
-typedef std::tr1::shared_ptr<const BaseActionFinder>  PtrActionFinder;
-typedef std::auto_ptr       <const BaseActionFinder> UPtrActionFinder;
-typedef std::tr1::shared_ptr<const BaseActionMapper>  PtrActionMapper;
-typedef std::auto_ptr       <const BaseActionMapper> UPtrActionMapper;
-#endif
     
 }  // namespace action

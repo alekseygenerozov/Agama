@@ -33,8 +33,8 @@ potential::PtrPotential write_read(const potential::BasePotential& pot)
 {
     std::string coefFile("test_potential_sphharm");
     coefFile += getCoefFileExtension(pot);
-    writePotentialCoefs(coefFile, pot);
-    potential::PtrPotential newpot = potential::readPotentialCoefs(coefFile);
+    writePotential(coefFile, pot);
+    potential::PtrPotential newpot = potential::readPotential(coefFile);
     std::remove(coefFile.c_str());
     return newpot;
 }
@@ -113,8 +113,8 @@ void test_average_error(const potential::BasePotential& p1, const potential::Bas
             f1 = sqrt(pow_2(g1.dx)+pow_2(g1.dy)+pow_2(g1.dz));
             f2 = sqrt(pow_2(g2.dx)+pow_2(g2.dy)+pow_2(g2.dz));
             difPhi  .add((v1-v2)/(v1+v2)*2);
+            difDens .add((d1-d2)/(fabs(d1)+fabs(d2))*2);
             difForce.add((f1-f2)/(f1+f2)*2);
-            difDens .add((d1-d2)/(fabs(d1)+d2)*2);
         }
         strm << pow(10., logR+0.5*dlogR) << '\t' <<
             sqrt(pow_2(difPhi  .mean())+difPhi  .disp()) << '\t' <<
@@ -137,7 +137,7 @@ bool test_suite(const potential::BasePotential& p, const potential::BasePotentia
     std::string fileName = std::string("test_") + p.name() + "_" + orig.name() + 
         "_gamma" + utils::convertToString(gamma);
     if(output)
-        writePotentialCoefs(fileName + getCoefFileExtension(p), p);
+        writePotential(fileName + getCoefFileExtension(p), p);
     for(int ic=0; ic<numtestpoints; ic++) {
         double pot, pot_orig;
         coord::GradCyl der,  der_orig;
@@ -235,12 +235,26 @@ int main() {
     ok &= test_suite(potential::SplineExp(20, 4, points, potential::ST_TRIAXIAL), hernq, 2e-2);
     ok &= test_suite(*create_from_file(points, potential::CylSplineExp::myName()), hernq, 2e-2);
 
-    // axisymmetric multipole
-    const potential::Dehnen deh1(1., 1., 1., .5, 1.2);
-    test_average_error(potential::Multipole(deh1, 1e-3, 1e3, 100, 16), deh1);
-    test_average_error(potential::SplineExp(50, 8, deh1, 1e-3, 1e3), deh1);
 #endif
 
+#if 1
+    std::vector<double> d(13),c(13),b(13);
+    for(int i=0;i<13;i++) d[i]=math::random();
+    potential::LegendreTransform tr(12);
+    tr.forward(&d.front(), &c.front());
+    tr.inverse(&c.front(), &b.front());
+
+    // axisymmetric multipole
+    const potential::Dehnen deh1(1., 1., 1., .5, 1.2);
+    const potential::Multipole deh1m(deh1, 1e-3, 1e3, 100, 16);
+    test_average_error(deh1m, deh1);
+    const potential::SplineExp deh1s(50, 8, deh1, 1e-3, 1e3);
+    test_average_error(deh1s, deh1);
+    std::vector<double> radii;
+    std::vector<std::vector<double> > Phi, dPhi;
+    potential::PtrPotential deh1m_clone = write_read(deh1m);
+    test_average_error(deh1m, *deh1m_clone);
+#endif
     if(ok)
         std::cout << "ALL TESTS PASSED\n";
     return 0;

@@ -7,6 +7,7 @@
 #pragma once
 #include "actions_base.h"
 #include "potential_base.h"
+#include <memory>
 
 // forward declaration
 namespace Torus {

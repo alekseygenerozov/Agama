@@ -1,5 +1,4 @@
 #include "math_specfunc.h"
-#include "math_spline.h"
 #include <cmath>
 #include <cassert>
 #include <stdexcept>

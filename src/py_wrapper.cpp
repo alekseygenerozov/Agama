@@ -52,12 +52,14 @@ static std::string toString(PyObject* obj)
 }
 
 /// convert a Python dictionary to its c++ analog
-static void convertPyDictToKeyValueMap(PyObject* args, utils::KeyValueMap& params)
+static utils::KeyValueMap convertPyDictToKeyValueMap(PyObject* args)
 {
     PyObject *key, *value;
     Py_ssize_t pos = 0;
+    utils::KeyValueMap params;
     while (PyDict_Next(args, &pos, &key, &value))
         params.set(toString(key), toString(value));
+    return params;
 }
 
 ///@}
@@ -695,8 +697,7 @@ static potential::PtrPotential Potential_initFromParticles(
 /// attempt to construct an elementary potential from the parameters provided in dictionary
 static potential::PtrPotential Potential_initFromDict(PyObject* args)
 {
-    utils::KeyValueMap params;
-    convertPyDictToKeyValueMap(args, params);
+    utils::KeyValueMap params = convertPyDictToKeyValueMap(args);
     // check if the list of arguments contains points
     PyObject* points = PyDict_GetItemString(args, "points");
     if(points) {
@@ -729,9 +730,7 @@ static potential::PtrPotential Potential_initFromTuple(PyObject* tuple)
     } else if(onlyDict) {
         std::vector<utils::KeyValueMap> paramsArr;
         for(Py_ssize_t i=0; i<PyTuple_Size(tuple); i++) {
-            utils::KeyValueMap params;
-            convertPyDictToKeyValueMap(PyTuple_GET_ITEM(tuple, i), params);
-            paramsArr.push_back(params);
+            paramsArr.push_back(convertPyDictToKeyValueMap(PyTuple_GET_ITEM(tuple, i)));
         }
         return potential::createPotential(paramsArr, *conv);
     } else
@@ -869,7 +868,7 @@ static PyObject* Potential_export(PyObject* self, PyObject* args)
     if(!Potential_isCorrect(self) || !PyArg_ParseTuple(args, "s", &filename))
         return NULL;
     try{
-        writePotentialCoefs(filename, *((PotentialObject*)self)->pot);
+        writePotential(filename, *((PotentialObject*)self)->pot);
         Py_INCREF(Py_None);
         return Py_None;
     }
@@ -1122,8 +1121,7 @@ static int DistributionFunction_init(PyObject* self, PyObject* args, PyObject* n
         return -1;
     }
     try{
-        utils::KeyValueMap params;
-        convertPyDictToKeyValueMap(namedArgs, params);
+        utils::KeyValueMap params = convertPyDictToKeyValueMap(namedArgs);
         ((DistributionFunctionObject*)self)->df = df::createDistributionFunction(params, *conv);
         assert(((DistributionFunctionObject*)self)->df);
         return 0;

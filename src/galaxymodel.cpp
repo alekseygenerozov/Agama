@@ -3,6 +3,7 @@
 #include "actions_torus.h"
 #include "math_sample.h"
 #include "math_specfunc.h"
+#include "smart.h"
 #include <cmath>
 #include <stdexcept>
 

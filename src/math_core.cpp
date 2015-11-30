@@ -240,7 +240,7 @@ inline double interpHermiteMonotonic(double x, double x1, double f1, double dfdx
     int nroots = gsl_poly_solve_quadratic(-sixdf+3*dx*(dfdx1+dfdx2), 
         sixdf-2*dx*(2*dfdx1+dfdx2), dx*dfdx1, &t1, &t2);
     if(nroots>0 && ((t1>=0 && t1<=1) || (t2>=0 && t2<=1)) )
-        return NAN;   // will not produce a non-monotonic result
+        return NAN;   // will produce a non-monotonic result
     return pow_2(1-t) * ( (1+2*t)*f1 + t * dfdx1*dx )
          + pow_2(t) * ( (3-2*t)*f2 + (t-1)*dfdx2*dx );
 }

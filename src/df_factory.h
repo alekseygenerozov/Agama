@@ -7,7 +7,7 @@
 #pragma once
 #include "df_base.h"
 #include "units.h"
-#include <string>
+#include "smart.h"
 
 // forward declaration
 namespace utils { class KeyValueMap; }

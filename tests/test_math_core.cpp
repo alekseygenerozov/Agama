@@ -66,9 +66,9 @@ class test6: public math::IFunctionNoDeriv{
     }
 };
 
-class test_powerlaw: public math::IFunctionNoDeriv{
+class test_GL_powerlaw: public math::IFunctionNoDeriv{
 public:
-    test_powerlaw(double _p): p(_p) {};
+    test_GL_powerlaw(double _p): p(_p) {};
     virtual double value(double x) const{
         return pow(x, p);
     }
@@ -77,6 +77,16 @@ public:
     }
     double p;
 };
+
+class test_GL_angular: public math::IFunctionNoDeriv{
+    double q2, gamma2;
+public:
+    test_GL_angular(double q, double gamma): q2(q*q), gamma2(gamma/2) {}
+    virtual double value(double costheta) const{
+        return pow(1-pow_2(costheta)*(1-1/q2), -gamma2);
+    }
+};
+
 
 static const double  // rotation
     A00 = 0.8786288646, A01 = -0.439043856, A02 = 0.1877546558,
@@ -117,16 +127,6 @@ public:
     virtual unsigned int numVars() const { return 3; }
     virtual unsigned int numValues() const { return 1; }
 };
-
-class test9: public math::IFunctionNoDeriv{
-    double q2, gamma2;
-public:
-    test9(double q, double gamma): q2(q*q), gamma2(gamma/2) {}
-    virtual double value(double costheta) const{
-        return pow(1-pow_2(costheta)*(1-1/q2), -gamma2);
-    }
-};
-
 
 int main()
 {
@@ -241,7 +241,6 @@ int main()
         " is "<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
     ok &= fabs(yresult[0]-c0) * fabs(yresult[1]-c1) * fabs(yresult[2]-c2) < 1e-10;
 
-#if 0
     numEval=0;
     double ymin[] = {-4,-4,-2};
     double ymax[] = {+4,+4,+2};
@@ -254,7 +253,8 @@ int main()
     numEval=0;
     math::Matrix<double> points;
     sampleNdim(fnc8, ymin, ymax, 100000, points, NULL, &result, &error);
-    std::cout << "Monte Carlo Volume of a 3d torus = "<<result<<" +- "<<error<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
+    std::cout << "Monte Carlo Volume of a 3d torus = "<<result<<" +- "<<error<<
+        " (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
     ok &= fabs(result-exact)<error*2;  // loose tolerance on MC error estimate
     if(0) {
         std::ofstream fout("torus.dat");
@@ -262,8 +262,10 @@ int main()
             fout << points(i,0) << "\t" << points(i,1) << "\t" << points(i,2) << "\n";
     }
 
+#if 1
+    // test the accuracy of fixed-order (n) Gauss-Legendre quadrature in integrating a power-law function in radius
     for(double p=-40; p<=40; p+=1.77) {
-        test_powerlaw tpl(p);
+        test_GL_powerlaw tpl(p);
         for(int n=8; n<=32; n*=2) {
             double xmin=1., xmax=1.5;
             result = math::integrateGL(tpl, xmin, xmax, n);
@@ -275,18 +277,19 @@ int main()
             std::cout << ", error("<<xmax<<")="<<(result-exact)/exact<<"\n";
         }
     }
-#endif
-    // test accuracy of fixed-order GL quadrature
-    test9 test9fnc1(0.25, 1.);
-    test9 test9fnc2(0.5, 2.);
-    test9 test9fnc3(0.5, 4.);
-    double exact1 = math::integrateAdaptive(test9fnc1, -1, 1, 1e-14);
-    double exact2 = math::integrateAdaptive(test9fnc2, -1, 1, 1e-14);
-    double exact3 = math::integrateAdaptive(test9fnc3, -1, 1, 1e-14);
+    // test accuracy of fixed-order GL quadrature for computing spherical-harmonic coefficients
+    // of a function mimicking a power-law density profile with flattening ( f ~ (R+z/q)^-gamma )
+    test_GL_angular testfnc1(0.25, 1.);
+    test_GL_angular testfnc2(0.5, 2.);
+    test_GL_angular testfnc3(0.5, 4.);
+    double exact1 = math::integrateAdaptive(testfnc1, -1, 1, 1e-14);
+    double exact2 = math::integrateAdaptive(testfnc2, -1, 1, 1e-14);
+    double exact3 = math::integrateAdaptive(testfnc3, -1, 1, 1e-14);
     for(int l=0; l<32; l+=1) {
-        std::cout << l << "\t" << (math::integrateGL(test9fnc1, -1, 1, l+1)-exact1) << '\t' <<
-        (math::integrateGL(test9fnc2, -1, 1, l+1)-exact2) << '\t' << (math::integrateGL(test9fnc3, -1, 1, l+1)-exact3) << '\n';
+        std::cout << l << "\t" << (math::integrateGL(testfnc1, -1, 1, l+1)-exact1) << '\t' <<
+        (math::integrateGL(testfnc2, -1, 1, l+1)-exact2) << '\t' << (math::integrateGL(testfnc3, -1, 1, l+1)-exact3) << '\n';
     }
+#endif
 
     if(ok)
         std::cout << "ALL TESTS PASSED\n";

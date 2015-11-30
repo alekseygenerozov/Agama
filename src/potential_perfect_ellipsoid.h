@@ -66,11 +66,4 @@ private:
     virtual unsigned int numDerivs() const { return 2; }
 };
 
-/// specialization of a shared pointer to this potential (to be used in ActionFinderAxisymStaeckel)
-#ifdef HAVE_CXX11
-typedef std::shared_ptr<const OblatePerfectEllipsoid> PtrOblatePerfectEllipsoid;
-#else
-typedef std::tr1::shared_ptr<const OblatePerfectEllipsoid> PtrOblatePerfectEllipsoid;
-#endif
-
 }  // namespace potential

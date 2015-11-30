@@ -74,6 +74,7 @@ if the latter is not true, it introduces a generally small additional interpolat
 #include "potential_base.h"
 #include "actions_base.h"
 #include "df_base.h"
+#include "smart.h"
 #include <vector>
 
 namespace galaxymodel{

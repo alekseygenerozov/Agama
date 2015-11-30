@@ -175,18 +175,31 @@ int main()
     //      accuracy of approximation of Legendre polynomials      //
 
     for(int lmax=4; lmax<=32; lmax*=2) {   // vary the order of polynomials
-        for(int np=lmax*2-2; np<=lmax*4-2; np+=lmax) {   // vary the number of grid points on the interval -1<=x<=1
+        std::vector<double> theta(lmax+3), dummy(lmax+1);
+        theta[0]=-1; theta.back()=1;
+        math::prepareIntegrationTableGL(-1, 1, lmax+1, &theta[1], &dummy.front());
+        for(int i=0; i<lmax+3; i++)
+            theta[i] = acos(theta[i]);
+        // vary the number of oversampling points inserted between each of the original GL nodes
+        for(int no=1; no<=4; no++) {
+            std::vector<double> xnodes((lmax+2)*no+1);
+            for(int i=0; i<lmax+2; i++)
+                for(int io=0; io<no; io++) {
+                    xnodes[i*no+io] = cos((theta[i]*(no-io)+theta[i+1]*io)/no);
+                    //std::cout << xnodes[i*no+io] << ' ';
+                }
+            xnodes.back()=1;
+            //std::cout <<xnodes.back()<<'\n';
+
             std::vector<double> legPl(lmax+1), legdPl(lmax+1);
-            std::vector<double> x(np+1);
             std::vector<std::vector<double> > Pl(lmax+1), dPl(lmax+1);
             for(int l=0; l<=lmax; l++) {
-                Pl [l].resize(x.size());
-                dPl[l].resize(x.size());
+                Pl [l].resize(xnodes.size());
+                dPl[l].resize(xnodes.size());
             }
             // assign x nodes and store values of Pl(x_i) and dPl/dx
-            for(int p=0; p<=np; p++) {
-                x[p] = p==0 ? -1 : p==np ? 1 : p==np/2 ? 0 : -cos(M_PI*(1.*p/np));
-                math::legendrePolyArray(lmax, 0, x[p], &legPl.front(), &legdPl.front());
+            for(unsigned int p=0; p<xnodes.size(); p++) {
+                math::legendrePolyArray(lmax, 0, xnodes[p], &legPl.front(), &legdPl.front());
                 for(int l=0; l<=lmax; l++) {
                     Pl [l][p] = legPl[l];
                     dPl[l][p] = legdPl[l];
@@ -196,8 +209,8 @@ int main()
             std::vector<math::CubicSpline>   spl3(lmax+1);
             std::vector<math::QuinticSpline> spl5(lmax+1);
             for(int l=0; l<=lmax; l++) {
-                spl3[l] = math::CubicSpline  (x, Pl[l], dPl[l].front(), dPl[l].back());
-                spl5[l] = math::QuinticSpline(x, Pl[l], dPl[l]);
+                spl3[l] = math::CubicSpline  (xnodes, Pl[l], dPl[l].front(), dPl[l].back());
+                spl5[l] = math::QuinticSpline(xnodes, Pl[l], dPl[l]);
             }
             // compute the rms error for each l
             std::vector<double> err3(lmax+1), err5(lmax+1), err3der(lmax+1), err5der(lmax+1);
@@ -222,7 +235,7 @@ int main()
                 maxerr3der = fmax(maxerr3der, sqrt(err3der[l]/NPTCHECK));
                 maxerr5der = fmax(maxerr5der, sqrt(err5der[l]/NPTCHECK));
             }
-            std::cout << "Lmax="<<lmax<<", Npoints="<<(np+1)<<
+            std::cout << "Lmax="<<lmax<<", Npoints="<<xnodes.size()<<
                 ": rms(3)= "<<maxerr3<<", rms(5)= "<<maxerr5<<
                 ": rms(3')= "<<maxerr3der<<", rms(5')= "<<maxerr5der<<"\n";
         }

@@ -8,6 +8,7 @@
 #include "actions_base.h"
 #include "potential_utils.h"
 #include "math_spline.h"
+#include "smart.h"
 
 namespace actions {
 

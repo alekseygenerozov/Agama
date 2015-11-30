@@ -5,6 +5,7 @@
 */
 #pragma once
 #include "potential_base.h"
+#include "smart.h"
 #include <vector>
 
 namespace potential{

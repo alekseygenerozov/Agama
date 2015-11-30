@@ -38,17 +38,6 @@ using potential::PtrPotential;
 // various auxiliary functions for printing out information are non-essential
 // for the modelling itself; the essential workflow is contained in main().
 
-/// print the radial and angular dependence of a density profile into a text file
-void writeDensityProfile(const std::string& fileName, const potential::BaseDensity& density)
-{
-    if(density.name() == potential::DensityCylGrid::myName())
-        writeDensityCoefs(fileName, 
-        dynamic_cast<const potential::DensityCylGrid&>(density));
-    if(density.name() == potential::DensitySphericalHarmonic::myName())
-        writeDensityCoefs(fileName,
-        dynamic_cast<const potential::DensitySphericalHarmonic&>(density));
-}
-
 /// print the rotation curve for a collection of potential components into a text file
 void writeRotationCurve(const std::string& fileName, const PtrPotential& potential)
 {
@@ -57,8 +46,10 @@ void writeRotationCurve(const std::string& fileName, const PtrPotential& potenti
     const potential::CompositeCyl& pot = dynamic_cast<const potential::CompositeCyl&>(*comp);
     std::ofstream strm(fileName.c_str());
     strm << "#radius";
-    for(unsigned int i=0; i<pot.size(); i++)
+    for(unsigned int i=0; i<pot.size(); i++) {
+        writePotential(fileName+pot.component(i)->name(), *pot.component(i));
         strm << "\t"<<pot.component(i)->name();
+    }
     if(pot.size()>1)
         strm << "\ttotal\n";
     for(double r=1./8; r<=30; r<1 ? r*=2 : r<16 ? r+=0.5 : r+=2) {
@@ -81,7 +72,7 @@ void writeNbodyDensity(const std::string& fileName, const potential::BaseDensity
 {
     particles::PointMassArray<coord::PosCyl> points;
     galaxymodel::generateDensitySamples(dens, 1e5, points);
-    particles::writeSnapshot(fileName+".nemo", units::ExternalUnits(), points, "Nemo");
+    writeSnapshot(fileName+".nemo", units::ExternalUnits(), points, "Nemo");
 }
 
 /// generate an N-body representation of the entire model specified by its DF, and write to a file
@@ -89,7 +80,7 @@ void writeNbodyModel(const std::string& fileName, const galaxymodel::GalaxyModel
 {
     particles::PointMassArrayCar points;
     generatePosVelSamples(model, 1e5, points);
-    particles::writeSnapshot(fileName+".nemo", units::ExternalUnits(), points, "Nemo");
+    writeSnapshot(fileName+".nemo", units::ExternalUnits(), points, "Nemo");
 }
 
 /// print profiles of surface density and z-velocity dispersion to a file
@@ -131,8 +122,8 @@ void printoutInfo(const galaxymodel::SelfConsistentModel& model, const std::stri
         ", rho(z=1)=" << comp1.density(coord::PosCyl(0,1,0)) << "\n"
         "Potential at origin="   << model.totalPotential->value(coord::PosCyl(0,0,0)) <<
         ", total mass=" << model.totalPotential->totalMass() << '\n';
-    writeDensityProfile("dens_inner_iter"+iterationStr, comp0);
-    writeDensityProfile("dens_outer_iter"+iterationStr, comp1);
+    writeDensity("dens_inner_iter"+iterationStr, comp0);
+    writeDensity("dens_outer_iter"+iterationStr, comp1);
     writeRotationCurve("rotcurve_iter"+iterationStr, model.totalPotential);
 }
 

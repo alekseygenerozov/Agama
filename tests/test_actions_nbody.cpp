@@ -54,8 +54,8 @@ int main() {
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init disk potential;  "
         "value at origin=" << disk->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     // not necessary, but we may store the potential coefs into a file and then load them back to speed up process
-    writePotentialCoefs(std::string("disk") + getCoefFileExtension(*disk), *disk);
-    writePotentialCoefs(std::string("halo") + getCoefFileExtension(*halo), *halo);
+    writePotential(std::string("disk") + getCoefFileExtension(*disk), *disk);
+    writePotential(std::string("halo") + getCoefFileExtension(*halo), *halo);
 
     // #3a. Combine the two components
     std::vector<potential::PtrPotential> components(2);
