@@ -134,8 +134,8 @@ PtrPotential readPotential(const std::string& coefFileName);
     `BasisSetExp`, `SplineExp`, `CylSplineExp`, `Multipole`,
     or the density may be `DensitySphericalHarmonic` or `DensityCylGrid`.
     The coefficients stored in a file may be later loaded by `readPotential()` function.
-    \param[in] coefFileName is the output file
-    \param[in] potential is the reference to potential
+    \param[in] fileName is the output file
+    \param[in] density is the reference to density or potential object
     \return    success or failure (the latter may also mean that export is 
     not available for this type of potential.
 */

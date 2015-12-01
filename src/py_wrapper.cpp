@@ -16,12 +16,13 @@
     routines is converted back to physical units. The physical units are assigned
     by `set_units` and `reset_units` functions.
 
-    Type `help(py_wrapper)` in Python to get a list of exported routines and classes,
-    and `help(py_wrapper.whatever)` to get the usage syntax for each of them.
+    Type `help(agama)` in Python to get a list of exported routines and classes,
+    and `help(agama.whatever)` to get the usage syntax for each of them.
 */
 #include <Python.h>
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-// note: for some versions of NumPy, it seems necessary to replace constants starting with NPY_ARRAY_*** by NPY_***
+// note: for some versions of NumPy, it seems necessary to replace constants
+// starting with NPY_ARRAY_*** by NPY_***
 #include <numpy/arrayobject.h>
 #include <stdexcept>
 #include "units.h"
@@ -177,7 +178,8 @@ void unconvertPosVel(const coord::PosVelCar& point, double dest[])
 }
 
 ///@}
-/// \name ----- a truly general interface for evaluating some function for some input data and storing its output somewhere -----
+/// \name ----- a truly general interface for evaluating some function
+///             for some input data and storing its output somewhere -----
 ///@{
 
 /// any function that evaluates something for a given object and an `input` array of floats,
@@ -552,11 +554,13 @@ static PyObject* callAnyFunctionOnArray(void* params, PyObject* args, anyFunctio
 /// \name  ---------- Potential class and related data ------------
 ///@{
 
+/// \cond INTERNAL_DOCS
 /// Python type corresponding to Potential class
 typedef struct {
     PyObject_HEAD
     potential::PtrPotential pot;
 } PotentialObject;
+/// \endcond
 
 static PyObject* Potential_new(PyTypeObject *type, PyObject*, PyObject*)
 {
@@ -707,7 +711,8 @@ static potential::PtrPotential Potential_initFromDict(PyObject* args)
     return potential::createPotential(params, *conv);
 }
 
-/// attempt to construct a composite potential from a tuple of Potential objects or dictionaries with potential parameters
+/// attempt to construct a composite potential from a tuple of Potential objects
+/// or dictionaries with potential parameters
 static potential::PtrPotential Potential_initFromTuple(PyObject* tuple)
 {
     if(PyTuple_Size(tuple) == 1 && PyString_Check(PyTuple_GET_ITEM(tuple, 0)))
@@ -755,7 +760,8 @@ static int Potential_init(PyObject* self, PyObject* args, PyObject* namedArgs)
                 printf(" and no named arguments\n");
             else
                 printf(" and %d named arguments\n", (int)PyDict_Size(namedArgs));
-            throw std::invalid_argument("Invalid parameters passed to the constructor, type help(Potential) for details");
+            throw std::invalid_argument(
+                "Invalid parameters passed to the constructor, type help(Potential) for details");
         }
         assert(((PotentialObject*)self)->pot);
 #ifdef DEBUGPRINT
@@ -922,7 +928,7 @@ static PyMethodDef Potential_methods[] = {
 
 static PyTypeObject PotentialType = {
     PyObject_HEAD_INIT(NULL)
-    0, "py_wrapper.Potential",
+    0, "agama.Potential",
     sizeof(PotentialObject), 0, Potential_dealloc,
     0, 0, 0, 0, 0, 0, 0, 0, 0, Potential_value, Potential_name, 0, 0, 0,
     Py_TPFLAGS_DEFAULT, docstringPotential, 
@@ -943,11 +949,13 @@ actions::PtrActionFinder createActionFinder(const potential::PtrPotential& pot)
         return actions::PtrActionFinder(new actions::ActionFinderAxisymFudge(pot));
 }
 
+/// \cond INTERNAL_DOCS
 /// Python type corresponding to ActionFinder class
 typedef struct {
     PyObject_HEAD
     actions::PtrActionFinder af;  // C++ object for action finder
 } ActionFinderObject;
+/// \endcond
 
 static PyObject* ActionFinder_new(PyTypeObject *type, PyObject*, PyObject*)
 {
@@ -1016,7 +1024,7 @@ static PyObject* ActionFinder_value(PyObject* self, PyObject* args, PyObject* /*
 
 static PyTypeObject ActionFinderType = {
     PyObject_HEAD_INIT(NULL)
-    0, "py_wrapper.ActionFinder",
+    0, "agama.ActionFinder",
     sizeof(ActionFinderObject), 0, ActionFinder_dealloc,
     0, 0, 0, 0, 0, 0, 0, 0, 0, ActionFinder_value, 0, 0, 0, 0,
     Py_TPFLAGS_DEFAULT, docstringActionFinder, 
@@ -1024,12 +1032,13 @@ static PyTypeObject ActionFinderType = {
     ActionFinder_init, 0, ActionFinder_new
 };
 
-// standalone action finder
-
+/// \cond INTERNAL_DOCS
+/// standalone action finder
 typedef struct {
     potential::PtrPotential pot;
     double ifd;
 } ActionFinderParams;
+/// \endcond
 
 static void fncActionsStandalone(void* obj, const double input[], double *result) {
     try{
@@ -1083,11 +1092,13 @@ static PyObject* find_actions(PyObject* /*self*/, PyObject* args, PyObject* name
 /// \name  --------- DistributionFunction class -----------
 ///@{
 
-/// Python type corresponding to SplineApprox class
+/// \cond INTERNAL_DOCS
+/// Python type corresponding to DistributionFunction class
 typedef struct {
     PyObject_HEAD
     df::PtrDistributionFunction df;
 } DistributionFunctionObject;
+/// \endcond
 
 static PyObject* DistributionFunction_new(PyTypeObject *type, PyObject*, PyObject*)
 {
@@ -1107,22 +1118,34 @@ static const char* docstringDistributionFunction =
     "of distribution function.\n"
     "Required parameter is type='...', specifying the type of DF: currently available types are "
     "'DoublePowerLaw' (for the halo) and 'PseudoIsothermal' (for the disk component).\n"
+    "For the latter, one also needs to provide the potential to initialize the table of "
+    "epicyclic frequencies (pot=... argument).\n"
     "Other parameters are specific to each DF type.\n\n"
     "The () operator computes the value of distribution function for the given triplet of actions.\n"
     "The total_mass() function computes the total mass in the entire phase space.\n";
 
 static int DistributionFunction_init(PyObject* self, PyObject* args, PyObject* namedArgs)
 {
-    if(namedArgs==NULL || !PyDict_Check(namedArgs) || PyDict_Size(namedArgs)==0 || 
-        (args!=0 && PyTuple_Check(args) && PyTuple_Size(args)>0) ) 
+    if(namedArgs==NULL || !PyDict_Check(namedArgs) || PyDict_Size(namedArgs)==0 ||
+        (args!=0 && PyTuple_Check(args) && PyTuple_Size(args)>0) )
     {
         PyErr_SetString(PyExc_ValueError,
             "Should provide a list of key=value arguments and no positional arguments");
         return -1;
     }
+    PyObject *pot_obj = PyDict_GetItemString(namedArgs, "pot");  // borrowed reference or NULL
+    const potential::BasePotential* pot = NULL;
+    if(pot_obj!=NULL) {
+        if(!PyObject_TypeCheck(pot_obj, &PotentialType) || ((PotentialObject*)pot_obj)->pot==NULL) {
+            PyErr_SetString(PyExc_TypeError, "Argument 'pot' must be a valid instance of Potential class");
+            return NULL;
+        }
+        pot = ((PotentialObject*)pot_obj)->pot.get();
+        PyDict_DelItemString(namedArgs, "pot");
+    }
     try{
         utils::KeyValueMap params = convertPyDictToKeyValueMap(namedArgs);
-        ((DistributionFunctionObject*)self)->df = df::createDistributionFunction(params, *conv);
+        ((DistributionFunctionObject*)self)->df = df::createDistributionFunction(params, pot, *conv);
         assert(((DistributionFunctionObject*)self)->df);
         return 0;
     }
@@ -1172,7 +1195,7 @@ static PyMethodDef DistributionFunction_methods[] = {
 
 static PyTypeObject DistributionFunctionType = {
     PyObject_HEAD_INIT(NULL)
-    0, "py_wrapper.DistributionFunction",
+    0, "agama.DistributionFunction",
     sizeof(DistributionFunctionObject), 0, DistributionFunction_dealloc,
     0, 0, 0, 0, 0, 0, 0, 0, 0, DistributionFunction_value, 0, 0, 0, 0,
     Py_TPFLAGS_DEFAULT, docstringDistributionFunction, 
@@ -1184,6 +1207,7 @@ static PyTypeObject DistributionFunctionType = {
 /// \name  ----- GalaxyModel class -----
 ///@{
 
+/// \cond INTERNAL_DOCS
 /// Python type corresponding to ActionFinder class
 typedef struct {
     PyObject_HEAD
@@ -1191,6 +1215,7 @@ typedef struct {
     df::PtrDistributionFunction df;
     actions::PtrActionFinder af;
 } GalaxyModelObject;
+/// \endcond
 
 static PyObject* GalaxyModel_new(PyTypeObject *type, PyObject*, PyObject*)
 {
@@ -1300,7 +1325,8 @@ static PyObject* GalaxyModel_sample_posvel(GalaxyModelObject* self, PyObject* ar
     }
 }
 
-struct GalaxyModelParams {
+/// \cond INTERNAL_DOCS
+struct GalaxyModelParams{
     const galaxymodel::GalaxyModel model;
     bool needDens;
     bool needVel;
@@ -1314,6 +1340,7 @@ struct GalaxyModelParams {
         const df::BaseDistributionFunction& df) :
         model(pot, af, df) {};
 };
+/// \endcond
 
 static void fncGalaxyModelMoments(void* obj, const double input[], double *result) {
     const coord::PosCar point = convertPos(input);
@@ -1546,7 +1573,7 @@ static PyMethodDef GalaxyModel_methods[] = {
 
 static PyTypeObject GalaxyModelType = {
     PyObject_HEAD_INIT(NULL)
-    0, "py_wrapper.GalaxyModel",
+    0, "agama.GalaxyModel",
     sizeof(GalaxyModelObject), 0, (destructor)GalaxyModel_dealloc,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     Py_TPFLAGS_DEFAULT, docstringGalaxyModel,
@@ -1558,11 +1585,13 @@ static PyTypeObject GalaxyModelType = {
 /// \name  --------- SplineApprox class -----------
 ///@{
 
+/// \cond INTERNAL_DOCS
 /// Python type corresponding to SplineApprox class
 typedef struct {
     PyObject_HEAD
     math::CubicSpline* spl;
 } SplineApproxObject;
+/// \endcond
 
 static PyObject* SplineApprox_new(PyTypeObject *type, PyObject*, PyObject*)
 {
@@ -1699,7 +1728,7 @@ static PyMethodDef SplineApprox_methods[] = {
 
 static PyTypeObject SplineApproxType = {
     PyObject_HEAD_INIT(NULL)
-    0, "py_wrapper.SplineApprox",
+    0, "agama.SplineApprox",
     sizeof(SplineApproxObject), 0, (destructor)SplineApprox_dealloc,
     0, 0, 0, 0, 0, 0, 0, 0, 0, SplineApprox_value, 0, 0, 0, 0,
     Py_TPFLAGS_DEFAULT, docstringSplineApprox, 
@@ -1786,7 +1815,7 @@ static PyObject* integrate_orbit(PyObject* /*self*/, PyObject* args, PyObject* n
 }
 ///@}
 
-static PyMethodDef py_wrapper_methods[] = {
+static PyMethodDef module_methods[] = {
     {"set_units", (PyCFunction)set_units, METH_VARARGS | METH_KEYWORDS, docstringSetUnits},
     {"reset_units", reset_units, METH_NOARGS, docstringResetUnits},
     {"orbit", (PyCFunction)integrate_orbit, METH_VARARGS | METH_KEYWORDS, docstringOrbit},
@@ -1795,9 +1824,9 @@ static PyMethodDef py_wrapper_methods[] = {
 };
 
 PyMODINIT_FUNC
-initpy_wrapper(void)
+initagama(void)
 {
-    PyObject* mod = Py_InitModule("py_wrapper", py_wrapper_methods);
+    PyObject* mod = Py_InitModule("agama", module_methods);
     if(!mod) return;
     conv = new units::ExternalUnits();
 
@@ -1824,5 +1853,3 @@ initpy_wrapper(void)
 
     import_array();  // needed for NumPy to work properly
 }
-
-/// \endcond

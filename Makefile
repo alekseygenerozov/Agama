@@ -47,10 +47,6 @@ SOURCES   = \
             utils.cpp \
             utils_config.cpp
 
-# ancient code
-#LEGACYSRC = Stackel_JS.cpp \
-#            coordsys.cpp
-
 # ancient Torus code
 TORUSSRC  = CHB.cc \
             Fit.cc \
@@ -86,8 +82,8 @@ TESTSRCS  = test_math_core.cpp \
             test_df_fit.cpp \
             test_selfconsistentmodel.cpp \
 
-LIBNAME   = $(LIBDIR)/libfJ.a
-PY_WRAPPER= $(LIBDIR)/py_wrapper.so
+LIBNAME   = $(LIBDIR)/libagama.a
+PY_WRAPPER= $(LIBDIR)/agama.so
 
 HEADERS   = $(SOURCES:.cpp=.h)
 OBJECTS   = $(patsubst %.cpp,$(OBJDIR)/%.o,$(SOURCES)) 

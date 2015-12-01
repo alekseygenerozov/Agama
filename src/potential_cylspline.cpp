@@ -607,7 +607,9 @@ void CylSplineExp::initSplines(const std::vector< std::vector<double> > &coefs)
     if(fitm2)
         C22 = math::linearFitZero(X2, Y2, NULL);
     // assign Rscale so that it approximately equals -Mtotal/Phi(r=0)
-    Rscale=C00/coefs[mmax][(Ncoefs_z/2)*Ncoefs_R];
+    Rscale = C00 / coefs[mmax][(Ncoefs_z/2)*Ncoefs_R];
+    if(C00 == 0 && coefs[mmax][(Ncoefs_z/2)*Ncoefs_R] == 0)  // empty model, mass=0
+        Rscale = 1.;
     if(Rscale<=0 || !math::isFinite(Rscale+C00+C20+C40+C22))
         throw std::runtime_error("CylSplineExp: cannot determine scaling factor");
         //Rscale=std::min<double>(grid_R.back(), grid_z.back())*0.5; // shouldn't occur?

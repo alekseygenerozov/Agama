@@ -15,7 +15,7 @@ and the triangle-plot showing the covariation of parameters.
 This example uses the data from the "Spherical/triaxial" working group
 of Gaia Challenge III.
 '''
-import sys, os, re, py_wrapper, numpy, scipy, matplotlib
+import sys, os, re, agama, numpy, scipy, matplotlib
 matplotlib.use('Agg')
 from matplotlib import pyplot
 from scipy.optimize import minimize
@@ -168,7 +168,7 @@ class SphericalModel:
 
         # create a smoothing spline for log(M/(Mtotal-M)) as a function of log(R), 
         # using points from the interval indices[1]..indices[-2], and spline knots at Radii[indices]
-        self.spl_mass = py_wrapper.SplineApprox( \
+        self.spl_mass = agama.SplineApprox( \
             numpy.log(Radii[indices[1]:indices[-2]]), \
             numpy.log(cumulMass[indices[1]:indices[-2]] / (1 - cumulMass[indices[1]:indices[-2]])), \
             numpy.log(Radii[indices[1:-1]]), smooth=2.0 )
@@ -196,7 +196,7 @@ class SphericalModel:
         # cumulative kinetic energy (up to a constant factor) $\int_0^R \Sigma(R') \sigma_{los}^2(R') 2\pi R' dR'$
         cumulEkin  = numpy.cumsum(particles_sorted[:,5]**2) / len(Radii)
         self.total_Ekin = cumulEkin[-1]
-        self.spl_Ekin = py_wrapper.SplineApprox( \
+        self.spl_Ekin = agama.SplineApprox( \
             numpy.log(Radii[indices[0]:indices[-1]]), \
             numpy.log(cumulEkin[indices[0]:indices[-1]] / \
             (self.total_Ekin - cumulEkin[indices[0]:indices[-1]])), \
@@ -369,15 +369,15 @@ class ModelSearcher:
             return prior
         try:
             # Compute log-likelihood of DF with given params against an array of actions
-            pot     = py_wrapper.Potential(**potparams)
-            df      = py_wrapper.DistributionFunction(**dfparams)
+            pot     = agama.Potential(**potparams)
+            df      = agama.DistributionFunction(**dfparams)
             norm    = df.total_mass()     # total mass of tracers given by their DF
             if full_phase_space_info:
-                af      = py_wrapper.ActionFinder(pot)
+                af      = agama.ActionFinder(pot)
                 actions = af(self.particles)  # actions of tracer particles
                 df_val  = df(actions) / norm  # values of DF for these actions
             elif use_resampling:  # have full phase space info for resampled input particles (missing components are filled in)
-                af      = py_wrapper.ActionFinder(pot)
+                af      = agama.ActionFinder(pot)
                 actions = af(self.samples)    # actions of resampled tracer particles
                 # compute values of DF for these actions, multiplied by sample weights
                 df_val  = df(actions) / norm * self.weights
@@ -385,14 +385,14 @@ class ModelSearcher:
                 # replacing the improbable samples (with NaN as likelihood) with zeroes
                 df_val  = numpy.sum(numpy.nan_to_num(df_val.reshape(-1, num_samples)), axis=1)
                 '''
-                df_vprj = py_wrapper.GalaxyModel(pot, df).projected_df( \
+                df_vprj = agama.GalaxyModel(pot, df).projected_df( \
                     numpy.hstack((self.particles[:,0:2], self.particles[:,5].reshape(-1,1))), \
                     vz_error=vel_error) / norm
                 numpy.savetxt("df.txt", numpy.hstack((self.particles[:,0:2], self.particles[:,5].reshape(-1,1), \
                     df_val.reshape(-1,1), df_vprj.reshape(-1,1))), fmt="%.7g")
                 '''
             else:   # have only x,y,vz values, marginalize over missing components
-                df_val = py_wrapper.GalaxyModel(pot, df).projected_df( \
+                df_val = agama.GalaxyModel(pot, df).projected_df( \
                     numpy.hstack((self.particles[:,0:2], self.particles[:,5].reshape(-1,1))), \
                     vz_error=vel_error) / norm
 
@@ -522,10 +522,10 @@ def compute_df_moments(potparams, dfparams, rmin, rmax):
     '''
     radii = numpy.logspace(numpy.log10(rmin), numpy.log10(rmax), 25).reshape(-1,1)
     xyz   = numpy.hstack((radii, numpy.zeros_like(radii), numpy.zeros_like(radii)))
-    pot   = py_wrapper.Potential(**potparams)
-    df    = py_wrapper.DistributionFunction(**dfparams)
+    pot   = agama.Potential(**potparams)
+    df    = agama.DistributionFunction(**dfparams)
     norm  = df.total_mass()
-    dens, mom = py_wrapper.GalaxyModel(pot, df).moments(xyz, dens=True, vel=False, vel2=True)
+    dens, mom = agama.GalaxyModel(pot, df).moments(xyz, dens=True, vel=False, vel2=True)
     return radii.reshape(-1), dens/norm, mom[:,0]**0.5, mom[:,1]**0.5
 
 def compute_df_moments_projected(potparams, dfparams, rmin, rmax):
@@ -535,10 +535,10 @@ def compute_df_moments_projected(potparams, dfparams, rmin, rmax):
     Return: a tuple of three arrays: radii, density, velocity dispersion
     '''
     radii = numpy.logspace(numpy.log10(rmin), numpy.log10(rmax), 25)
-    pot   = py_wrapper.Potential(**potparams)
-    df    = py_wrapper.DistributionFunction(**dfparams)
+    pot   = agama.Potential(**potparams)
+    df    = agama.DistributionFunction(**dfparams)
     norm  = df.total_mass()
-    dens, veldisp = py_wrapper.GalaxyModel(pot, df).projected_moments(radii)
+    dens, veldisp = agama.GalaxyModel(pot, df).projected_moments(radii)
     return radii, dens/norm, veldisp**0.5
 
 def compute_dm_density(potparams, rmin, rmax):
@@ -546,7 +546,7 @@ def compute_dm_density(potparams, rmin, rmax):
     Compute density profile corresponding to the potential specified by potparams
     Return: a tuple of two arrays: radii, density
     '''
-    pot   = py_wrapper.Potential(**potparams)
+    pot   = agama.Potential(**potparams)
     radii = numpy.logspace(numpy.log10(rmin), numpy.log10(rmax)).reshape(-1,1)
     xyz   = numpy.hstack((radii, numpy.zeros_like(radii), numpy.zeros_like(radii)))
     dens  = pot.density(xyz)
@@ -747,7 +747,7 @@ class UserFnc:
 
 ################  MAIN PROGRAM  ##################
 
-py_wrapper.set_units(mass=1, length=1, velocity=1)
+agama.set_units(mass=1, length=1, velocity=1)
 basefilename = os.getcwd().split('/')[-1]  # get the directory name which is the same as the first part of the filename
 model_searcher = ModelSearcher(basefilename+"_1000_0.dat")
 user_fnc = UserFnc(model_searcher.model, model_searcher.particles, model_searcher.filename)

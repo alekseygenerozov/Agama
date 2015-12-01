@@ -1,7 +1,7 @@
-### This module allows to use C++ potentials as regular galpy potentials
+### This module allows to use potentials from agama C++ library as regular galpy potentials
 
 import math
-import py_wrapper, galpy
+import agama, galpy
 from galpy.potential import Potential
 class CPotential(galpy.potential.Potential):
     """Class that implements an interface to C++ potentials
@@ -23,14 +23,14 @@ class CPotential(galpy.potential.Potential):
             if key=="normalize":
                 normalize=value
                 del kwargs[key]
-        self._pot = py_wrapper.Potential(*args,**kwargs)
+        self._pot = agama.Potential(*args,**kwargs)
         if normalize or \
                 (isinstance(normalize,(int,float)) \
                     and not isinstance(normalize,bool)):
             self.normalize(normalize)
         self.hasC= False
         self.hasC_dxdv=False
-    __init__.__doc__ += py_wrapper.Potential.__doc__
+    __init__.__doc__ += agama.Potential.__doc__
 
     def _evaluate(self,R,z,phi=0.,t=0.):
         """

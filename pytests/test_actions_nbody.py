@@ -1,12 +1,12 @@
 #!/usr/bin/python
 
-import py_wrapper
+import agama
 import py_unsio
 import numpy
 import time
 
 #1. set units (in Msun, Kpc, km/s)
-py_wrapper.set_units(mass=1e10, length=1, velocity=1)
+agama.set_units(mass=1e10, length=1, velocity=1)
 
 #2. get in N-body snapshots
 tbegin     = time.clock()
@@ -28,26 +28,26 @@ print (time.clock()-tbegin),"s to load",len(diskMass),"disk particles and",len(h
 
 #3. create an axisymmetric potential from these snapshots
 tbegin     = time.clock()
-haloPot    = py_wrapper.Potential(type="SplineExp", points=(haloPos,haloMass),
+haloPot    = agama.Potential(type="SplineExp", points=(haloPos,haloMass),
              symmetry='a', numCoefsRadial=20, numCoefsAngular=2)
-##haloPot    = py_wrapper.Potential(file="halo.coef_spl")  # could load previously stored coefs instead of computing them
+##haloPot    = agama.Potential(file="halo.coef_spl")  # could load previously stored coefs instead of computing them
 print (time.clock()-tbegin),"s to init",haloPot.name(),"potential for the halo; ", \
     "value at origin=",haloPot(0,0,0),"(km/s)^2"
 
 tbegin     = time.clock()
-diskPot    = py_wrapper.Potential(type="CylSplineExp", points=(diskPos,diskMass),
+diskPot    = agama.Potential(type="CylSplineExp", points=(diskPos,diskMass),
              numcoefsradial=20, numcoefsvertical=20, numcoefsangular=0)
-##diskPot    = py_wrapper.Potential(file="disk.coef_cyl")
+##diskPot    = agama.Potential(file="disk.coef_cyl")
 print (time.clock()-tbegin),"s to init",diskPot.name(),"potential for the disk; ", \
     "value at origin=",diskPot(0,0,0),"(km/s)^2"
 
 diskPot.export("disk.coef_cyl")
 haloPot.export("halo.coef_spl")
-totalPot   = py_wrapper.Potential(diskPot, haloPot)  # create a composite potential
+totalPot   = agama.Potential(diskPot, haloPot)  # create a composite potential
 
 #4. compute actions for disk particles
 tbegin     = time.clock()
-actFinder  = py_wrapper.ActionFinder(totalPot)
+actFinder  = agama.ActionFinder(totalPot)
 print (time.clock()-tbegin),"s to init action finder"
 
 tbegin     = time.clock()

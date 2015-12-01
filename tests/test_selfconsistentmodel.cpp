@@ -130,47 +130,50 @@ void printoutInfo(const galaxymodel::SelfConsistentModel& model, const std::stri
 int main()
 {
     // parameters of the inner component (disk)
-    double dnorm   = 1.0;   // approximately equals the total mass
-    double Rdisk   = 2.0;   // scale radius of the disk
-    double Hdisk   = 0.2;   // thickness of the (isothermal) disk
-    double L0      = 0.0;   // angular momentum of transition from isotropic to rotating disk
-    double Sigma0  = dnorm / (2*M_PI * pow_2(Rdisk));  // surface density normalization
-    double sigmaz0 = sqrt(2*M_PI * Sigma0 * Hdisk);    // vertical velocity dispersion scale
-    double sigmar0 = sigmaz0;     // same for radial velocity
-    double sigmamin= sigmar0*0.1; // lower bound on velocity dispersion
-    double Jphimin = 0.5;         // lower limit on azimuthal action used for computing epicyclic freqs
-    const df::PseudoIsothermalParam paramInner = {dnorm,Rdisk,L0,Sigma0,sigmar0,sigmaz0,sigmamin,Jphimin};
+    df::PseudoIsothermalParam paramInner;
+    double     Rdisk   = 2.0;  // scale radius of the disk
+    double     Hdisk   = 0.2;  // thickness of the (isothermal) disk
+    double     Mdisk   = 1.0;  // approximately equals the total mass
+    paramInner.Rdisk   = Rdisk;
+    paramInner.Sigma0  = Mdisk / (2*M_PI * pow_2(Rdisk));  // surface density normalization
+    paramInner.Jphi0   = 0.0;  // angular momentum of transition from isotropic to rotating disk
+    paramInner.sigmar0 = paramInner.sigmaz0;     // radial velocity dispersion scale
+    paramInner.sigmaz0 = sqrt(2*M_PI * paramInner.Sigma0 * Hdisk);  // same for vertical velocity
+    paramInner.sigmamin= paramInner.sigmar0*0.1; // lower bound on velocity dispersion
+    paramInner.Rsigmar = Rdisk*2;  // scale radius of radial velocity dispersion
+    paramInner.Rsigmaz = Rdisk*2;  // same for vertical velocity
+    paramInner.Jphimin = 0.5;  // lower limit on azimuthal action used for computing epicyclic freqs
     // parameters of disk density profile should be in rough agreement with the DF params
-    const potential::DiskParam      paramPot(Sigma0, Rdisk, -Hdisk, 0, 0);
+    const potential::DiskParam paramPot(paramInner.Sigma0, Rdisk, -Hdisk, 0, 0);
 
     // parameters of the outer component (halo)
-    double hnorm = 5.0;   // approximately equals the total mass
-    double alpha = 1.4;   // determines the inner density slope
-    double beta  = 6.0;   // same for the outer slope: rho ~ r^-(3+beta)/2
-    double j0    = 20.;   // determines the break radius in density profile
-    double jcore = 0.0;   // inner plateau in density (disabled here)
-    double ar    = 1.3;   // determines the velocity anisotropy in the inner region
-    double az    = 1.1;   // the ratio between these two
-    double aphi  = 0.6;   // determines the flattening of the inner region
-    double br    = 1.5;   // same for
-    double bz    = 0.8;   // the outer
-    double bphi  = 0.7;   // region
-    const df::DoublePowerLawParam paramOuter = {hnorm,j0,jcore,alpha,beta,ar,az,aphi,br,bz,bphi};
+    df::DoublePowerLawParam paramOuter;
+    paramOuter.norm  = 5.0;   // approximately equals the total mass
+    paramOuter.alpha = 1.4;   // determines the inner density slope
+    paramOuter.beta  = 6.0;   // same for the outer slope: rho ~ r^-(3+beta)/2
+    paramOuter.j0    = 20.;   // determines the break radius in density profile
+    paramOuter.jcore = 0.0;   // inner plateau in density (disabled here)
+    paramOuter.ar    = 1.3;   // determines the velocity anisotropy in the inner region
+    paramOuter.az    = 1.1;   // the ratio between these two
+    paramOuter.aphi  = 0.6;   // determines the flattening of the inner region
+    paramOuter.br    = 1.5;   // same for
+    paramOuter.bz    = 0.8;   // the outer
+    paramOuter.bphi  = 0.7;   // region
     // create the instance of distribution function of the halo
     df::PtrDistributionFunction dfOuter(new df::DoublePowerLaw(paramOuter));
 
     // set up parameters of the entire Self-Consistent Model
     galaxymodel::SelfConsistentModel model;
-    model.rminSph = 0.1;
-    model.rmaxSph = 500;        // range of radii for the logarithmic grid
-    model.sizeRadialSph = 100;  // number of grid points in radius
-    model.lmaxAngularSph = 6;   // maximum order of angular-harmonic expansion (l_max)
-    model.RminCyl = 0.2;
-    model.RmaxCyl = 30;         // range of grid nodes in cylindrical radius
-    model.zminCyl = 0.04;
-    model.zmaxCyl = 15;         // grid nodes in vertical direction
-    model.sizeRadialCyl = 30;   // number of grid nodes in cylindrical radius
-    model.sizeVerticalCyl = 30; // number of grid nodes in vertical (z) direction
+    model.rminSph         = 0.1;
+    model.rmaxSph         = 500; // range of radii for the logarithmic grid
+    model.sizeRadialSph   = 40;  // number of grid points in radius
+    model.lmaxAngularSph  = 6;   // maximum order of angular-harmonic expansion (l_max)
+    model.RminCyl         = 0.2;
+    model.RmaxCyl         = 30;  // range of grid nodes in cylindrical radius
+    model.zminCyl         = 0.04;
+    model.zmaxCyl         = 15;  // grid nodes in vertical direction
+    model.sizeRadialCyl   = 30;  // number of grid nodes in cylindrical radius
+    model.sizeVerticalCyl = 30;  // number of grid nodes in vertical (z) direction
     int iteration=0;
 
     // First stage: we use a 'dead' (fixed) density profile for the inner (disk) component,
@@ -183,7 +186,7 @@ int main()
     model.components.push_back(galaxymodel::PtrComponent(
         new galaxymodel::ComponentWithSpheroidalDF(
         dfOuter, PtrDensity(new potential::Plummer(dfOuter->totalMass(), 10.0)),
-        0.2, 500., 40, model.lmaxAngularSph)));
+        model.rminSph, model.rmaxSph, model.sizeRadialSph, model.lmaxAngularSph)));
 
     // do a few iterations
     for(int i=0; i<5; i++) {

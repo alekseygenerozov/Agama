@@ -11,19 +11,19 @@ CompositeDensity::CompositeDensity(const std::vector<PtrDensity>& _components) :
 }
 
 double CompositeDensity::densityCar(const coord::PosCar &pos) const {
-    double sum=0; 
+    double sum=0;
     for(unsigned int i=0; i<components.size(); i++) 
         sum += components[i]->density(pos); 
     return sum;
 }
 double CompositeDensity::densityCyl(const coord::PosCyl &pos) const {
-    double sum=0; 
+    double sum=0;
     for(unsigned int i=0; i<components.size(); i++) 
         sum += components[i]->density(pos); 
     return sum;
 }
 double CompositeDensity::densitySph(const coord::PosSph &pos) const {
-    double sum=0; 
+    double sum=0;
     for(unsigned int i=0; i<components.size(); i++) 
         sum += components[i]->density(pos); 
     return sum;

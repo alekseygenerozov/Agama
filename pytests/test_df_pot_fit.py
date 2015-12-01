@@ -13,12 +13,12 @@
     when it reaches the equilibrium after the initial burn-in period),
     and the triangle-plot showing the covariation of parameters.
 '''
-import py_wrapper, numpy
+import agama, numpy
 from scipy.optimize import minimize
 
 # compute log-likelihood of DF with given params against an array of actions
 def df_likelihood(dfparams, actions):
-    dpl = py_wrapper.DistributionFunction(**dfparams)
+    dpl = agama.DistributionFunction(**dfparams)
     norm = dpl.total_mass()
     sumlog = numpy.sum( numpy.log(dpl(actions)/norm) )
     if numpy.isnan(sumlog): sumlog = -numpy.inf
@@ -60,9 +60,9 @@ def model_likelihood(args, particles):
         print 'Out of range'
         return -numpy.inf
     try:
-        pot = py_wrapper.Potential(**potparams)
-        #actf= py_wrapper.ActionFinder(pot)
-        actions = py_wrapper.actions(point=particles[:,:6], pot=pot, ifd=1e-3)
+        pot = agama.Potential(**potparams)
+        #actf= agama.ActionFinder(pot)
+        actions = agama.actions(point=particles[:,:6], pot=pot, ifd=1e-3)
         loglikelihood, norm = df_likelihood(dfparams, actions)
         print "LogL=%8g" % loglikelihood
         return loglikelihood
@@ -79,14 +79,14 @@ def model_search_fnc(args, particles):
 def prepare_samples(dfp, pp):
     #dfp = dict(type='DoublePowerLaw', norm=1, ar=1.5, az=0.75, aphi=0.75, br=1, bz=1, bphi=1, alpha=1, beta=4, j0=1000)
     #pp  = dict(type='Dehnen', mass=1e+08, gamma=0.5, scaleRadius=500)
-    pot = py_wrapper.Potential(**pp)
-    df  = py_wrapper.DistributionFunction(**dfp)
-    samp= py_wrapper.sample(pot=pot, df=df, N=1000)
+    pot = agama.Potential(**pp)
+    df  = agama.DistributionFunction(**dfp)
+    samp= agama.sample(pot=pot, df=df, N=1000)
     #numpy.savetxt("test.txt",numpy.hstack((samp[0], samp[1].reshape(-1,1))))
     return samp[0]
 
 #### Main program starts here
-py_wrapper.set_units(mass=1, length=1e-3, velocity=1)
+agama.set_units(mass=1, length=1e-3, velocity=1)
 #particles = numpy.loadtxt("test.txt")
 
 # create the samples with known parameters of DF and potential

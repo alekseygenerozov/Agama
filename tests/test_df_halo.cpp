@@ -112,25 +112,25 @@ int main(){
 
     // test double-power-law distribution function in a spherical Hernquist potential
     // NB: parameters obtained by fitting (test_df_fit.cpp)
-    double norm  = 0.956;
-    double alpha = 1.407;
-    double beta  = 5.628;
-    double j0    = 1.745;
-    double jcore = 0.;
-    double ar    = 1.614;
-    double az    = (3-ar)/2;
-    double aphi  = az;
-    double br    = 1.0;
-    double bz    = 1.0;
-    double bphi  = 1.0;
-    const df::DoublePowerLawParam paramDPL = {norm,j0,jcore,alpha,beta,ar,az,aphi,br,bz,bphi};
+    df::DoublePowerLawParam paramDPL;
+    paramDPL.norm  = 0.956;
+    paramDPL.alpha = 1.407;
+    paramDPL.beta  = 5.628;
+    paramDPL.j0    = 1.745;
+    paramDPL.jcore = 0.;
+    paramDPL.ar    = 1.614;
+    paramDPL.az    = (3-paramDPL.ar)/2;
+    paramDPL.aphi  = paramDPL.az;
+    paramDPL.br    = 1.0;
+    paramDPL.bz    = 1.0;
+    paramDPL.bphi  = 1.0;
     potential::PtrPotential potH(new potential::Dehnen(1., 1., 1., 1., 1.));  // potential
     const actions::ActionFinderAxisymFudge actH(potH);        // action finder
     const df::DoublePowerLaw dfH(paramDPL);                   // distribution function
     const galaxymodel::GalaxyModel galmodH(*potH, actH, dfH); // all together - the mighty triad
 
     // the analytic value of total mass for the case ar=az=aphi=br=bz=bphi=1 and jcore=0 is just 'norm'
-    ok &= testTotalMass(galmodH, norm);
+    ok &= testTotalMass(galmodH, paramDPL.norm);
 
     for(int i=0; i<NUM_POINTS_H; i++) {
         const coord::PosVelCyl point(testPointsH[i]);

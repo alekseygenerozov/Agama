@@ -19,7 +19,7 @@
     Additionally, we use the MCMC implementation EMCEE to explore the confidence
     intervals of model parameters around their best-fit values
 '''
-import py_wrapper, numpy
+import agama, numpy
 from scipy.optimize import minimize
 
 # compute log-likelihood of DF with given params against an array of points
@@ -27,7 +27,7 @@ def model_likelihood(params, points):
     print "J0=%6.5g, alpha=%6.5g, ar=%6.5g, az=%6.5g, beta=%6.5g: " \
         % (params['j0'], params['alpha'], params['ar'], params['az'], params['beta']),
     try:
-        dpl = py_wrapper.DistributionFunction(params)
+        dpl = agama.DistributionFunction(params)
         norm = dpl.total_mass()
         sumlog = numpy.sum( numpy.log(dpl(points)/norm) )
         print "LogL=%8g, norm=%6.5g" % (sumlog, norm)
@@ -62,8 +62,8 @@ def model_search_emcee(args, actions):
     return model_likelihood(dfparams(args), actions)
 
 def main():
-    pot = py_wrapper.Potential(type="Dehnen", mass=1, scaleRadius=1.)
-    actf= py_wrapper.ActionFinder(pot)
+    pot = agama.Potential(type="Dehnen", mass=1, scaleRadius=1.)
+    actf= agama.ActionFinder(pot)
     particles = numpy.loadtxt("../temp/hernquist.dat", skiprows=1)
     actions = actf(particles[:,:6])
 

@@ -7,8 +7,8 @@ import galpy
 from galpy.potential import *
 from galpy.actionAngle import *
 from galpy.orbit import *
-import py_wrapper     # this allows access to potential, action finder, orbit integration, etc. as standalone classes and routines
-import galpy_wrapper  # this enables galpy-compatible interface to potentials
+import agama        # this allows access to potential, action finder, orbit integration, etc. as standalone classes and routines
+import galpy_agama  # this enables galpy-compatible interface to potentials
 import numpy, matplotlib, matplotlib.pyplot as plt, time
 matplotlib.rcParams['legend.frameon']=False
 
@@ -19,20 +19,20 @@ g_halo  = NFWPotential(a=2., amp=4.85)
 g_pot   = [g_bulge,g_disk,g_halo]   # same as MWPotential2014
 
 ###2. set up equivalent potential from the C++ library
-py_wrapper.set_units( mass=1., length=8., velocity=345.67)
+agama.set_units( mass=1., length=8., velocity=345.67)
 p_bulge = {"type":"TwoPowerLawSpheroid", "densityNorm":6.669e9,
     "gamma":1.8, "beta":1.8, "scaleRadius":1, "outerCutoffRadius":1.9/8};
 p_disk  = {"type":"MiyamotoNagai", "mass":1.678e11, "scaleradius":3./8, "scaleheight":0.28/8};
 p_halo  = {"type":"TwoPowerLawSpheroid", "densityNorm":1.072e10,
     "gamma":1.0, "beta":3.0, "scaleRadius":2.};
 ### one can create the genuine instance of C++ potential as follows:
-#c_pot   = py_wrapper.Potential("MWPotential2014.ini")   # read parameters from ini file
-#c_pot   = py_wrapper.Potential(p_bulge, p_disk, p_halo) # or create potential from a list of parameters
+#c_pot   = agama.Potential("MWPotential2014.ini")   # read parameters from ini file
+#c_pot   = agama.Potential(p_bulge, p_disk, p_halo) # or create potential from a list of parameters
 ### or one can instead create a galpy-compatible potential as follows:
-w_pot   = galpy_wrapper.CPotential(p_bulge, p_disk, p_halo)  # same as above, two variants
+w_pot   = galpy_agama.CPotential(p_bulge, p_disk, p_halo)  # same as above, two variants
 ### ...and then use _pot member variable to access the instance of raw C++ potential
 dt = time.time()
-c_actfinder = py_wrapper.ActionFinder(w_pot._pot)
+c_actfinder = agama.ActionFinder(w_pot._pot)
 print 'Time to set up action finder: %s s' % (time.time()-dt)
 ### this needs to be done once for the given potential,
 ### and initializes the interfocal distance estimator for all values of E and L
@@ -65,7 +65,7 @@ def compare(ic, inttime, numsteps):
     print 'Time to integrate orbit in galpy: %s s' % (time.time()-dt)
 
     dt = time.time()
-    c_orb_car = py_wrapper.orbit(ic=[ic[0],0,ic[1],ic[3],ic[5],ic[4]], pot=w_pot._pot, time=inttime, step=inttime/numsteps)
+    c_orb_car = agama.orbit(ic=[ic[0],0,ic[1],ic[3],ic[5],ic[4]], pot=w_pot._pot, time=inttime, step=inttime/numsteps)
     print 'Time to integrate orbit in C++: %s s' % (time.time()-dt)
     times_c = numpy.linspace(0,inttime,len(c_orb_car[:,0]))
     ### make it compatible with galpy's convention (native output is in cartesian coordinates)
@@ -110,7 +110,7 @@ def compare(ic, inttime, numsteps):
 
     ### use the C++ library's action routine for the same value of Delta as in galpy
     dt = time.time()
-    c_act = py_wrapper.actions(point=c_orb_car, pot=w_pot._pot, ifd=delta)   # explicitly specify interfocal distance
+    c_act = agama.actions(point=c_orb_car, pot=w_pot._pot, ifd=delta)   # explicitly specify interfocal distance
     print 'Time to compute actions in C++: %s s' % (time.time()-dt)
 
     ### use the C++ action finder (initialized at the beginning) that automatically determines the best value of Delta

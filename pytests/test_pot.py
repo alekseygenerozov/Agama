@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import py_wrapper
+import agama
 import py_unsio
 import numpy
 
@@ -13,7 +13,7 @@ ok,mass = a.getArrayF("all","mass")
 print "Loaded",len(mass),"points"
 
 #2. create a potential from this snapshot
-p = py_wrapper.Potential(type="SplineExp", points=(pos,mass))
+p = agama.Potential(type="SplineExp", points=(pos,mass))
 print "Created a",p.name(),"potential"
 
 #3. compute something interesting
@@ -32,7 +32,7 @@ print "RMS error in density vs. laplacian =", \
 #5. test spline smoothing
 rad = (pos[:,0]**2+pos[:,1]**2+pos[:,2]**2)**0.5
 knots = [0,0.5,1,1.5,2,3,4,5,6,7,8,10,15,20,30,50,100]
-spl = py_wrapper.SplineApprox(rad,pot,knots)
+spl = agama.SplineApprox(rad,pot,knots)
 print "RMS error in Phi(r) approximating spline =", ( ((pot-spl(rad))**2).mean() )**0.5
 
 print "ALL TESTS PASSED"

@@ -39,18 +39,20 @@ potential::PtrPotential write_read(const potential::BasePotential& pot)
     return newpot;
 }
 
-/// create a triaxial Hernquist model
-void make_hernquist(int nbody, double q, double p, particles::PointMassArrayCar& out)
+/// create a triaxial Hernquist model (could use galaxymodel::sampleNbody in a general case)
+particles::PointMassArrayCar make_hernquist(int nbody, double q, double p)
 {
-    out.data.clear();
+    particles::PointMassArrayCar pts;
     for(int i=0; i<nbody; i++) {
-        double m = math::random()*1.0/RAND_MAX;
+        double m = math::random();
         double r = 1/(1/sqrt(m)-1);
-        double costheta = math::random()*2.0/RAND_MAX - 1;
+        double costheta = math::random()*2 - 1;
         double sintheta = sqrt(1-pow_2(costheta));
-        double phi = math::random()*2*M_PI/RAND_MAX;
-        out.add(coord::PosVelCar(r*sintheta*cos(phi), r*sintheta*sin(phi)*q, r*costheta*p, 0, 0, 0), 1./nbody);
+        double phi = math::random()*2*M_PI;
+        pts.add(coord::PosVelCar(
+            r*sintheta*cos(phi), r*sintheta*sin(phi)*q, r*costheta*p, 0, 0, 0), 1./nbody);
     }
+    return pts;
 }
 
 potential::PtrPotential create_from_file(
@@ -88,8 +90,6 @@ potential::PtrPotential create_from_file(
     std::remove((fileName+potential::getCoefFileExtension(potType)).c_str());
     return newpot;
 }
-
-particles::PointMassArrayCar points;  // sampling points
 
 void test_average_error(const potential::BasePotential& p1, const potential::BasePotential& p2)
 {
@@ -156,25 +156,8 @@ bool test_suite(const potential::BasePotential& p, const potential::BasePotentia
             "Force sphharm: " << der  << "\nForce origin.: " << der_orig  << (der_ok ?"":err) << "\n"
             "Deriv sphharm: " << der2 << "\nDeriv origin.: " << der2_orig << (der2_ok?"":err) << "\n";
     }
-    if(output) {
-#if 0
-        std::ofstream strmSample((fileName+".samples").c_str());
-        for(unsigned int ic=0; ic<points.size(); ic++) {
-            double pot, pot_orig;
-            coord::GradCyl der,  der_orig;
-            coord::HessCyl der2, der2_orig;
-            newpot->eval(toPosCyl(points.point(ic)), &pot, &der, &der2);
-            orig.eval(toPosCyl(points.point(ic)), &pot_orig, &der_orig, &der2_orig);
-            strmSample << toPosSph(points.point(ic)).r << "\t" <<
-            fabs((pot-pot_orig)/pot_orig) << "\t" <<
-            fabs((der.dR-der_orig.dR)/der_orig.dR) << "\t" <<
-            fabs((der.dz-der_orig.dz)/der_orig.dz) << "\t" <<
-            fabs(1-newpot->density(points.point(ic))/orig.density(points.point(ic))) << "\n";
-        }
-#else
+    if(output)
         test_average_error(*newpot, orig);
-#endif
-    }
     return ok;
 }
 
@@ -202,42 +185,44 @@ void test_axi_dens()
 int main() {
     bool ok=true;
 
-#if __GNUC__ and (__GNUC__ <= 4) and (__GNUC_MINOR__ <= 2)
-    std::cout << "Cannot compile this test:"
-        " the current version of GNU compiler "<<__GNUC__<<'.'<<__GNUC_MINOR__<<
-        " does not allow temporary objects without copy constructors to be passed as references\n";
-#else
-    make_hernquist(100000, 0.8, 0.6, points);
-
-    //test_axi_dens();
     // spherical, cored
     const potential::Plummer plum(10., 5.);
-    ok &= test_suite(potential::BasisSetExp(0., 30, 2, plum), plum, 1e-5);
-    ok &= test_suite(potential::SplineExp(20, 2, plum), plum, 1e-5);
+    const potential::BasisSetExp bs1(0., 30, 2, plum);
+    const potential::SplineExp sp1(20, 2, plum);
     // this forces potential to be computed via integration of density over volume
-    ok &= test_suite(potential::CylSplineExp(20, 20, 0, static_cast<const potential::BaseDensity&>(plum)), plum, 1e-4);
+    const potential::CylSplineExp cy1(20, 20, 0, static_cast<const potential::BaseDensity&>(plum));
+    ok &= test_suite(bs1, plum, 1e-5);
+    ok &= test_suite(sp1, plum, 1e-5);
+    ok &= test_suite(cy1, plum, 1e-4);
 
     // mildly triaxial, cuspy
     const potential::Dehnen deh15(3., 1.2, 0.8, 0.6, 1.5);
-    ok &= test_suite(potential::BasisSetExp(2., 20, 6, deh15), deh15, 2e-4);
-    ok &= test_suite(potential::SplineExp(20, 6, deh15), deh15, 2e-4);
+    const potential::BasisSetExp bs2(2., 20, 6, deh15);
+    const potential::SplineExp sp2(20, 6, deh15);
+    ok &= test_suite(bs2, deh15, 2e-4);
+    ok &= test_suite(sp2, deh15, 2e-4);
 
     // mildly triaxial, cored
     const potential::Dehnen deh0(1., 1., 0.8, 0.6, 0.);
-    ok &= test_suite(potential::BasisSetExp(1., 20, 6, deh0), deh0, 5e-5);
-    ok &= test_suite(potential::SplineExp(20, 6, deh0), deh0, 5e-5);
-    ok &= test_suite(potential::CylSplineExp(20, 20, 6, static_cast<const potential::BaseDensity&>(deh0)), deh0, 1e-4);
+    const potential::BasisSetExp bs3(1., 20, 6, deh0);
+    const potential::SplineExp sp3(20, 6, deh0);
+    const potential::CylSplineExp cy3(20, 20, 6, static_cast<const potential::BaseDensity&>(deh0));
+    ok &= test_suite(bs3, deh0, 5e-5);
+    ok &= test_suite(sp3, deh0, 5e-5);
+    ok &= test_suite(cy3, deh0, 1e-4);
 
     // mildly triaxial, created from N-body samples
     const potential::Dehnen hernq(1., 1., 0.8, 0.6, 1.0);
+    particles::PointMassArrayCar points = make_hernquist(100000, 0.8, 0.6);
     ok &= test_suite(*create_from_file(points, potential::BasisSetExp::myName()), hernq, 2e-2);
     // could also use create_from_file(points, "SplineExp");  below
-    ok &= test_suite(potential::SplineExp(20, 4, points, potential::ST_TRIAXIAL), hernq, 2e-2);
+    potential::SplineExp sp4(20, 4, points, potential::ST_TRIAXIAL);
+    ok &= test_suite(sp4, hernq, 2e-2);
     ok &= test_suite(*create_from_file(points, potential::CylSplineExp::myName()), hernq, 2e-2);
 
-#endif
-
 #if 1
+    //test_axi_dens();
+
     std::vector<double> d(13),c(13),b(13);
     for(int i=0;i<13;i++) d[i]=math::random();
     potential::LegendreTransform tr(12);
@@ -255,6 +240,7 @@ int main() {
     potential::PtrPotential deh1m_clone = write_read(deh1m);
     test_average_error(deh1m, *deh1m_clone);
 #endif
+
     if(ok)
         std::cout << "ALL TESTS PASSED\n";
     return 0;

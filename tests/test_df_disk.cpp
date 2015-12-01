@@ -65,24 +65,27 @@ double vcircExpDisk(double Mdisk, double Rdisk, double R)
 
 int main(){
     // test pseudo-isothermal distribution function in an exponential-disk potential
-    double norm    = 1.0;
+    double mass    = 1.0;
     double Rdisk   = 2.5;   // scale radius of the disk
     double Hdisk   = 0.25;  // thickness of the (isothermal) disk
-    double L0      = 0.0;   // angular momentum of transition from isotropic to rotating disk
-    double Sigma0  = norm / (2*M_PI * pow_2(Rdisk));  // surface density normalization
-    double sigmaz0 = sqrt(2*M_PI * Sigma0 * Hdisk);
-    double sigmar0 = sigmaz0;
-    const df::PseudoIsothermalParam param = {norm,Rdisk,L0,Sigma0,sigmar0,sigmaz0,sigmar0*0.1,0};
-    const potential::DiskParam      paramPot(Sigma0, Rdisk, -Hdisk, 0, 0);
-    const potential::PtrPotential pot    = potential::createGalaxyPotential(
+    df::PseudoIsothermalParam param;
+    param.Jphi0    = 0.0;   // angular momentum of transition from isotropic to rotating disk
+    param.Sigma0   = mass / (2*M_PI * pow_2(Rdisk));  // surface density normalization
+    param.sigmaz0  = sqrt(2*M_PI * param.Sigma0 * Hdisk);
+    param.sigmar0  = param.sigmaz0;
+    param.sigmamin = param.sigmar0 * 0.1;
+    param.Rdisk    = Rdisk;
+    param.Rsigmar  = Rdisk * 2;
+    param.Rsigmaz  = Rdisk * 2;
+    potential::DiskParam paramPot(param.Sigma0, Rdisk, -Hdisk, 0, 0);
+    potential::PtrPotential pot = potential::createGalaxyPotential(
         std::vector<potential::DiskParam>(1, paramPot),
         std::vector<potential::SphrParam>() );
     const actions::ActionFinderAxisymFudge act(pot);
     const df::PseudoIsothermal df(param, potential::InterpEpicycleFreqs(*pot));
     const galaxymodel::GalaxyModel galmod(*pot, act, df);
 
-    double massExact = Sigma0 * 2*M_PI * pow_2(Rdisk);
-    testTotalMass(galmod, massExact);
+    testTotalMass(galmod, mass);
 #if 0
     for(double R=0; R<=20; R<10 ? R+=0.5 : R+=1)
         for(double z=0; z<=1.0; z<0.5 ? z+=0.125 : z+=0.25)
@@ -93,7 +96,7 @@ int main(){
     for(int i=0; i<np; i++) {
         double R = points[i].R;
         double densExact  = pot->density(points[i]);           // analytical value of density
-        double velThin    = vcircExpDisk(massExact, Rdisk, R); // circular speed for razor-thin disk
+        double velThin    = vcircExpDisk(mass, Rdisk, R); // circular speed for razor-thin disk
         double velExact   = v_circ(*pot, R);                   // circular speed for the actual disk
         double sigmaExact = sigmaz0 * exp(-0.5*R/Rdisk);       // vertical velocity dispersion
         getDFmoments(galmod, i, densExact, velThin, velExact, pow_2(sigmaExact));

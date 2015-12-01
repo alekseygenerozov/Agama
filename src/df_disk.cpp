@@ -10,33 +10,61 @@ PseudoIsothermal::PseudoIsothermal(
     par(params), freq(freqs)
 {
     // sanity checks on parameters
-    if(par.Rdisk<=0)
+    if(par.Rdisk<=0 || par.Rsigmar<=0 || par.Rsigmaz<=0)
         throw std::invalid_argument("PseudoIsothermal DF: disk scale length must be positive");
     if(par.sigmar0<=0 || par.sigmaz0<=0)
         throw std::invalid_argument("PseudoIsothermal DF: velocity dispersion scale must be positive");
+    if(par.sigmabirth<=0 || par.sigmabirth>1)
+        throw std::invalid_argument("PseudoIsothermal DF: invalid value for velocity dispersion at birth");
+    math::prepareIntegrationTableGL(0, 1, NT, qx, qw);  // prepare table for integration over age
 }
 
-double PseudoIsothermal::value(const actions::Actions &J) const {
-    double kappa, nu, Omega;   // characteristic epicyclic freqs
-    freq.eval(fmax(par.Jphimin, J.Jphi), kappa, nu, Omega);
-    double Rcirc     = J.Jphi!=0 ? sqrt(fabs(J.Jphi) / Omega) : 0;
-    double exp_rad   = exp( -Rcirc / par.Rdisk );      // exponential profile in radius
-    if(exp_rad<1e-100)   // we're too far out
-        return 0;
-    double sigmarsq  = pow_2(par.sigmar0) * exp_rad;   // radial velocity dispersion squared
-    sigmarsq        += pow_2(par.sigmaMin);
-    double sigmazsq  = pow_2(par.sigmaz0) * exp_rad;   // vertical velocity dispersion squared
-    double Sigma     = par.Sigma0 * exp_rad;           // surface density
-    double exp_act   = exp( -kappa * J.Jr / sigmarsq - nu * J.Jz / sigmazsq );
-    double exp_Jphi  =                            // suppression factor for counterrotating orbits:
-        par.L0 == INFINITY || J.Jphi == 0 ? 1. :  // do not distinguish the sign of Lz at all
-        par.L0 == 0 ? (J.Jphi>0 ? 2. : 0.) :      // strictly use only orbits with positive Lz
-        1 + tanh(J.Jphi / par.L0);                // intermediate regime, mildly cut off DF at negative Lz
-    double numerator = par.norm * exp_act * exp_Jphi * Sigma * Omega * nu;
-    if(numerator==0 || !math::isFinite(numerator))
-       return 0;
-    else
-       return numerator / (4*M_PI*M_PI * kappa * sigmarsq * sigmazsq);
+// part of DF that depends on radial and vertical action and velocity dispersions
+static inline double df_JrJz(double sigmarsq, double sigmazsq, double sigmaminsq,
+    double kappaJr, double nuJz)
+{
+    sigmarsq = fmax(sigmarsq, sigmaminsq);
+    return exp( -kappaJr / sigmarsq - nuJz / sigmazsq ) / (sigmarsq * sigmazsq);
 }
+    
+double PseudoIsothermal::value(const actions::Actions &J) const
+{
+    double kappa, nu, Omega;   // characteristic epicyclic freqs
+    freq.eval(fmax(par.Jphimin, fabs(J.Jphi)), kappa, nu, Omega);
+    double Rcirc    = J.Jphi!=0 ? sqrt(fabs(J.Jphi) / Omega) : 0;
+    double expR     = exp( -Rcirc / par.Rdisk );    // exponential profile in radius
+    if(expR<1e-100)   // we're too far out
+        return 0;
+    double Sigma    = par.Sigma0 * expR;            // surface density
+    double sigmarsq = pow_2(par.sigmar0) * expR;    // squared radial velocity dispersion at the given radius
+    double sigmazsq = pow_2(par.sigmaz0) * expR;    // squared vertical velocity dispersion
+    double exp_Jphi =                               // suppression factor for counterrotating orbits:
+        par.Jphi0 == INFINITY || J.Jphi == 0 ? 1. : // do not distinguish the sign of Lz at all
+        par.Jphi0 == 0 ? (J.Jphi>0 ? 2. : 0.) :     // strictly use only orbits with positive Lz
+        1 + tanh(J.Jphi / par.Jphi0);               // intermediate regime, mildly cut off DF at negative Lz
+    // if we have non-trivial age-velocity dispersion relation,
+    // then we need to integrate over sub-populations convolved with star formation history
+    double kappaJr  = kappa * J.Jr, nuJz = nu * J.Jz;
+    double exp_JrJz = 0;
+    if(par.beta == 0 || par.sigmabirth == 1)
+        exp_JrJz = df_JrJz(sigmarsq, sigmazsq, pow_2(par.sigmamin), kappaJr, nuJz);
+    else {  // integrate using the pre-initialized Gauss-Legendre table on the interval [0:1]
+        double sumnorm = 0;
+        double t1 = 1 / (pow(par.sigmabirth, -1/par.beta) - 1);
+        for(int i=0; i<NT; i++) {
+            // star formation rate exponentially increases with look-back time
+            double weight = exp(qx[i] / par.Tsfr) * qw[i];
+            // velocity dispersion scales as  [ (t+t1) / (1+t1) ]^beta
+            double mult   = pow( (t1 + qx[i]) / (1 + qx[i]), par.beta);
+            exp_JrJz += weight * df_JrJz(sigmarsq * mult, sigmazsq * mult,
+                pow_2(par.sigmamin), kappaJr, nuJz);
+            sumnorm  += weight;
+        }
+        exp_JrJz /= sumnorm;
+    }
+    double result = exp_JrJz * exp_Jphi * Sigma * Omega * nu / (4*M_PI*M_PI * kappa);
+    return math::isFinite(result) ? result : 0;
+}
+
 
 }  // namespace df

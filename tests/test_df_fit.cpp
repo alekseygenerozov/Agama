@@ -56,18 +56,18 @@ double modelLikelihood(const df::DoublePowerLawParam& params, const ActionArray&
 /// some non-trivial scaling to make the life easier for the minimizer
 df::DoublePowerLawParam dfparams(const double vars[])
 {
-    double jcore = 0; //exp(vars[7]);
-    double alpha = vars[0];
-    double beta  = vars[1];
-    double j0    = vars[2];
-    double ar    = 3./(1+vars[3]+vars[4])*vars[3];
-    double az    = 3./(1+vars[3]+vars[4])*vars[4];
-    double aphi  = 3./(1+vars[3]+vars[4]);  // ensure that sum of ar*Jr+az*Jz+aphi*Jphi doesn't depend on vars[3]
-    double br    = 3./(1+vars[5]+vars[6])*vars[5];
-    double bz    = 3./(1+vars[5]+vars[6])*vars[6];
-    double bphi  = 3./(1+vars[5]+vars[6]);
-    double norm  = 1.;
-    df::DoublePowerLawParam params = {norm,j0,jcore,alpha,beta,ar,az,aphi,br,bz,bphi};
+    df::DoublePowerLawParam params;
+    params.jcore = 0;
+    params.alpha = vars[0];
+    params.beta  = vars[1];
+    params.j0    = vars[2];
+    params.ar    = 3./(1+vars[3]+vars[4])*vars[3];
+    params.az    = 3./(1+vars[3]+vars[4])*vars[4];
+    params.aphi  = 3./(1+vars[3]+vars[4]);  // ar+az+aphi = 3
+    params.br    = 3./(1+vars[5]+vars[6])*vars[5];
+    params.bz    = 3./(1+vars[5]+vars[6])*vars[6];
+    params.bphi  = 3./(1+vars[5]+vars[6]);
+    params.norm  = 1.;
     return params;
 }
 

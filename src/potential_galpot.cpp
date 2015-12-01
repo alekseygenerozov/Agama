@@ -36,10 +36,10 @@ Modifications by Eugene Vasiliev, 2015
 namespace potential{
 
 static const int MAX_NCOEFS_ANGULAR=201;///< 1 + maximum l for the Multipole expansion 
-static const int    GALPOT_LMAX=64;     ///< DEFAULT order (lmax) for the Multipole expansion 
+static const int    GALPOT_LMAX=16;     ///< DEFAULT order (lmax) for the Multipole expansion 
 static const int    GALPOT_NRAD=201;    ///< DEFAULT number of radial points in Multipole 
 static const double GALPOT_RMIN=1.e-4,  ///< DEFAULT min radius of logarithmic radial grid in Multipole
-                    GALPOT_RMAX=1.e3;   ///< DEFAULT max radius of logarithmic radial grid
+                    GALPOT_RMAX=1.e4;   ///< DEFAULT max radius of logarithmic radial grid
 
 //----- disk density and potential -----//
 
