@@ -533,8 +533,8 @@ void CylSplineExp::initPot(unsigned int _Ncoefs_R, unsigned int _Ncoefs_z, unsig
 #pragma omp parallel for schedule(dynamic)
 #endif
     for(int ind=0; ind<numPoints; ind++) {  // combined index variable
-        unsigned int iR = ind / Ncoefs_R;
-        unsigned int iz = ind % Ncoefs_R;
+        unsigned int iR = ind % Ncoefs_R;
+        unsigned int iz = ind / Ncoefs_R;
         for(int m=mmax*mmin; m<=mmax; m+=mstep) {
             try{
                 double val = computePhi_m(grid_R[iR], grid_z[Ncoefs_z/2+iz], m, potential);
@@ -579,6 +579,7 @@ void CylSplineExp::initSplines(const std::vector< std::vector<double> > &coefs)
     std::vector<double> W0(npointsboundary);     // vector of weights
     std::vector<double> X2(npointsboundary);     // vector of coefficients  for m=2
     std::vector<double> Y2(npointsboundary);     // vector of r.h.s. values for m=2
+    bool allzero = true;
     for(size_t i=0; i<npointsboundary; i++) {
         size_t iR=i<2*Ncoefs_R ? i/2 : Ncoefs_R-1;
         size_t iz=i<2*Ncoefs_R ? (i%2)*(Ncoefs_z-1) : i-2*Ncoefs_R+1;
@@ -591,7 +592,8 @@ void CylSplineExp::initSplines(const std::vector< std::vector<double> > &coefs)
         X0(i, 2) = pow(oneoverr,9.0) * (8*pow(z,4.0)-24*z*z*R*R+3*pow(R,4.0));
         // weight proportionally to the value of potential itself
         // (so that we minimize sum of squares of relative differences)
-        W0[i] = 1.0/pow_2(coefs[mmax][iz*Ncoefs_R+iR]);
+        W0[i] = 1.0/pow_2(Y0[i]);
+        allzero &= (Y0[i] == 0);
         if(fitm2) {
             X2[i] = R*R*pow(oneoverr,5.0);
             Y2[i] = coefs[mmax+2][iz*Ncoefs_R+iR];
@@ -608,9 +610,9 @@ void CylSplineExp::initSplines(const std::vector< std::vector<double> > &coefs)
         C22 = math::linearFitZero(X2, Y2, NULL);
     // assign Rscale so that it approximately equals -Mtotal/Phi(r=0)
     Rscale = C00 / coefs[mmax][(Ncoefs_z/2)*Ncoefs_R];
-    if(C00 == 0 && coefs[mmax][(Ncoefs_z/2)*Ncoefs_R] == 0)  // empty model, mass=0
+    if(allzero)  // empty model, mass=0
         Rscale = 1.;
-    if(Rscale<=0 || !math::isFinite(Rscale+C00+C20+C40+C22))
+    else if(Rscale<=0 || !math::isFinite(Rscale+C00+C20+C40+C22))
         throw std::runtime_error("CylSplineExp: cannot determine scaling factor");
         //Rscale=std::min<double>(grid_R.back(), grid_z.back())*0.5; // shouldn't occur?
 #ifdef DEBUGPRINT
@@ -632,7 +634,7 @@ void CylSplineExp::initSplines(const std::vector< std::vector<double> > &coefs)
     for(size_t m=0; m<coefs.size(); m++) {
         if(coefs[m].size() != Ncoefs_R*Ncoefs_z) 
             continue;
-        bool allzero=true;
+        allzero=true;
         for(size_t iR=0; iR<Ncoefs_R; iR++) {
             for(size_t iz=0; iz<Ncoefs_z; iz++) {
                 double scaling = sqrt(pow_2(Rscale)+pow_2(grid_R[iR])+pow_2(grid_z[iz]));
@@ -674,7 +676,7 @@ void CylSplineExp::evalCyl(const coord::PosCyl &pos,
     if(pos.R>=grid_R.back() || fabs(pos.z)>=grid_z.back()) 
     {   // fallback mechanism for extrapolation beyond grid definition region
         double Z2 = pow_2(pos.z), R2 = pow_2(pos.R), r2 = R2+Z2;
-        if(r2==INFINITY) {  // special, honorary treatment...
+        if(r2>1e100) {  // special, honorary treatment...
             if(potential!=NULL)
                 *potential = 0;
             if(grad!=NULL)

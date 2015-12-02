@@ -43,7 +43,7 @@ static PseudoIsothermalParam parsePseudoIsothermalParams(
     par.Rsigmar = kvmap.getDouble("Rsigmar", 2*par.Rdisk) * conv.lengthUnit;
     par.Rsigmaz = kvmap.getDouble("Rsigmaz", 2*par.Rdisk) * conv.lengthUnit;
     par.beta    = kvmap.getDouble("beta", par.beta);
-    par.Tsfr    = kvmap.getDouble("beta", par.Tsfr);  // dimensionless! in units of Hubble time
+    par.Tsfr    = kvmap.getDouble("Tsfr", par.Tsfr);  // dimensionless! in units of Hubble time
     par.sigmabirth = kvmap.getDouble("sigmabirth", par.sigmabirth);  // dimensionless ratio
     return par;
 }
@@ -64,7 +64,7 @@ PtrDistributionFunction createDistributionFunction(
         DoublePowerLawParam params = parseDoublePowerLawParams(kvmap, converter);
         return PtrDistributionFunction(new DoublePowerLaw(params));
     }
-    else if(utils::stringsEqual(type, "DoublePowerLawPi")) {
+    else if(utils::stringsEqual(type, "DoublePowerLawSph")) {
         checkNonzero(potential, type);
         DoublePowerLawParam params = parseDoublePowerLawParams(kvmap, converter);
         return PtrDistributionFunction(new DoublePowerLawSph(

@@ -16,6 +16,7 @@ double
     norm,  ///< normalization factor with the dimension of mass
     j0,    ///< break action (defines the transition between inner and outer regions)
     jcore, ///< core action (sets upper limit on DF at J<Jcore)
+    jmax,  ///< cutoff action (sets exponential suppression at J>Jmax, 0 to disable)
     alpha, ///< power-law index for actions below the break action
     beta,  ///< power-law index for actions above the break action
     ar,    ///< weight on radial actions below the break action
@@ -26,12 +27,14 @@ double
     bphi,  ///< weight on angular actions above the break action
     b;     ///< alternative to the above six parameters: a single anisotropy coefficient
 DoublePowerLawParam() :  ///< set default values for all fields
-    norm(0), j0(0), jcore(0), alpha(0), beta(0), ar(1), az(1), aphi(1), br(1), bz(1), bphi(1), b(1) {}
+    norm(0), j0(0), jcore(0), jmax(0), alpha(0), beta(0),
+    ar(1), az(1), aphi(1), br(1), bz(1), bphi(1), b(1) {}
 };
 
 /** General double power-law model.
     The distribution function is given by
-    \f$  f(J) = ( 1 + J_0 / (h(J) + J_{core}) )^\alpha / ( 1 + g(J) / J_0 )^\beta  \f$,
+    \f$  f(J) = ( 1 + J_0 / (h(J) + J_{core}) )^\alpha / ( 1 + g(J) / J_0 )^\beta
+         \times \exp[ - (g(J) / J_{max})^2 ] \f$,
     where h(J) and g(J) are two functions that should be approximately linear combinations
     of actions, specified in the derived classes, that control the behaviour of the model
     in the inner region (below the break action J_0) and the outer region, respectively.

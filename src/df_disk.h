@@ -13,13 +13,13 @@ namespace df{
 /// Parameters that describe a pseudo-isothermal distribution function.
 struct PseudoIsothermalParam{
 double
-    Sigma0,   ///< surface density normalization (value at origin)
+    Sigma0,   ///< surface density normalization (value at R=0)
     Rdisk,    ///< scale radius of the (exponential) disk surface density
     Jphimin,  ///< lower cutoff for evaluating epicyclic frequencies: take max(Jphi,Jphimin)
     // parameters describing the dependence of DF on the azimuthal, radial and vertical actions
     Jphi0,    ///< scale angular momentum determining the suppression of retrograde orbits
-    sigmar0,  ///< normalization of radial velocity dispersion at Rdisk
-    sigmaz0,  ///< normalization of vertical velocity dispersion at Rdisk
+    sigmar0,  ///< normalization of radial velocity dispersion at R=0
+    sigmaz0,  ///< normalization of vertical velocity dispersion at R=0
     sigmamin, ///< lower limit on the radial velocity dispersion: take max(sigmar,sigmamin)
     Rsigmar,  ///< scale radius of radial velocity dispersion: sigmar=sigmar0*exp(-R/Rsigmar)
     Rsigmaz,  ///< scale radius of vertical velocity dispersion (default for both should be 2*Rdisk)

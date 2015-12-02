@@ -181,7 +181,7 @@ public:
     virtual SymmetryType symmetry() const { 
         return params.axisRatio==1?ST_SPHERICAL:ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
-    static const char* myName() { return "TwoPowerLawSpheroid"; };
+    static const char* myName() { return "SpheroidDensity"; };
 private:
     SphrParam params;
     virtual double densityCyl(const coord::PosCyl &pos) const;

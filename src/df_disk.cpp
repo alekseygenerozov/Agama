@@ -31,17 +31,20 @@ double PseudoIsothermal::value(const actions::Actions &J) const
 {
     double kappa, nu, Omega;   // characteristic epicyclic freqs
     freq.eval(fmax(par.Jphimin, fabs(J.Jphi)), kappa, nu, Omega);
+    // obtain characteristic radius corresponding to the given z-component of angular momentum
     double Rcirc    = J.Jphi!=0 ? sqrt(fabs(J.Jphi) / Omega) : 0;
-    double expR     = exp( -Rcirc / par.Rdisk );    // exponential profile in radius
-    if(expR<1e-100)   // we're too far out
+    // surface density follows an exponential profile in radius 
+    double Sigma    = par.Sigma0 * exp( -Rcirc / par.Rdisk );
+    if(Sigma < par.Sigma0 * 1e-100)   // we're too far out
         return 0;
-    double Sigma    = par.Sigma0 * expR;            // surface density
-    double sigmarsq = pow_2(par.sigmar0) * expR;    // squared radial velocity dispersion at the given radius
-    double sigmazsq = pow_2(par.sigmaz0) * expR;    // squared vertical velocity dispersion
+    // squared radial velocity dispersion at the given radius
+    double sigmarsq = pow_2(par.sigmar0 * exp ( -Rcirc / par.Rsigmar));
+    // squared vertical velocity dispersion
+    double sigmazsq = pow_2(par.sigmaz0 * exp ( -Rcirc / par.Rsigmaz));
     double exp_Jphi =                               // suppression factor for counterrotating orbits:
         par.Jphi0 == INFINITY || J.Jphi == 0 ? 1. : // do not distinguish the sign of Lz at all
         par.Jphi0 == 0 ? (J.Jphi>0 ? 2. : 0.) :     // strictly use only orbits with positive Lz
-        1 + tanh(J.Jphi / par.Jphi0);               // intermediate regime, mildly cut off DF at negative Lz
+        1 + tanh(J.Jphi / par.Jphi0);               // intermediate regime, mildly cut off DF at Lz<0
     // if we have non-trivial age-velocity dispersion relation,
     // then we need to integrate over sub-populations convolved with star formation history
     double kappaJr  = kappa * J.Jr, nuJz = nu * J.Jz;

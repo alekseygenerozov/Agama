@@ -51,7 +51,7 @@ enum PotentialType {
     PT_MULTIPOLE,    ///< axisymmetric multipole expansion from GalPot:  `Multipole`
 
     //  Components of Walter Dehnen's GalPot
-    PT_DISKANSATZ,   ///< separable disk density model:  `DiskAnsatz` and `DiskDensity`
+    PT_DISK,         ///< separable disk density model:  `DiskDensity`
     PT_SPHEROID,     ///< two-power-law spheroid density model:  `SpheroidDensity`
 
     //  Density interpolators
@@ -141,7 +141,7 @@ static void initPotentialAndSymmetryNameMap()
     PotentialNames[PT_SPLINE]    = SplineExp::myName();
     PotentialNames[PT_CYLSPLINE] = CylSplineExp::myName();
     PotentialNames[PT_MULTIPOLE] = Multipole::myName();
-    PotentialNames[PT_DISKANSATZ]= DiskAnsatz::myName();
+    PotentialNames[PT_DISK]      = DiskDensity::myName();
 //    PotentialNames[PT_SCALEFREE] = CPotentialScaleFree::myName();
 //    PotentialNames[PT_SCALEFREESH] = CPotentialScaleFreeSH::myName();
 //    PotentialNames[PT_SPHERICAL] = CPotentialSpherical::myName();
@@ -656,7 +656,10 @@ bool writeDensity(const std::string& fileName, const BaseDensity& dens)
     std::ofstream strm(fileName.c_str(), std::ios::out);
     if(!strm)
         return false;
-    switch(getPotentialTypeByName(dens.name())) {
+    PotentialType type = getPotentialTypeByName(dens.name());
+    if(type == PT_UNKNOWN)
+        type = getDensityTypeByName(dens.name());
+    switch(type) {
     case PT_BSE:
     case PT_SPLINE:
         writePotentialSphHarmExp(strm, dynamic_cast<const BasePotentialSphericalHarmonic&>(dens));
@@ -932,6 +935,19 @@ static PtrPotential createAnyPotential(const ConfigPotential& params,
         return createAnalyticPotential(params);
 }
 
+// create elementary density
+PtrDensity createDensity(
+    const utils::KeyValueMap& kvmap,
+    const units::ExternalUnits& converter)
+{
+    std::string type = kvmap.getString("type");
+    if(utils::stringsEqual(type, DiskDensity::myName()))
+        return PtrDensity(new DiskDensity(parseDiskParams(kvmap, converter)));
+    if(utils::stringsEqual(type, SpheroidDensity::myName()))
+        return PtrDensity(new SpheroidDensity(parseSphrParams(kvmap, converter)));
+    return createAnalyticDensity(parseParams(kvmap, converter));
+}
+
 // create a potential from several components
 PtrPotential createPotential(
     const std::vector<utils::KeyValueMap>& kvmap,
@@ -947,7 +963,7 @@ PtrPotential createPotential(
     std::vector<ConfigPotential> params;
     for(unsigned int i=0; i<kvmap.size(); i++) {
         std::string type = kvmap[i].getString("type");
-        if(utils::stringsEqual(type, DiskAnsatz::myName())) {
+        if(utils::stringsEqual(type, DiskDensity::myName())) {
             diskParams.push_back(parseDiskParams(kvmap[i], converter));
         } else if(utils::stringsEqual(type, SpheroidDensity::myName())) {
             sphrParams.push_back(parseSphrParams(kvmap[i], converter));
@@ -983,8 +999,7 @@ PtrPotential createPotential(
     const std::string& iniFileName, const units::ExternalUnits& converter)
 {
     utils::ConfigFile ini(iniFileName);
-    std::vector<std::string> sectionNames;
-    ini.listSections(sectionNames);
+    std::vector<std::string> sectionNames = ini.listSections();
     std::vector<utils::KeyValueMap> components;
     for(unsigned int i=0; i<sectionNames.size(); i++)
         if(utils::stringsEqual(sectionNames[i].substr(0,9), "Potential"))

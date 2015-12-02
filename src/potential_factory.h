@@ -24,6 +24,17 @@ namespace utils { class KeyValueMap; }
 
 namespace potential {
 
+/** Create an instance of density according to the parameters contained in the key-value map.
+    \param[in] params is the list of parameters;
+    \param[in] converter is the unit converter for transforming the dimensional quantities 
+    in parameters (such as mass and radii) into internal units; can be a trivial converter.
+    \return    a new instance of PtrDensity on success.
+    \throws    std::invalid_argument or std::runtime_error or other density-specific exception on failure
+*/
+PtrDensity createDensity(
+    const utils::KeyValueMap& params,
+    const units::ExternalUnits& converter = units::ExternalUnits());
+
 /** Create an instance of potential according to the parameters contained in the key-value map.
     \param[in] params is the list of parameters;
     \param[in] converter is the unit converter for transforming the dimensional quantities 

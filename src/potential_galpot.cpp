@@ -512,13 +512,19 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
     if(logr < logrmin || logr > logrmax) {  // extrapolation at small or large radii
         // use statically-sized arrays for Legendre polynomials, to avoid dynamic memory allocation
         double Pl[MAX_NCOEFS_ANGULAR], dPl[MAX_NCOEFS_ANGULAR];
-        math::legendrePolyArray(innerSlope.size()*2-2, 0, ct, Pl, dPl);
+        const int lmax = (logr < logrmin-10 || logr > logrmax+10) ? 0 :
+            (int)std::min<unsigned int>(innerSlope.size()*2-2, MAX_NCOEFS_ANGULAR-1);
+        if(lmax == 0) {  // don't bother computing higher harmonics for extremely small or large r
+            Pl[0] = 1.;
+            dPl[0]= 0.;
+        } else
+            math::legendrePolyArray(lmax, 0, ct, Pl, dPl);
 
         // define {v=l, r0=rmin} for the inner or {v=-l-1, r0=rmax} for the outer extrapolation;
         // Phi_l(r) = U_l * (r/r0)^s            + W_l * (r/r0)^v   if s!=v,
         // Phi_l(r) = U_l * (r/r0)^s * ln(r/r0) + W_l * (r/r0)^v   if s==v.
-        for(unsigned int l2=0; l2<innerSlope.size(); l2++) {
-            int l  = l2*2;
+        for(int l=0; l<=lmax; l+=2) {
+            int l2 = l/2;
             double s, v, U, W, dr;
             if(logr < logrmin) {
                 s = innerSlope[l2];

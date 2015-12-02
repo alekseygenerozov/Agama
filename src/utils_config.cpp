@@ -194,6 +194,9 @@ ConfigFile::ConfigFile(const std::string& _fileName) :
     std::string buffer;
     int secIndex = -1;
     while(std::getline(strm, buffer)) {
+        // remove all comment lines
+        if(buffer.size()>0 && (buffer[0] == '#' || buffer[0] == ';'))
+            continue;
         std::string::size_type indx = buffer.find('[');
         std::string::size_type indx1= buffer.find(']');
         if(indx!=std::string::npos && indx1!=std::string::npos && indx1>indx)
@@ -244,11 +247,12 @@ ConfigFile::~ConfigFile()
     }
 }
 
-void ConfigFile::listSections(std::vector<std::string>& list) const
+std::vector<std::string> ConfigFile::listSections() const
 {
-    list.resize(sections.size());
+    std::vector<std::string> list(sections.size());
     for(unsigned int i=0; i<sections.size(); i++)
         list[i] = sections[i].first;
+    return list;
 }
 
 KeyValueMap& ConfigFile::findSection(const std::string& sec)
