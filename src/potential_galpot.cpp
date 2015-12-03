@@ -372,10 +372,11 @@ static void computeExtrapolationCoefs(double Phi0, double Phi1, double Phi2,
 {
     double d2Phi1 = der2f(Phi0, Phi1, Phi2, dPhi0, dPhi1, dPhi2, lnr0, lnr1, lnr2);
     s = (d2Phi1 - v*dPhi1) / (dPhi1 - v*Phi1);
-    int signv = v>=0 ? 1 : -1;
-    if(!math::isFinite(s) || s * signv <= -v-1)  // safeguard against weird slope determination
-        // results in a constant-density core for the inward or r^-4 falloff for the outward extrapolation
-        s = 2 * signv;
+    // safeguard against weird slope determination
+    if(v>=0 && (!math::isFinite(s) || s<=-1))
+        s = 2;  // results in a constant-density core for the inward extrapolation
+    if(v<0  && (!math::isFinite(s) || s>=0))
+        s = -2; // results in a r^-4 falloff for the outward extrapolation
     if(s != v) {
         U = (dPhi1 - v*Phi1) / (s-v);
         W = (dPhi1 - s*Phi1) / (v-s);

@@ -72,8 +72,11 @@ void writeRotationCurve(const std::string& fileName, const PtrPotential& potenti
 /// generate an N-body representation of a density profile (without velocities) and write to a file
 void writeNbodyDensity(const std::string& fileName, const potential::BaseDensity& dens)
 {
+    std::cout << "Writing N-body sampled density profile to " << fileName << '\n';
     particles::PointMassArray<coord::PosCyl> points;
     galaxymodel::generateDensitySamples(dens, 1e5, points);
+    // assign the units for exporting the N-body snapshot so that G=1 again,
+    // and mass & velocity scale is reasonable
     units::ExternalUnits extUnits(intUnits, 1.*units::Kpc, 977.8*units::kms, 2.223e+11*units::Msun);
     writeSnapshot(fileName+".nemo", extUnits, points, "Nemo");
 }
@@ -81,44 +84,74 @@ void writeNbodyDensity(const std::string& fileName, const potential::BaseDensity
 /// generate an N-body representation of the entire model specified by its DF, and write to a file
 void writeNbodyModel(const std::string& fileName, const galaxymodel::GalaxyModel& model)
 {
+    std::cout << "Writing a complete DF-based N-body model to " << fileName << '\n';
     particles::PointMassArrayCar points;
     galaxymodel::generatePosVelSamples(model, 1e5, points);
     units::ExternalUnits extUnits(intUnits, 1.*units::Kpc, 977.8*units::kms, 2.223e+11*units::Msun);
-    writeSnapshot(fileName+".nemo", units::ExternalUnits(), points, "Nemo");
+    writeSnapshot(fileName+".nemo", extUnits, points, "Nemo");
 }
 
-/// print profiles of surface density and z-velocity dispersion to a file
+/// print profiles of surface density to a file
 void writeSurfaceDensityProfile(const std::string& fileName, const galaxymodel::GalaxyModel& model)
 {
-    std::vector<double> radii, heights;
+    std::cout << "Writing surface density profile to " << fileName+".surfdens" << '\n';
+    std::vector<double> radii;
     // convert radii to internal units
     for(double r=1./8; r<=30; r<1 ? r*=2 : r<16 ? r+=0.5 : r+=2)
         radii.push_back(r * intUnits.from_Kpc);
-    for(double h=0; h<=5; h<1? h+=0.25 : h+=1)
-        heights.push_back(h * intUnits.from_Kpc);
-    int nr = radii.size(), nh = heights.size();
-    std::vector<double> surfDens(nr), losvdisp(nr), dens(nr*nh);
+    int nr = radii.size();
+    std::vector<double> surfDens(nr);
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
     for(int ir=0; ir<nr; ir++) {
-        computeProjectedMoments(model, radii[ir], 1e-3, 1e6, surfDens[ir], losvdisp[ir]);
-        for(int ih=0; ih<nh; ih++)
-            computeMoments(model, coord::PosCyl(radii[ir],heights[ih],0), 1e-3, 1e5, &dens[ir*nh+ih],
-                NULL, NULL, NULL, NULL, NULL);
+        double dummy;
+        computeProjectedMoments(model, radii[ir], 1e-3, 1e6, surfDens[ir], dummy);
     }
 
     std::ofstream strm((fileName+".surfdens").c_str());
-    strm << "#Radius\tsurfaceDensity\tverticalVelocityDispersion\tdensity:";
-    for(int ih=0; ih<nh; ih++)
-        strm << (heights[ih] * intUnits.to_Kpc) << '\t';
-    strm << '\n';
-    for(int ir=0; ir<nr; ir++) {
+    strm << "#Radius\tsurfaceDensity\n";
+    for(int ir=0; ir<nr; ir++)
         strm << (radii[ir] * intUnits.to_Kpc) << '\t' << 
-        (surfDens[ir] * intUnits.to_Msun_per_pc2) << '\t' << 
-        (losvdisp[ir] * intUnits.to_kms);
-        for(int ih=0; ih<nh; ih++)
-            strm << '\t' << (dens[ir*nh+ih] * intUnits.to_Msun_per_pc3);
+        (surfDens[ir] * intUnits.to_Msun_per_pc2) << '\n';
+}
+
+/// print vertical density profile for several sub-components of the stellar DF
+void writeVerticalDensityProfile(const std::string& fileName,
+    const potential::BasePotential& pot,
+    const actions::BaseActionFinder& af,
+    const std::vector<df::PtrDistributionFunction>& DFcomponents,
+    double RsolarInKpc)
+{
+    std::cout << "Writing vertical density profile to " << fileName+".vertical" << '\n';
+    std::vector<double> heights;
+    // convert height to internal units
+    for(double h=0; h<=8; h<1.5 ? h+=0.125 : h+=0.5)
+        heights.push_back(h * intUnits.from_Kpc);
+    double R = RsolarInKpc * intUnits.from_Kpc;
+    int nh = heights.size();
+    int nc = DFcomponents.size();
+    int n = nh*nc;
+    std::vector<double> dens(n);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for(int i=0; i<n; i++) {
+        int ih = i/nc, ic = i%nc;
+        computeMoments(galaxymodel::GalaxyModel(pot, af, *DFcomponents[ic]),
+            coord::PosCyl(R,heights[ih],0), 1e-3, 1e5, &dens[ih*nc+ic],
+            NULL, NULL, NULL, NULL, NULL);
+    }
+    
+    std::ofstream strm((fileName+".vertical").c_str());
+    strm << "#z";
+    for(int ic=0; ic<nc; ic++)
+        strm << "\tdensity_comp"<<ic;
+    strm << '\n';
+    for(int ih=0; ih<nh; ih++) {
+        strm << (heights[ih] * intUnits.to_Kpc);
+        for(int ic=0; ic<nc; ic++)
+            strm << '\t' << (dens[ih*nc+ic] * intUnits.to_Msun_per_pc3);
         strm << '\n';
     }
 }
@@ -248,8 +281,11 @@ int main()
 
     // we can compute the masses even though we don't know the density profile yet
     std::cout << "**** STARTING TWO-COMPONENT MODELLING ****\n"
-        "Masses are: Mdisc=" << (dfStellar->totalMass() * intUnits.to_Msun) <<
-        " Msun; Mhalo="      << (dfHalo->totalMass() * intUnits.to_Msun) << " Msun\n";
+        "Masses are: Mdisc=" <<    (dfStellar->totalMass() * intUnits.to_Msun) <<
+        " Msun (Mthin=" << (dfStellarArray[0]->totalMass() * intUnits.to_Msun) <<
+        ", Mthick="     << (dfStellarArray[1]->totalMass() * intUnits.to_Msun) <<
+        ", Mstel.halo=" << (dfStellarArray[2]->totalMass() * intUnits.to_Msun) <<
+        "); Mdarkhalo=" <<            (dfHalo->totalMass() * intUnits.to_Msun) << " Msun\n";
 
     // prepare parameters for the density grid of the stellar component
     std::vector<double> gridRadialCyl = math::createNonuniformGrid(
@@ -280,12 +316,16 @@ int main()
     // first create a representation of density profiles without velocities
     // (just for demonstration), by drawing samples from the density distribution
     writeNbodyDensity("dens_halo_iter"+iterationStr,
-        *model.components.front()->getDensity());
+        *model.components[0]->getDensity());
     writeNbodyDensity("dens_disc_iter"+iterationStr,
-        *model.components.back()->getDensity());
+        *model.components[1]->getDensity());
 
     writeSurfaceDensityProfile("model_disc_iter"+iterationStr,
         galaxymodel::GalaxyModel(*model.totalPotential, *model.actionFinder, *dfStellar));
+    writeVerticalDensityProfile("model_disc_iter_R8"+iterationStr,
+        *model.totalPotential, *model.actionFinder, dfStellarArray, 8.3 /*kpc*/);
+    writeVerticalDensityProfile("model_disc_iter_R0"+iterationStr,
+        *model.totalPotential, *model.actionFinder, dfStellarArray, 0 /*kpc*/);
 
     // now create genuinely self-consistent models of both components,
     // by drawing positions and velocities from the DF in the given (self-consistent) potential

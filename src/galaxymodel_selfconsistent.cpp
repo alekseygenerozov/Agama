@@ -65,7 +65,7 @@ ComponentWithSpheroidalDF::ComponentWithSpheroidalDF(
     double _rmin, double _rmax,
     unsigned int _numCoefsRadial, unsigned int _numCoefsAngular,
     double _relError, unsigned int _maxNumEval) :
-BaseComponentWithDF(ensureNotNull(df), ensureNotNull(initDensity), false, _relError, _maxNumEval),
+BaseComponentWithDF(ensureNotNull(df), initDensity, false, _relError, _maxNumEval),
 rmin(_rmin), rmax(_rmax), numCoefsRadial(_numCoefsRadial), numCoefsAngular(_numCoefsAngular)
 {
     if(rmin<=0 || rmax<=rmin || numCoefsRadial<2 || numCoefsAngular<0)
@@ -90,7 +90,7 @@ ComponentWithDisklikeDF::ComponentWithDisklikeDF(
     const potential::PtrDensity& initDensity,
     const std::vector<double> _gridR, const std::vector<double> _gridz,
     double _relError, unsigned int _maxNumEval) :
-BaseComponentWithDF(ensureNotNull(df), ensureNotNull(initDensity), true, _relError, _maxNumEval),
+BaseComponentWithDF(ensureNotNull(df), initDensity, true, _relError, _maxNumEval),
 gridR(_gridR), gridz(_gridz)
 {
     if(gridR[0]!=0 || gridR.size()<2 || gridz[0]!=0 || gridz.size()<2)

@@ -16,6 +16,7 @@ static DoublePowerLawParam parseDoublePowerLawParams(
     par.norm  = kvmap.getDouble("norm")  * conv.massUnit;
     par.j0    = kvmap.getDouble("j0")    * conv.lengthUnit * conv.velocityUnit;
     par.jcore = kvmap.getDouble("jcore") * conv.lengthUnit * conv.velocityUnit;
+    par.jmax  = kvmap.getDouble("jmax")  * conv.lengthUnit * conv.velocityUnit;
     par.alpha = kvmap.getDouble("alpha", par.alpha);
     par.beta  = kvmap.getDouble("beta",  par.beta);
     par.ar    = kvmap.getDouble("ar",    par.ar);

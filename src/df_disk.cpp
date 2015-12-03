@@ -24,6 +24,7 @@ static inline double df_JrJz(double sigmarsq, double sigmazsq, double sigmaminsq
     double kappaJr, double nuJz)
 {
     sigmarsq = fmax(sigmarsq, sigmaminsq);
+    sigmazsq = fmax(sigmazsq, sigmaminsq);
     return exp( -kappaJr / sigmarsq - nuJz / sigmazsq ) / (sigmarsq * sigmazsq);
 }
     

@@ -33,7 +33,7 @@ DoublePowerLawParam() :  ///< set default values for all fields
 
 /** General double power-law model.
     The distribution function is given by
-    \f$  f(J) = ( 1 + J_0 / (h(J) + J_{core}) )^\alpha / ( 1 + g(J) / J_0 )^\beta
+    \f$  f(J) = (1 + J_0 / (h(J) + J_{core}) )^\alpha / (1 + (g(J) + J_{core}) / J_0 )^\beta
          \times \exp[ - (g(J) / J_{max})^2 ] \f$,
     where h(J) and g(J) are two functions that should be approximately linear combinations
     of actions, specified in the derived classes, that control the behaviour of the model
