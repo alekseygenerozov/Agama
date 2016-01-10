@@ -30,6 +30,7 @@ SOURCES   = \
             math_ode.cpp \
             math_sample.cpp \
             math_specfunc.cpp \
+            math_sphharm.cpp \
             math_spline.cpp \
             orbit.cpp \
             particles_io.cpp \

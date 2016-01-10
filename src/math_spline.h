@@ -1,11 +1,11 @@
 /** \file    math_spline.h
     \brief   spline interpolation and penalized spline approximation
     \author  Eugene Vasiliev
-    \date    2011-2015
+    \date    2011-2016
 
-Spline interpolation class is based on the GSL implementation by G.Jungman;
+1d cubic spline is based on the GSL implementation by G.Jungman;
 2d cubic spline is based on interp2d library by D.Zaslavsky;
-2d quintic spline is based on the code by W.Dehnen.
+1d and 2d quintic splines are based on the code by W.Dehnen.
 */
 #pragma once
 #include "math_base.h"
@@ -64,6 +64,47 @@ private:
     std::vector<double> xval;  ///< grid nodes
     std::vector<double> yval;  ///< values of function at grid nodes
     std::vector<double> cval;  ///< second derivatives of function at grid nodes
+};
+
+
+/** Class that defines a piecewise cubic Hermite spline.
+    Input consists of values of y(x) and dy/dx on a grid of x-nodes;
+    result is a cubic function in each segment, with continuous first derivative at nodes
+    (however second or third derivative is not continuous, unlike the case of quintic spline).
+*/
+class HermiteSpline: public IFunction {
+public:
+    /** empty constructor is required for the class to be used in std::vector and alike places */
+    HermiteSpline() {};
+
+    /** Initialize the spline from the provided values of x, y(x) and y'(x)
+        (which should be arrays of equal length, and x values must be monotonically increasing).
+    */
+    HermiteSpline(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+                  const std::vector<double>& yderivs);
+
+    /** compute the value of spline and optionally its derivatives at point x;
+        if the input location is outside the definition interval, a linear extrapolation is performed. */
+    virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
+
+    virtual unsigned int numDerivs() const { return 2; }
+
+    /** return the lower end of definition interval */
+    double xmin() const { return xval.size()? xval.front() : NAN; }
+
+    /** return the upper end of definition interval */
+    double xmax() const { return xval.size()? xval.back() : NAN; }
+
+    /** check if the spline is initialized */
+    bool isEmpty() const { return xval.size()==0; }
+
+    /** return the array of spline nodes */
+    const std::vector<double>& xvalues() const { return xval; }
+
+private:
+    std::vector<double> xval;  ///< grid nodes
+    std::vector<double> yval;  ///< values of function at grid nodes
+    std::vector<double> yder;  ///< first derivatives of function at grid nodes
 };
 
 

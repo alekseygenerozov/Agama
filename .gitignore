@@ -13,3 +13,4 @@ lib/*
 doc/*
 .DS_Store
 Makefile.local
+python/*

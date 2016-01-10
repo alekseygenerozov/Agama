@@ -271,36 +271,4 @@ private:
 
 };  // class DensitySphericalHarmonic
 
-/** Helper class for performing forward and reverse Legendre polynomial transformation.
-    It is defined as a 1:1 correspondence between two arrays of length lmax+1:
-      - values of some function f(x) defined on [-1:1], computed at nodes x_i, i=0..lmax;
-      - Legendre expansion coefficients C_l, l=0..lmax.
-    This transformation is exact if x_i are the nodes of Gauss-Legendre quadrature
-    of order lmax+1 on the interval [-1:1].
-    Once the tables have been set up for the given order lmax,
-    one may perform the forward and inverse transformation multiple times for
-    different sets of values/coefficients (note that these transformations are not in-place).
-*/
-class LegendreTransform {
-public:
-    /// set up the table of values of x_i and transformation coefficients
-    LegendreTransform(unsigned int lmax);
-
-    /// return the coordinate of i-th node on (-1:1), 0 <= i <= lmax
-    double x(unsigned int i) const { return nodes.at(i); }
-
-    /// compute the expansion coefficients from the function values specified at the set of nodes
-    void forward(const double values[] /*in*/, double coefs[] /*out*/) const;
-
-    /// compute the function values at the set of nodes from the expansion coefficients
-    void inverse(const double coefs[] /*in*/, double values[] /*out*/) const;
-    
-    const unsigned int lmax;  /// order of expansion (>=0)
-private:
-    std::vector<double>
-    nodes,   ///< coordinates of the grid nodes on [-1:1]
-    weights, ///< weights of Gauss-Legendre quadrature rule
-    legPoly; ///< values of all Legendre polynomials of order <= lmax at all nodes of the grid
-};
-
 }  // namespace

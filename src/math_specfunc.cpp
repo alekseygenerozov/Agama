@@ -1,8 +1,8 @@
+#include "math_base.h"
 #include "math_specfunc.h"
 #include <cmath>
 #include <cassert>
 #include <stdexcept>
-#include <gsl/gsl_sf_legendre.h>
 #include <gsl/gsl_sf_gegenbauer.h>
 #include <gsl/gsl_sf_hyperg.h>
 #include <gsl/gsl_sf_gamma.h>
@@ -16,79 +16,21 @@
 
 namespace math {
 
-double legendrePoly(const int l, const int m, const double x) {
-    return gsl_sf_legendre_Plm(l, m, x);
-}
-
-void legendrePolyArray(const int lmax, const int m, const double x,
-    double* result_array, double* deriv_array)
+void trigMultiAngle(const double phi, const unsigned int m, const bool needSine, double* outputArray)
 {
-    assert(result_array!=NULL);
-#if GSL_MAJOR_VERSION < 2
-    if(deriv_array)
-        gsl_sf_legendre_Plm_deriv_array(lmax, m, x, result_array, deriv_array);
-    else
-        gsl_sf_legendre_Plm_array(lmax, m, x, result_array);
-#else
-    if(m!=0)
-        throw std::runtime_error("m!=0 is not supported anymore in GSL Legendre API");
-    if(deriv_array)
-        gsl_sf_legendre_Pl_deriv_array(lmax, x, result_array, deriv_array);
-    else
-        gsl_sf_legendre_Pl_array(lmax, x, result_array);
-#endif
-}
-
-void sphHarmonicArray(const int lmax, const int m, const double theta,
-    double* result_array, double* deriv_array, double* deriv2_array)
-{
-    assert(result_array!=NULL);
-    double costheta = cos(theta), sintheta=0;
-    // compute unnormalized polynomials and then normalize manually, which is faster than computing normalized ones.
-    // This is not suitable for large l,m (when overflow may occur), but in our application we aren't going to have such large values.
-#if GSL_MAJOR_VERSION < 2
-    if(deriv_array) {
-        gsl_sf_legendre_Plm_deriv_array(lmax, m, costheta, result_array, deriv_array);
-        sintheta = sin(theta);
-    }
-    else
-        gsl_sf_legendre_Plm_array(lmax, m, costheta, result_array);
-#else
-    if(m!=0)
-        throw std::runtime_error("m!=0 is not supported anymore in GSL Legendre API");
-    if(deriv_array) {
-        gsl_sf_legendre_Pl_deriv_array(lmax, costheta, result_array, deriv_array);
-        sintheta = sin(theta);
-    }
-    else
-        gsl_sf_legendre_Pl_array(lmax, costheta, result_array);
-#endif    
-    double prefact = 0.5/sqrt(M_PI*gsl_sf_fact(2*m));
-    for(int l=m; l<=lmax; l++) {
-        double prefactl=sqrt(2*l+1.)*prefact;
-        result_array[l-m] *= prefactl;
-        if(deriv_array)
-            deriv_array[l-m] *= prefactl;
-        prefact *= sqrt((l-m+1.)/(l+m+1.));
-    }
-    if(deriv2_array) {
-        assert(deriv_array!=NULL);
-        for(int l=m; l<=lmax; l++) {
-            // accurate treatment of asymptotic values to avoid NaN
-            if(m==0)
-                deriv2_array[l-m] = costheta * deriv_array[l-m] - l*(l+1) * result_array[l-m];
-            else if(costheta>=1-1e-6)
-                deriv2_array[l-m] = deriv_array[l-m] * (costheta - 2*(l*(l+1)*(costheta-1)/m + m/(costheta+1)) );
-            else if(costheta<=-1+1e-6)
-                deriv2_array[l-m] = deriv_array[l-m] * (costheta - 2*(l*(l+1)*(costheta+1)/m + m/(costheta-1)) );
-            else
-                deriv2_array[l-m] = costheta * deriv_array[l-m] - (l*(l+1)-pow_2(m/sintheta)) * result_array[l-m];
-        }
-    }
-    if(deriv_array) {
-        for(int l=0; l<=lmax-m; l++)
-            deriv_array[l] *= -sintheta;
-    }
+    // we assume that m>=1 but don't check it;
+    // also note that the recurrence relation below is not suitable for large m due to loss of accuracy,
+    // but for our purposes this should suffice;
+    // a more accurate expression is given in section 5.4 of Num.Rec.3rd ed.
+    double cosphi = cos(phi);
+    outputArray[0] = cosphi;
+    for(unsigned int k=1; k<m; k++)
+        outputArray[k] = 2 * cosphi * outputArray[k-1] - (k>1 ? outputArray[k-2] : 1);
+    if(!needSine)
+        return;
+    outputArray[m] = sin(phi);
+    for(unsigned int k=m+1; k<m*2; k++)
+        outputArray[k] = 2 * cosphi * outputArray[k-1] - (k>m+1 ? outputArray[k-2] : 0);
 }
 
 double gegenbauer(const int n, double lambda, double x) {

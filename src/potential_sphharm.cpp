@@ -1,6 +1,7 @@
 #include "potential_sphharm.h"
 #include "math_core.h"
 #include "math_specfunc.h"
+#include "math_sphharm.h"
 #include <cmath>
 #include <algorithm>
 #include <cassert>
@@ -80,6 +81,28 @@ protected:
 }  // internal namespace
 
 //----------------------------------------------------------------------------//
+/*  Table of spherical-harmonic terms for various symmetries
+    m>=0 correspond to cos(m phi) and m<0 - to sin(|m| phi)
++-----------------------------------------------------------+
+| invariance       |       coefficients that are zero       |
+| under transform  |     l is odd    |      l is even  |    |  
+|                  |m>0  m>0 m<0  m<0|m>0  m>0 m<0  m<0|m!=0|
+|                  |even odd even odd|even odd even odd|    |
+|------------------+----------------------------------------|
+|x -> -x           |      0   0             0   0           |
+|y -> -y           |          0    0            0    0      |
+|z -> -z           | 0        0             0        0      |
+|x,y,z -> -x,-y,-z | 0    0   0    0                        | ST_REFLECTION
+|z-axis rotation   |                                      0 | ST_ZROTSYM
+|triaxial sym.     | 0    0   0    0        0   0    0      | ST_TRIAXIAL
+|axisymmetric      | 0    0   0    0        0   0    0    0 | ST_AXISYMMETRIC
+|spherical         |       only  l=0, m=0 remains nonzero   | ST_SPHERICAL
++-----------------------------------------------------------+
+Presently this scheme is not implemented in full generality:
+the first three symmetries are combined in one triaxial symmetry
+and it is not possible to treat them separately.
+*/
+
 // BasePotentialSphericalHarmonic -- parent class for all potentials 
 // using angular expansion in spherical harmonics
 void SphericalHarmonicCoefSet::setSymmetry(SymmetryType sym)
@@ -568,7 +591,7 @@ void SplineExp::computeCoefsFromPoints(const particles::PointMassArray<coord::Po
                 // the coefficients from i+1 till the end of array are still valid.
                 outputCoefs[coefind][i] = 
                     (i>0 ? coefsInner[coefind][i-1] * pow(points.point(i).r, -(1+l)) : 0) + 
-                    (i<npoints-1 ? coefsOuter[coefind][i+1] * pow(points.point(i).r, l) : 0);
+                    coefsOuter[coefind][i] * pow(points.point(i).r, l);
             }
     }
     // local variable coefsInner will be automatically freed, but outputCoefs will remain
@@ -659,7 +682,7 @@ void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosS
     std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);
     for(size_t i=0; i<=Ncoefs_radial; i++)
         coefsArray[i].assign(pow_2(Ncoefs_angular+1), 0);
-    
+
     // open block so that temp variable "appr" will be destroyed upon closing this block
     {
         // first construct spline for zero-order term (radial dependence)
@@ -1272,35 +1295,6 @@ double DensitySphericalHarmonic::integrate(double r1, double r2, int l, int n, d
     // integration over the definition region of the spline is done by the spline itself
     result += splines[l].integrate(r1, r2, MonomialIntegral(n, r0));
     return result;
-}
-
-LegendreTransform::LegendreTransform(unsigned int _lmax):
-    lmax(_lmax)
-{
-    nodes.resize(lmax+1);
-    weights.resize(lmax+1);
-    math::prepareIntegrationTableGL(-1, 1, lmax+1, &nodes.front(), &weights.front());
-    legPoly.resize(pow_2(lmax+1));
-    for(unsigned int i=0; i<=lmax; i++)
-        math::legendrePolyArray(lmax, 0, nodes[i], &legPoly[ i * (lmax+1) ]);
-}
-
-void LegendreTransform::forward(const double values[], double coefs[]) const
-{
-    for(unsigned int l=0; l<=lmax; l++) {
-        coefs[l]=0;
-        for(unsigned int i=0; i<=lmax; i++)
-            coefs[l] += values[i] * weights[i] * legPoly[ i * (lmax+1) + l ];
-    }
-}
-
-void LegendreTransform::inverse(const double coefs[], double values[]) const
-{
-    for(unsigned int i=0; i<=lmax; i++) {
-        values[i]=0;
-        for(unsigned int l=0; l<=lmax; l++)
-            values[i] += coefs[l] * legPoly[ i * (lmax+1) + l ] * (1+2*l)/2;
-    }
 }
 
 }; // namespace

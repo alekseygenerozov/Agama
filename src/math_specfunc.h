@@ -4,41 +4,18 @@
     \author Eugene Vasiliev
 */
 #pragma once
-#include "math_base.h"
 
 namespace math {
 
-/** Associated Legendre polynomial (or, rather, function) of the first kind:
-    \f$  P_l^m(x)  \f$.
-    These functions are used in spherical-harmonic expansion as follows: 
-    \f$  Y_l^m = \sqrt{\frac{ (2l+1) (l-m)! }{ 4\pi (l+m)! }}
-         P_l^m(\cos(\theta)) * \{\sin,\cos\}(m\phi)  \f$
-    (this routine returns un-normalized P).
+/*  Compute the values of cosines and optionally sines of an arithmetic progression of angles:
+    cos(phi), cos(2 phi), ..., cos(m phi), [ sin(phi), sin(2 phi), ..., sin(m phi) ].
+    \param[in]  phi - the angle;
+    \param[in[  m   - the number of multiples of this angle to process, must be >=1 (not checked);
+    \param[in]  needSine - whether to compute sines as well (if false then only cosines are computed);
+    \param[out] outputArray - pointer to an existing array of length m (if needSine==false)
+                or 2m (if needSine==true) that will store the output values.
 */
-double legendrePoly(const int l, const int m, const double x);
-
-/** Array of un-normalized associate Legendre polynomials P_l^m(x) and their derivatives.
-    The output arrays contain values of P and optionally dP/dx  for l=m,m+1,...,lmax;
-*/
-void legendrePolyArray(const int lmax, const int m, const double x,
-    double* result_array, double* deriv_array=0);
-
-/** Array of normalized associate Legendre polynomials W and their derivatives for l=m..lmax
-    (theta-dependent factors in spherical-harmonic expansion):
-    \f$  Y_l^m(\theta, \phi) = W_l^m(\theta) \{\sin,\cos\}(m\phi) ,
-         W_l^m = \sqrt{\frac{ (2l+1) (l-m)! }{ 4\pi (l+m)! }} P_l^m(\cos(\theta))  \f$,
-    where P are un-normalized associated Legendre functions.
-    The output arrays contain values of W, dW/dtheta, d^2W/dtheta^2  for l=m,m+1,...,lmax;
-    if either deriv_array or deriv2_array = NULL, the corresponding thing is not computed
-    (note that if deriv2_array is not NULL, deriv_array must not be NULL too).
-    This routine differs from `legendrePolyArray` in the following:
-    (1) it takes theta rather than cos(theta) as argument;
-    (2) returns normalized functions directly suitable for Y_l^m;
-    (3) returns derivatives w.r.t. theta, not cos(theta), and may compute the 2nd derivative;
-    (4) accurately handles values of theta close to 0 or pi.
-*/
-void sphHarmonicArray(const int lmax, const int m, const double theta,
-    double* result_array, double* deriv_array=0, double* deriv2_array=0);
+void trigMultiAngle(const double phi, const unsigned int m, const bool needSine, double* outputArray);
 
 /** Gegenbauer (ultraspherical) polynomial:  \f$ C_n^{(\lambda)}(x) \f$ */
 double gegenbauer(const int n, double lambda, double x);
@@ -63,7 +40,7 @@ double gamma(const double x);
 
 /** Logarithm of gamma function (doesn't overflow quite that easy) */
 double lngamma(const double n);
-    
+
 /** Psi (digamma) function */
 double digamma(const double x);
 

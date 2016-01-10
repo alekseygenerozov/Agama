@@ -8,6 +8,7 @@
 #include "debug_utils.h"
 #include "utils.h"
 #include "utils_config.h"
+#include "math_sphharm.h"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -182,8 +183,71 @@ void test_axi_dens()
     }
 }
 
+// definition of a single spherical-harmonic term with indices (l,m)
+template<int l, int m>
+double myfnc(double theta, double phi);
+// first few spherical harmonics (with arbitrary normalization)
+template<> double myfnc<0, 0>(double      , double    ) { return 1; }
+template<> double myfnc<1,-1>(double theta, double phi) { return sin(theta)*sin(phi); }
+template<> double myfnc<1, 0>(double theta, double    ) { return cos(theta); }
+template<> double myfnc<1, 1>(double theta, double phi) { return sin(theta)*cos(phi); }
+template<> double myfnc<2,-2>(double theta, double phi) { return (1-cos(2*theta))*sin(2*phi); }
+template<> double myfnc<2,-1>(double theta, double phi) { return sin(theta)*cos(theta)*sin(phi); }
+template<> double myfnc<2, 0>(double theta, double    ) { return 3*cos(2*theta)+1; }
+template<> double myfnc<2, 1>(double theta, double phi) { return sin(theta)*cos(theta)*cos(phi); }
+template<> double myfnc<2, 2>(double theta, double phi) { return (1-cos(2*theta))*cos(2*phi); }
+
+template<int l, int m>
+bool checkSH(const math::SphHarmIndices& ind)
+{
+    math::SphHarmTransformForward tr(ind);
+    // array of original function values
+    std::vector<double> d(tr.size());
+    for(int j=0; j<=ind.lmax; j+=ind.lstep)
+        for(int k=ind.mmin; k<=ind.mmax; k++)
+            d.at(tr.index(j, k)) = myfnc<l,m>(acos(tr.costheta(j)), tr.phi(k));
+    // array of SH coefficients
+    std::vector<double> c(ind.size());
+    tr.transform(&d.front(), &c.front());
+    // check that only one of them is non-zero
+    unsigned int t0 = ind.index(l, m);  // index of the only non-zero coef
+    for(unsigned int t=0; t<c.size(); t++)
+        if((t==t0) ^ (c[t]!=0))  // xor operation
+            return false;
+    // array of function values after inverse transform
+    std::vector<double> b(tr.size());
+    for(int j=0; j<=ind.lmax; j+=ind.lstep)
+        for(int k=ind.mmin; k<=ind.mmax; k++) {
+            unsigned int index = tr.index(j, k);
+            b.at(index) = math::sphHarmTransformInverse(ind, &c.front(),
+                acos(tr.costheta(j)), tr.phi(k));
+            if(fabs(d[index]-b[index])>1e-14)
+                return false;
+        }
+    return true;
+}
+
 int main() {
     bool ok=true;
+
+    // perform several tests, some of them are expected to fail - because... (see comments below)
+    ok &= checkSH<0, 0>(math::SphHarmIndices(4, 2, 0, 2, 2));
+    ok &= checkSH<1,-1>(math::SphHarmIndices(4, 1,-4, 4, 1));
+    ok &= checkSH<1, 0>(math::SphHarmIndices(2, 1, 0, 0, 0));
+    ok &= checkSH<1, 1>(math::SphHarmIndices(6, 1, 0, 3, 1));
+    ok &= checkSH<1, 1>(math::SphHarmIndices(3, 1,-2, 2, 1));
+    ok &=!checkSH<1, 1>(math::SphHarmIndices(6, 2, 0, 2, 1)); // lstep==2 but we have odd-l term
+    ok &=!checkSH<1, 1>(math::SphHarmIndices(6, 1, 0, 2, 2)); // mstep==2 but we have odd-m term
+    ok &= checkSH<1, 1>(math::SphHarmIndices(6, 1, 0, 2, 1));
+    ok &=!checkSH<2,-2>(math::SphHarmIndices(6, 2, 0, 4, 1)); // mmin==0 but we have sine term
+    ok &= checkSH<2,-2>(math::SphHarmIndices(6, 2,-4, 4, 1));
+    ok &=!checkSH<2,-1>(math::SphHarmIndices(2, 2,-2, 2, 1)); // lstep==2 but we have odd-m term
+    ok &= checkSH<2,-1>(math::SphHarmIndices(2, 1,-2, 2, 1));
+    ok &=!checkSH<2,-1>(math::SphHarmIndices(6, 1,-4, 4, 2)); // mstep==2 but we have odd-m term
+    ok &= checkSH<2,-1>(math::SphHarmIndices(6, 1,-4, 4, 1));
+    ok &= checkSH<2, 0>(math::SphHarmIndices(2, 2, 0, 1, 1));
+    ok &= checkSH<2, 1>(math::SphHarmIndices(4, 1,-2, 2, 1));
+    ok &= checkSH<2, 2>(math::SphHarmIndices(3, 1, 0, 2, 2));
 
     // spherical, cored
     const potential::Plummer plum(10., 5.);
@@ -222,12 +286,6 @@ int main() {
 
 #if 1
     //test_axi_dens();
-
-    std::vector<double> d(13),c(13),b(13);
-    for(int i=0;i<13;i++) d[i]=math::random();
-    potential::LegendreTransform tr(12);
-    tr.forward(&d.front(), &c.front());
-    tr.inverse(&c.front(), &b.front());
 
     // axisymmetric multipole
     const potential::Dehnen deh1(1., 1., 1., .5, 1.2);

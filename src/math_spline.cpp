@@ -409,11 +409,6 @@ void SplineApprox::fitDataOptimal(const std::vector<double> &yvalues,
 
 //-------------- CUBIC SPLINE --------------//
 
-/*  Clamped or natural cubic splines;
-    the implementation is based on the code for natural cubic splines from GSL, original author:  G. Jungman
-*/
-
-// if one wants to have a 'natural' spline boundary condition then pass NaN as the value of derivative.
 CubicSpline::CubicSpline(const std::vector<double>& xa,
     const std::vector<double>& ya, double der1, double der2) :
     xval(xa), yval(ya)
@@ -541,19 +536,20 @@ bool CubicSpline::isMonotonic() const
         throw std::range_error("Empty spline");
     bool ismonotonic=true;
     for(unsigned int index=0; ismonotonic && index < xval.size()-1; index++) {
-        double dx = xval[index + 1] - xval[index];
-        double dy = yval[index + 1] - yval[index];
-        double c_i   = cval[index];
-        double c_ip1 = cval[index+1];
-        double a = dx * (c_ip1 - c_i);
-        double b = 2 * dx * c_i;
-        double c = (dy / dx) - dx * (c_ip1 + 2.0 * c_i) / 3.0;
-        // derivative is  a * chi^2 + b * chi + c,  with 0<=chi<=1 on the given interval.
-        double D = b*b-4*a*c;
-        if(D>=0) { // need to check roots
-            double chi1 = (-b-sqrt(D))/(2*a);
-            double chi2 = (-b+sqrt(D))/(2*a);
-            if( (chi1>=0 && chi1<=1) || (chi2>=0 && chi2<=1) )
+        const double
+        dx = xval[index + 1] - xval[index],
+        dy = yval[index + 1] - yval[index],
+        cl = cval[index],
+        ch = cval[index+1],
+        a  = dx * (ch - cl) * 0.5,
+        b  = dx * cl,
+        c  = (dy / dx) - dx * (1./6 * ch + 1./3 * cl),
+        // derivative is  a * t^2 + b * t + c,  with 0<=t<=1 on the given interval.
+        D  = b*b-4*a*c;  // discriminant of the above quadratic equation
+        if(D>=0) {       // need to check roots
+            double chi1 = (-b-sqrt(D)) / (2*a);
+            double chi2 = (-b+sqrt(D)) / (2*a);
+            if( (chi1>0 && chi1<1) || (chi2>0 && chi2<1) )
                 ismonotonic=false;    // there is a root ( y'=0 ) somewhere on the given interval
         }  // otherwise there are no roots
     }
@@ -626,6 +622,56 @@ double CubicSpline::integrate(double x1, double x2, const IFunctionIntegral& f) 
             f.integrate(X1, X2, 3) * d / 6;
     }
     return result;
+}
+
+// ------ Hermite cubic spline ------ //
+
+HermiteSpline::HermiteSpline(const std::vector<double>& xv,
+    const std::vector<double>& yv, const std::vector<double>& yd) :
+    xval(xv), yval(yv), yder(yd)
+{
+    unsigned int num_points = xv.size();
+    if(yv.size() != num_points || yd.size() != num_points)
+        throw std::invalid_argument("Error in spline initialization: input arrays are not equal in length");
+    if(num_points < 2)
+        throw std::invalid_argument("Error in spline initialization: number of nodes should be >=2");
+}
+
+void HermiteSpline::evalDeriv(const double x, double* val, double* deriv, double* deriv2) const
+{
+    if(xval.size() == 0)
+        throw std::range_error("Empty spline");
+    if(x < xval.front()) {
+        if(val)
+            *val   = yval.front() +
+            (yder.front()==0 ? 0 : yder.front() * (x-xval.front()));  // if der==0, correct result even for infinite x
+        if(deriv)
+            *deriv = yder.front();
+        if(deriv2)
+            *deriv2= 0;
+        return;
+    }
+    if(x > xval.back()) {
+        if(val)
+            *val   = yval.back() + (yder.back()==0 ? 0 : yder.back() * (x-xval.back()));
+        if(deriv)
+            *deriv = yder.back();
+        if(deriv2)
+            *deriv2= 0;
+        return;
+    }
+    unsigned int index = binSearch(x, &xval.front(), xval.size());
+    const double dx = xval[index+1]-xval[index];
+    const double t = (x-xval[index]) / dx;
+    if(val)
+        *val = pow_2(1-t) * ( (1+2*t) * yval[index]   + t     * yder[index]   * dx )
+             + pow_2(t)   * ( (3-2*t) * yval[index+1] + (t-1) * yder[index+1] * dx );
+    if(deriv)
+        *deriv = 6*t*(1-t) * (yval[index+1]-yval[index]) / dx
+               + (1-t)*(1-3*t) * yder[index] + t*(3*t-2) * yder[index+1];
+    if(deriv2)
+        *deriv2 = ( (6-12*t) * (yval[index+1]-yval[index]) / dx
+                + (6*t-4) * yder[index] + (6*t-2) * yder[index+1] ) / dx;
 }
 
 // ------ Quintic spline ------- //

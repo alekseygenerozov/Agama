@@ -3,7 +3,7 @@
 
 #include "math_spline.h"
 #include "math_core.h"
-#include "math_specfunc.h"
+#include "math_sphharm.h"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -20,7 +20,7 @@ const int NPOINTS = 10000;
 const double XMIN = 0.2;
 const double XMAX = 12.;
 const double DISP = 0.5;  // y-dispersion
-const bool OUTPUT = false;
+const bool OUTPUT = true;
 
 // provides the integral of sin(x)*x^n
 class testfnc: public math::IFunctionIntegral {
@@ -130,13 +130,14 @@ int main()
         yderivs[i] = cos(4*sqrt(xnodes[i])) * 2 / sqrt(xnodes[i]);
     }
     math::CubicSpline   fcubna(xnodes, yvalues);  // cubic spline with natural boundary conditions
-    math::CubicSpline   fcubcl(xnodes, yvalues, 
+    math::CubicSpline   fcubcl(xnodes, yvalues,
         yderivs.front(), yderivs.back());         // cubic, clamped -- specify derivs at the boundaries
+    math::HermiteSpline fhermi(xnodes, yvalues, yderivs);  // hermite cubic spline -- specify derivs at all nodes
     math::QuinticSpline fquint(xnodes, yvalues, yderivs);  // quintic spline -- specify derivs at all nodes
     std::ofstream strm;
     if(OUTPUT)
         strm.open("test_math_spline1d.dat");
-    double sumerr3n = 0, sumerr3 = 0, sumerr5 = 0;
+    double sumerr3n = 0, sumerr3 = 0, sumerr5 = 0, sumerrh = 0;
     for(int i=0; i<=(NNODES-1)*NSUBINT; i++) {
         double xa = xnodes[i/NSUBINT];
         double xb = i<(NNODES-1)*NSUBINT ? xnodes[i/NSUBINT+1] : xa;
@@ -145,23 +146,31 @@ int main()
         double y0p  = cos(4*sqrt(x)) * 2 / sqrt(x);
         double y0pp = -(4*y0 + 0.5*y0p) / x;
         double y0ppp = (6*y0 + (0.75-4*x)*y0p) / pow_2(x);
-        double y3, y3p, y3pp, y5, y5p, y5pp, y5ppp=fquint.deriv3(x);
-        double y3n  = fcubna(x);
+        double y3n = fcubna(x);
+        double y3, y3p, y3pp;
         fcubcl.evalDeriv(x, &y3, &y3p, &y3pp);
+        double yh, yhp, yhpp;
+        fhermi.evalDeriv(x, &yh, &yhp, &yhpp);
+        double y5, y5p, y5pp, y5ppp=fquint.deriv3(x);
         fquint.evalDeriv(x, &y5, &y5p, &y5pp);
         sumerr3n += pow_2(y0-y3n);
         sumerr3  += pow_2(y0-y3);
+        sumerrh  += pow_2(y0-yh);
         sumerr5  += pow_2(y0-y5);
         if(OUTPUT)
-            strm << x << '\t' << y0 << '\t' << y3n << '\t' << y3 << '\t' << y5 << '\t' <<
-            y0p << '\t' << y3p << '\t' << y5p << '\t' << 
-            y0pp << '\t' << y3pp << '\t' << y5pp << '\t' << y0ppp << '\t' << y5ppp << "\n";
+            strm << x << '\t' << y0 << '\t' << 
+            y3n << '\t' << y3  << '\t' << yh  << '\t' << y5  << '\t' <<
+            y0p << '\t' << y3p << '\t' << yhp << '\t' << y5p << '\t' <<
+            y0pp<< '\t' << y3pp<< '\t' << yhpp<< '\t' << y5pp<< '\t' <<
+            y0ppp << '\t' << y5ppp << "\n";
     }
     sumerr3n = (sqrt(sumerr3n / ((NNODES-1)*NSUBINT)));
     sumerr3  = (sqrt(sumerr3  / ((NNODES-1)*NSUBINT)));
+    sumerrh  = (sqrt(sumerrh  / ((NNODES-1)*NSUBINT)));
     sumerr5  = (sqrt(sumerr5  / ((NNODES-1)*NSUBINT)));
     std::cout << "RMS error in cubic spline: " << sumerr3n <<
         ", in clamped cubic spline: " << sumerr3 <<
+        ", in hermite cubic spline: " << sumerrh <<
         ", in quintic spline: " << sumerr5 << "\n";
     ok &= sumerr3n<5e-3 && sumerr3<3e-4 && sumerr5 < 4e-5;
     if(OUTPUT)

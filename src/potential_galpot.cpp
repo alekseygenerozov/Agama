@@ -24,7 +24,7 @@ Modifications by Eugene Vasiliev, 2015
 #include "potential_composite.h"
 #include "potential_sphharm.h"
 #include "math_core.h"
-#include "math_specfunc.h"
+#include "math_sphharm.h"
 #include <cmath>
 #include <stdexcept>
 #include <cassert>
@@ -594,7 +594,7 @@ void Multipole::getCoefs(std::vector<double> &radii,
     // we compute the values and radial derivatives of potential at values of cos(theta)
     // corresponding to nodes of Gauss-Legendre quadrature of order lmax+1 on the interval [-1:1]
     unsigned int lmax = innerSlope.size()*2-2;
-    LegendreTransform transf(lmax);
+    math::LegendreTransform transf(lmax);
     unsigned int numPointsGL = lmax+1;
     std::vector<double> values(numPointsGL), derivs(numPointsGL), output(numPointsGL);
     radii = spl.xvalues();  // get log-radii of spline grid nodes
