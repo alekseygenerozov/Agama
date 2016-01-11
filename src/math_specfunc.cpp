@@ -9,7 +9,6 @@
 #include <gsl/gsl_sf_psi.h>
 #include <gsl/gsl_sf_ellint.h>
 #include <gsl/gsl_sf_bessel.h>
-#include <gsl/gsl_version.h>
 
 /* Most of the functions here are implemented by calling corresponding routines from GSL,
    but having library-independent wrappers makes it possible to switch the back-end if necessary */

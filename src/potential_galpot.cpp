@@ -254,64 +254,30 @@ Multipole::Multipole(const BaseDensity& sourceDensity,
         throw std::invalid_argument("Error in Multipole: invalid grid parameters");
     if(!isAxisymmetric(sourceDensity))
         throw std::invalid_argument("Error in Multipole: source density must be axisymmetric");
-    numCoefsAngular = std::min<unsigned int>(numCoefsAngular, MAX_NCOEFS_ANGULAR-1);
-    // number of multipoles (only even-l terms are used)
-    const unsigned int numMultipoles = numCoefsAngular/2+1;
 
     // set up radial grid
     std::vector<double> r = math::createExpGrid(gridSizeR, rmin, rmax);
-    
-    // check if the input density is of a spherical-harmonic type already...
-    bool useExistingSphHarm = sourceDensity.name() == DensitySphericalHarmonic::myName();
-    // ...and construct a fresh spherical-harmonic expansion of density if it wasn't such.
-    PtrDensity mySphHarm(useExistingSphHarm ? NULL :
-        new DensitySphericalHarmonic(gridSizeR, numCoefsAngular, sourceDensity, rmin, rmax));
-    // for convenience, this reference points to either the original or internally created SH density
-    const DensitySphericalHarmonic& densh = dynamic_cast<const DensitySphericalHarmonic&>(
-        useExistingSphHarm ? sourceDensity : *mySphHarm);
 
-    // accumulate the 'inner' (Pint) and 'outer' (Pext) parts of the potential at radial grid points:
-    // Pint_l(r) = r^{-l-1} \int_0^r \rho_l(s) s^{l+2} ds,
-    // Pext_l(r) = r^l \int_r^\infty \rho_l(s) s^{1-l} ds.
-    // For each l, we compute Pint(r) by looping over sub-intervals from inside out,
-    // and Pext(r) - from outside in. In doing so, we use the recurrent relation
-    // Pint(r_{i+1}) r_{i+1}^{l+1} = r_i^{l+1} Pint(r_i) + \int_{r_i}^{r_{i+1}} \rho_l(s) s^{l+2} ds,
-    // and a similar relation for Pext. This is further rewritten so that the integration over 
-    // density  \rho_l(s)  uses  (s/r_{i+1})^{l+2}  as the radius-dependent weight function -
-    // this avoids over/underflows when both l and r are large or small.
-    // Finally, \Phi_l(r) is computed as -4\pi ( Pint_l(r) + Pext_l(r) ), and similarly its derivative.
-    std::vector<double> Pint(gridSizeR), Pext(gridSizeR);
+    // set up SH coef indexing scheme
+    math::SphHarmIndices ind(getIndices(sourceDensity.symmetry(), numCoefsAngular, 0));
+
+    // compute interior and exterior potential expansion coefficients
+    std::vector<std::vector<double> > Pint, Pext;
+    computePotentialCoefs(sourceDensity, ind, r, Pint, Pext);
+
+    // put together interior and exterior coefs to compute the potential and its radial derivative,
+    // for each spherical-harmonic term
     std::vector<std::vector<double> > Phil(gridSizeR), dPhil(gridSizeR);
     for(unsigned int k=0; k<gridSizeR; k++) {
-        Phil[k].assign(numMultipoles, 0);
-        dPhil[k].assign(numMultipoles, 0);
+        Phil[k].assign(ind.lmax/2+1, 0);
+        dPhil[k].assign(ind.lmax/2+1, 0);
     }
-    for(unsigned int il=0; il<numMultipoles; il++) {
-        int l = il*2;
-        // inner part
-        Pint[0] = densh.integrate(0, r[0], l, l+2, r[0]) * r[0];
-        if(!math::isFinite(Pint[0]))
-            throw std::runtime_error("Error in Multipole: mass is divergent at origin");
-        for(unsigned int k=1; k<gridSizeR; k++) {
-            double s = densh.integrate(r[k-1], r[k], l, l+2, r[k]);
-            Pint[k] = Pint[k-1] * math::powInt(r[k-1]/r[k], l+1) + s * r[k];
-        }
-
-        // outer part
-        Pext[gridSizeR-1] = densh.integrate(r[gridSizeR-1], INFINITY,
-            l, 1-l, r[gridSizeR-1]) * r[gridSizeR-1];
-        if(!math::isFinite(Pext[gridSizeR-1]))
-            throw std::runtime_error("Error in Multipole: potential is divergent at infinity");
-        for(unsigned int k=gridSizeR-1; k>0; k--) {
-            double s = densh.integrate(r[k-1], r[k], l, 1-l, r[k-1]);
-            Pext[k-1] = Pext[k] * math::powInt(r[k-1]/r[k], l) + s * r[k-1];
-        }
-
-        // put together inner and outer parts to compute the potential and its radial derivative,
-        // for each spherical-harmonic term
+    for(int l=0; l<=ind.lmax; l+=2) {
+        double mul = 1/sqrt(2*l+1);
         for(unsigned int k=0; k<gridSizeR; k++) {
-            Phil [k][il] = -4*M_PI * (Pint[k] + Pext[k]);           // Phi_l
-            dPhil[k][il] =  4*M_PI * ( (l+1)*Pint[k] - l*Pext[k]);  // dPhi_l/dlogr
+            unsigned int c = ind.index(l, 0);
+            Phil [k][l/2] = mul * (Pint[k][c] + Pext[k][c]);           // Phi_l
+            dPhil[k][l/2] = mul * (-(l+1)*Pint[k][c] + l*Pext[k][c]);  // dPhi_l/dlogr
             if(!math::isFinite(Phil[k][l/2]))
                 throw std::runtime_error("Error in Multipole: bad value of potential");
         }

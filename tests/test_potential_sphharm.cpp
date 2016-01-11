@@ -162,6 +162,7 @@ bool test_suite(const potential::BasePotential& p, const potential::BasePotentia
     return ok;
 }
 
+#if 0
 void test_axi_dens()
 {
     const potential::Dehnen deh_axi(1., 1., 1., 0.5, 1.2);
@@ -182,6 +183,7 @@ void test_axi_dens()
         }
     }
 }
+#endif
 
 // definition of a single spherical-harmonic term with indices (l,m)
 template<int l, int m>
@@ -249,6 +251,19 @@ int main() {
     ok &= checkSH<2, 1>(math::SphHarmIndices(4, 1,-2, 2, 1));
     ok &= checkSH<2, 2>(math::SphHarmIndices(3, 1, 0, 2, 2));
 
+    //test_axi_dens();
+
+    // axisymmetric multipole
+    const potential::Dehnen deh1(1., 1., 1., .5, 1.2);
+    const potential::Multipole deh1m(deh1, 1e-3, 1e3, 50, 12);
+    test_average_error(deh1m, deh1);
+    const potential::SplineExp deh1s(50, 12, deh1, 1e-3, 1e3);
+    test_average_error(deh1s, deh1);
+    std::vector<double> radii;
+    std::vector<std::vector<double> > Phi, dPhi;
+    potential::PtrPotential deh1m_clone = write_read(deh1m);
+    test_average_error(deh1m, *deh1m_clone);
+
     // spherical, cored
     const potential::Plummer plum(10., 5.);
     const potential::BasisSetExp bs1(0., 30, 2, plum);
@@ -284,20 +299,6 @@ int main() {
     ok &= test_suite(sp4, hernq, 2e-2);
     ok &= test_suite(*create_from_file(points, potential::CylSplineExp::myName()), hernq, 2e-2);
 
-#if 1
-    //test_axi_dens();
-
-    // axisymmetric multipole
-    const potential::Dehnen deh1(1., 1., 1., .5, 1.2);
-    const potential::Multipole deh1m(deh1, 1e-3, 1e3, 100, 16);
-    test_average_error(deh1m, deh1);
-    const potential::SplineExp deh1s(50, 8, deh1, 1e-3, 1e3);
-    test_average_error(deh1s, deh1);
-    std::vector<double> radii;
-    std::vector<std::vector<double> > Phi, dPhi;
-    potential::PtrPotential deh1m_clone = write_read(deh1m);
-    test_average_error(deh1m, *deh1m_clone);
-#endif
 
     if(ok)
         std::cout << "ALL TESTS PASSED\n";

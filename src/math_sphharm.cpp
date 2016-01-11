@@ -5,6 +5,7 @@
 #include <cassert>
 #include <stdexcept>
 #include <gsl/gsl_sf_legendre.h>
+#include <gsl/gsl_version.h>
 
 namespace math{
 
@@ -152,7 +153,7 @@ SphHarmTransformForward::SphHarmTransformForward(const SphHarmIndices& _ind):
         for(int k=0; k<nlegfn; k++)
             legFnc[ j * nlegfn + k ] *= weights[tmpi] * 0.5 / M_SQRTPI;
     }
-    //!!! optimize space usage for legFnc, eliminate redundant ones, switch to legendrePolyArray
+    //TODO!!! optimize space usage for legFnc, eliminate redundant ones, switch to legendrePolyArray
 
     // compute the values of trigonometric functions at nodes of phi-grid for all mmin<=m<=mmax:
     // cos(m phi_k), and optionally sin(m phi_k) if terms with m<0 are non-trivial (i.e. mmin!=0)
@@ -261,7 +262,7 @@ void SphHarmTransformForward::transform(const double values[], double coefs[]) c
 double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
     const double theta, const double phi)
 {
-    //!!! get rid of dynamic memory allocation
+    //TODO!!! get rid of dynamic memory allocation
     const bool useSine = ind.mmin!=0;
     std::vector<double> tmptrig(2*ind.mmax+1);
     if(ind.mmax>0)

@@ -1,7 +1,6 @@
 #include "potential_sphharm.h"
 #include "math_core.h"
 #include "math_specfunc.h"
-#include "math_sphharm.h"
 #include <cmath>
 #include <algorithm>
 #include <cassert>
@@ -114,6 +113,40 @@ void SphericalHarmonicCoefSet::setSymmetry(SymmetryType sym)
     mmax = (mysymmetry & ST_ZROTSYM)   ==ST_ZROTSYM    ? 0 : 1;  // if axisymmetric model, use only m=0 terms, otherwise all terms up to l (1 is the multiplying factor)
     mmin = (mysymmetry & ST_PLANESYM)  ==ST_PLANESYM   ? 0 :-1;  // if triaxial symmetry, do not use sine terms which correspond to m<0
     mstep= (mysymmetry & ST_PLANESYM)  ==ST_PLANESYM   ? 2 : 1;  // if triaxial symmetry, use only even m
+}
+    
+SymmetryType getSymmetry(const math::SphHarmIndices& ind)
+{
+    SymmetryType sym = ST_SPHERICAL;
+    if(ind.lmax > 0)
+        sym = static_cast<SymmetryType>(sym & ~ST_SPHSYM);
+    if(ind.mmax > 0)
+        sym = static_cast<SymmetryType>(sym & ~ST_ZROTSYM);
+    if(ind.lstep == 1)
+        sym = static_cast<SymmetryType>(sym & ~ST_REFLECTION);
+    if(ind.mstep == 1 || ind.mmin != 0)
+        sym = static_cast<SymmetryType>(sym & ~ST_PLANESYM);
+    return sym;
+}
+
+math::SphHarmIndices getIndices(const SymmetryType sym, unsigned int lmax, unsigned int mmax)
+{
+    // if spherical model, use only l=0,m=0 term
+    if((sym & ST_SPHSYM) == ST_SPHSYM)
+        lmax = 0;
+    // check that the number of terms is not too large
+    else if(lmax > MAX_NCOEFS_ANGULAR-1)
+        lmax = MAX_NCOEFS_ANGULAR-1;
+    // if axisymmetric model, use only m=0 terms
+    if((sym & ST_ZROTSYM) == ST_ZROTSYM)
+        mmax = 0;
+    // if triaxial symmetry, do not use sine terms which correspond to m<0
+    int mmin = (sym & ST_PLANESYM)  ==ST_PLANESYM   ? 0 :-1;
+    // if reflection symmetry, use only even l
+    int lstep= (sym & ST_REFLECTION)==ST_REFLECTION ? 2 : 1;
+    // if triaxial symmetry, use only even m
+    int mstep= (sym & ST_PLANESYM)  ==ST_PLANESYM   ? 2 : 1;
+    return math::SphHarmIndices(lmax, lstep, mmin, mmax, mstep);
 }
 
 void BasePotentialSphericalHarmonic::evalSph(const coord::PosSph &pos,
@@ -1062,9 +1095,10 @@ double SplineExp::enclosedMass(const double r) const
 ///////////-------- Spherical-harmonic expansion of density profile -----------/////////////
 
 DensitySphericalHarmonic::DensitySphericalHarmonic(
-    unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
+    unsigned int numPointsRadius, unsigned int numCoefsAngular, 
     const BaseDensity& srcDensity, double rmin, double rmax):
-    BaseDensity(), SphericalHarmonicCoefSet(numCoefsAngular)
+    BaseDensity(),
+    ind(math::SphHarmIndices(getIndices(srcDensity.symmetry(), numCoefsAngular, 0)))
 {
     if(!isAxisymmetric(srcDensity))
         throw std::invalid_argument("DensitySphericalHarmonic is only apllicable to axisymmetric models");
@@ -1074,51 +1108,57 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
         throw std::invalid_argument("DensitySphericalHarmonic: invalid choice of min/max grid radii");
 
     //  create grid in radius
-    std::vector<double> gridRadii = math::createExpGrid(numCoefsRadial, rmin, rmax);
+    std::vector<double> gridRadii = math::createExpGrid(numPointsRadius, rmin, rmax);
 
-    //  prepare table for integration in angle, using Gauss-Legendre quadrature for cos(theta) on [-1..1]
-    unsigned int numIntPoints = numCoefsAngular+1;
-    std::vector<double> costheta(numIntPoints), sintheta(numIntPoints), weights(numIntPoints);
-    math::prepareIntegrationTableGL(-1, 1, numIntPoints, &costheta.front(), &weights.front());
-    for(unsigned int indC=0; indC<numIntPoints; indC++)
-        sintheta[indC] = sqrt(1. - pow_2(costheta[indC]));
-
-    // will need integrate over half of the interval only, 
-    // taking into account the (required, in this version) reflection symmetry z -> -z;
-    // if the number of points is odd, the central point at z=0 should get half of the weight
-    if(numIntPoints%2 == 1) {
-        weights[numIntPoints/2] /= 2;
-        numIntPoints = numIntPoints/2+1;
-    } else
-        numIntPoints = numIntPoints/2;
-
+    //  initialize sph-harm transform
+    math::SphHarmTransformForward trans(ind);
+    
     // 1st step: collect the values of density at a 2d grid in (r,theta);
-    // loop over radii and angular directions, using a combined index variable for better load balancing
-    int numPoints = numIntPoints * numCoefsRadial;
-    std::vector<double> densityValues(numPoints);
+    // loop over radii and angular directions, using a combined index variable for better load balancing.
+    int sizeSamplesArray = trans.size();             // size of array of density values at each r
+    int numSamplesTheta  = ind.lmax / ind.lstep + 1; // # of sampled points in theta
+    int numSamplesPhi    = ind.mmax - ind.mmin + 1;  // # of sampled points in phi
+    int numSamplesAngles = numSamplesTheta * numSamplesPhi;    // # of samples in both angular directions
+    int numSamplesTotal  = numSamplesAngles * numPointsRadius; // total # of sampled values of density
+    assert(numSamplesAngles <= sizeSamplesArray &&
+           sizeSamplesArray == (ind.lmax+1) * (2*ind.mmax+1));
+    std::vector<double> densityValues(sizeSamplesArray * numPointsRadius);
+    // numSamplesAngles (the actual number of sampled points for each radius)
+    // may be less than sizeSamplesArray (the size of array passed to transform routine at each radius)
+    // if some symmetries are present, so that ind.lstep>1 and/or ind.mmin==0.
+    // In these cases, the array allocated for density values will be larger than the actual number
+    // of density values computed, and some of its elements remain unassigned, but will be ignored
+    // by the transform routine which is also aware of these symmetries.
+    // The array layout is organized so that the density values at each radius occupy a contiguous block
+    // in memory with length `sizeSamplesArray` (although, as noted above, it may be sparsely populated),
+    // which will be fed directly to the transform routine to compute coefs at each radius.
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
-    for(int n=0; n<numPoints; n++) {
-        unsigned int indR = n % numCoefsRadial;  // index in radial grid
-        unsigned int indC = n / numCoefsRadial;  // index in angular direction
-        densityValues[n]  = weights[indC] * srcDensity.density(
-            coord::PosCyl(gridRadii[indR]*sintheta[indC], gridRadii[indR]*costheta[indC], 0));
+    for(int n=0; n<numSamplesTotal; n++) {
+        int indR     = n / numSamplesAngles;  // index in radial grid
+        int indC     = n % numSamplesAngles;  // combined index in angular direction (theta,phi)
+        int indTheta = indC / numSamplesPhi * ind.lstep; // index in theta-grid determined by `trans`.
+        int indPhi   = indC % numSamplesPhi + ind.mmin;  // index in phi-grid determined by `trans`.
+        double rad   = gridRadii[indR];
+        double costh = trans.costheta(indTheta);
+        double sinth = sqrt(1-pow_2(costh));
+        double phi   = trans.phi(indPhi);
+        densityValues[indR * sizeSamplesArray + trans.index(indTheta, indPhi)] =
+            srcDensity.density(coord::PosCyl(rad*sinth, rad*costh, phi));
     }
 
     // 2nd step: transform these values to spherical-harmonic expansion coefficients
-    setSymmetry(srcDensity.symmetry());  // assign the range of l's
-    std::vector< std::vector<double> > rhol(lmax+1);
-    for(int l=0; l<=lmax; l+=lstep)
-        rhol[l].assign(numCoefsRadial, 0);    
-    std::vector<double> legPoly(lmax+1);
-    for(unsigned int indC=0; indC<numIntPoints; indC++) {
-        math::legendrePolyArray(lmax, 0, costheta[indC], &legPoly.front());
-        for(unsigned int indR=0; indR<numCoefsRadial; indR++) {
-            for(int l=0; l<=lmax; l+=lstep)
-                rhol[l][indR] += densityValues[indC*numCoefsRadial+indR] * legPoly[l];
-        }
+    std::vector<double> tmpcoefs(ind.size());
+    std::vector< std::vector<double> > rhol(ind.lmax+1);
+    for(int l=0; l<=ind.lmax; l+=ind.lstep)
+        rhol[l].assign(numPointsRadius, 0);
+    for(unsigned int indR=0; indR<numPointsRadius; indR++) {
+        trans.transform(&densityValues[indR * sizeSamplesArray], &tmpcoefs.front());
+        for(int l=0; l<=ind.lmax; l+=ind.lstep)
+            rhol[l][indR] = tmpcoefs[ind.index(l, 0)] / sqrt(2*l+1);
     }
+    //TODO!!! generalize to (l,m), invert indexing order
 
     // finish the initialization by establishing the splines
     initSpline(gridRadii, rhol);
@@ -1126,11 +1166,11 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(
 
 DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gridRadii,
     const std::vector< std::vector<double> > &coefs) :
-    BaseDensity(), SphericalHarmonicCoefSet(coefs.size()>0 ? coefs.size()-1 : 0)
+    BaseDensity(),
+    ind(math::SphHarmIndices(getIndices(ST_AXISYMMETRIC, coefs.size()>0 ? coefs.size()-1 : 0, 0)))
 {
     if(coefs.empty() || gridRadii.size()<2)
         throw std::invalid_argument("DensitySphericalHarmonic: input arrays are empty");
-    setSymmetry(ST_AXISYMMETRIC);  // assign the range of l's
     for(unsigned int n=0; n<coefs.size(); n++)
         if(coefs[n].size() != gridRadii.size())
             throw std::invalid_argument("DensitySphericalHarmonic: incorrect size of coefficients array");
@@ -1140,8 +1180,8 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gr
 void DensitySphericalHarmonic::initSpline(const std::vector<double> &gridRadii,
     const std::vector< std::vector<double> > &rhol)
 {
-    unsigned int numCoefsRadial = gridRadii.size();
-    assert((int)rhol.size() == lmax+1);
+    unsigned int numPointsRadius = gridRadii.size();
+    assert((int)rhol.size() == ind.lmax+1);
 
     // We check (and correct if necessary) the logarithmic slopes of multipole components
     // at the innermost and outermost grid radii, to ensure correctly behaving extrapolation.
@@ -1157,14 +1197,14 @@ void DensitySphericalHarmonic::initSpline(const std::vector<double> &gridRadii,
     // in problems elsewhere.
     // The l>0 components must not have steeper/shallower slopes than the l=0 component.
 
-    splines.resize(lmax+1);
-    innerSlope.assign(lmax+1, minDerivInner);
-    outerSlope.assign(lmax+1, maxDerivOuter);
-    for(int l=0; l<=lmax; l+=lstep) {
+    splines.resize(ind.lmax+1);
+    innerSlope.assign(ind.lmax+1, minDerivInner);
+    outerSlope.assign(ind.lmax+1, maxDerivOuter);
+    for(int l=0; l<=ind.lmax; l+=ind.lstep) {
         //  determine asymptotic slopes of density profile at large and small r
         double derivInner = log(rhol[l][1] / rhol[l][0]) / log(gridRadii[1] / gridRadii[0]);
-        double derivOuter = log(rhol[l][numCoefsRadial-1] / rhol[l][numCoefsRadial-2]) /
-            log(gridRadii[numCoefsRadial-1] / gridRadii[numCoefsRadial-2]);
+        double derivOuter = log(rhol[l][numPointsRadius-1] / rhol[l][numPointsRadius-2]) /
+            log(gridRadii[numPointsRadius-1] / gridRadii[numPointsRadius-2]);
         if( derivInner > maxDerivInner)
             derivInner = maxDerivInner;
         if( derivOuter < minDerivOuter)
@@ -1192,8 +1232,8 @@ void DensitySphericalHarmonic::getCoefs(
     std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const
 {
     radii = splines[0].xvalues();
-    coefsArray.resize(lmax+1);
-    for(int l=0; l<=lmax; l++) {
+    coefsArray.resize(ind.lmax+1);
+    for(int l=0; l<=ind.lmax; l++) {
         coefsArray[l].assign(radii.size(), 0);
         if(!splines[l].isEmpty())
             for(unsigned int i=0; i<radii.size(); i++)
@@ -1203,7 +1243,7 @@ void DensitySphericalHarmonic::getCoefs(
 
 double DensitySphericalHarmonic::rho_l(double r, int l) const
 {
-    if(l>lmax || splines[l].isEmpty())
+    if(l>ind.lmax || splines[l].isEmpty())
         return 0;
     double rmin=splines[0].xmin(), rmax=splines[0].xmax();
     if(r<rmin || r>rmax) {
@@ -1218,83 +1258,124 @@ double DensitySphericalHarmonic::densitySph(const coord::PosSph &pos) const
 {
     double result=0;
     double legPoly[MAX_NCOEFS_ANGULAR];
-    math::legendrePolyArray(lmax, 0, cos(pos.theta), legPoly);
-    for(int l=0; l<=lmax; l+=lstep) {
+    //TODO!!! generalize to (l,m), replace with math::sphHarmTransformInverse()
+    math::legendrePolyArray(ind.lmax, 0, cos(pos.theta), legPoly);
+    for(int l=0; l<=ind.lmax; l+=ind.lstep) {
         result += rho_l(pos.r, l) * legPoly[l] * (2*l+1);
     }
     return result;
 }
 
-// a few internal math constructs
-namespace{
 
-// safely evaluate nonnegative powers of 0 or negative powers of infinity
-inline double safepow(double x, double n)
+void computePotentialCoefs(const BaseDensity& dens, 
+    const math::SphHarmIndices& ind, const std::vector<double>& gridRadii,
+    std::vector< std::vector<double> >& Pint, std::vector< std::vector<double> >& Pext)
 {
-    if(x==0)
-        return n>=0 ? 0 : INFINITY;
-    if(x==INFINITY)
-        return n<0 ? 0 : INFINITY;
-    return pow(x, n);
-}
-
-// compute \int_{x1}^{x2} (x/x0)^n dx;
-// the factor x0 is not taken out of the integral because for large |n+m| it may overflow,
-// but if the provided x0 is not too different from both x1 or x2 then it will work smoothly.
-inline double monomialInt(double x1, double x2, double n, double x0) 
-{
-    return x0 * ( n == -1 ?
-        log(x2/x1) : (safepow(x2/x0, n+1) - safepow(x1/x0, n+1)) / (n+1) );
-}
-
-// similar to the above: integrand for (x/x0)^n * x^m, to be provided to the spline
-class MonomialIntegral: public math::IFunctionIntegral {
-public:
-    MonomialIntegral(int _n, double _x0) : n(_n), x0(_x0) {};
-    virtual double integrate(double x1, double x2, int m=0) const {
-        return m+n+1==0 ?
-            math::powInt(x0, -n) * log(x2/x1) : 
-          ( math::powInt(x2/x0, n) * math::powInt(x2, m+1) -
-            math::powInt(x1/x0, n) * math::powInt(x1, m+1) ) / (m+n+1);
+    unsigned int gridSizeR = gridRadii.size();
+    if(gridSizeR<2)
+        throw std::invalid_argument("computePotentialCoefs: radial grid size too small");
+    Pint.resize(gridSizeR);
+    Pext.resize(gridSizeR);
+    for(unsigned int k=0; k<gridSizeR; k++) {
+        if(gridRadii[k] <= (k==0 ? 0 : gridRadii[k-1]))
+            throw std::invalid_argument("computePotentialCoefs: "
+                "radii of grid points must be positive and sorted in increasing order");
+        Pint[k].assign(ind.size(), 0);
+        Pext[k].assign(ind.size(), 0);
     }
-private:
-    const int n;
-    const double x0;
-};
 
-}  // internal namespace
+    // prepare tables for (non-adaptive) integration over radius
+    const int Nsub = 15;  // number of sub-steps in each radial bin
+    std::vector<double> glx(Nsub), glw(Nsub);  // Gauss-Legendre nodes and weights
+    math::prepareIntegrationTableGL(0, 1, Nsub, &glx.front(), &glw.front());
 
-double DensitySphericalHarmonic::integrate(double r1, double r2, int l, int n, double r0) const
-{
-    if(r1==r2 || l>lmax || splines[l].isEmpty())
-        return 0;
-    if(r1>r2)
-        return integrate(r2, r1, l, n, r0);
-    double rmin=splines[0].xmin(), rmax=splines[0].xmax();
-    double result=0;
-    if(r1<rmin) {
-        double val_rmin = splines[l](rmin);
-        if(val_rmin!=0) {
-            double rr = fmin(rmin, r2);
-            result += val_rmin * pow(r0/rmin, innerSlope[l]) * monomialInt(r1, rr, n+innerSlope[l], r0);
+    // prepare temporary storage for SH coefs
+    math::SphHarmTransformForward trans(ind);
+    std::vector<double> sintheta(ind.lmax+1);
+    for(int i=0; i<=ind.lmax; i++)
+        sintheta[i] = sqrt(1-pow_2(trans.costheta(i)));
+    std::vector<double> densValues(trans.size());
+    std::vector<double> tmpCoefs(ind.size());
+
+    // Loop over radial grid segments and compute integrals of rho_lm(r) times powers of radius.
+    // After this step, the arrays Pint and Pext will contain the intermediate quantities
+    // Qint, Qext for 0 <= k < Nr:
+    // Qint[k][l,m] = \int_{r_{k-1}}^{r_k} \rho_{l,m}(r) (r/r_k)^{l+2} dr,  with r_{-1} = 0;
+    // Qext[k][l,m] = \int_{r_k}^{r_{k+1}} \rho_{l,m}(r) (r/r_k)^{1-l} dr,  with r_{Nr} = \infty.
+    for(unsigned int k=0; k<=gridSizeR; k++) {
+        double rkminus1 = (k>0 ? gridRadii[k-1] : 0);
+        double deltaGridR = k<gridSizeR ?
+            gridRadii[k] - rkminus1 :  // length of k-th radial segment
+            gridRadii.back();          // last grid segment extends to infinity
+
+        // loop over Nsub nodes of GL quadrature for each radial grid segment
+        for(int s=0; s<Nsub; s++) {
+            double r = k<gridSizeR ?
+                rkminus1 + glx[s] * deltaGridR :  // radius inside ordinary k-th segment
+                // special treatment for the last segment which extends to infinity:
+                // the integration variable is t = r_{Nr-1} / r
+                gridRadii.back() / glx[s];
+
+            // collect the values of density at all points of angular grid at the given radius
+            for(int iTheta=0; iTheta<=ind.lmax; iTheta+=ind.lstep)
+                for(int iPhi=ind.mmin; iPhi<=ind.mmax; iPhi++) {
+                    densValues[trans.index(iTheta, iPhi)] = dens.density(coord::PosCyl(
+                        r*sintheta[iTheta], r*trans.costheta(iTheta), trans.phi(iPhi)));
+                }
+
+            // compute density SH coefs
+            trans.transform(&densValues.front(), &tmpCoefs.front());
+
+            // accumulate integrals over density in the Pint and Pext arrays
+            for(int m=ind.mmin; m<=ind.mmax; m++) {
+                for(int l=abs(m); l<=ind.lmax; l++) {
+                    unsigned int c = ind.index(l, m);
+                    if(k<gridSizeR)
+                        // accumulate Qint for all segments except the one extending to infinity
+                        Pint[k][c] += tmpCoefs[c] * glw[s] * deltaGridR *
+                            math::powInt(r / gridRadii[k], l+2);
+                    if(k>0)
+                        // accumulate Qext for all segments except the innermost one
+                        // (which starts from zero), with a special treatment for last segment
+                        // that extends to infinity and has a different integration variable
+                        Pext[k-1][c] += glw[s] * tmpCoefs[c] * deltaGridR *
+                            (k==gridSizeR ? 1 / pow_2(glx[s]) : 1) * // jacobian of 1/r transform
+                            math::powInt(r / gridRadii[k-1], 1-l);
+                }
+            }
         }
-        if(r2<=rmin)
-            return result;
-        r1=rmin;
     }
-    if(r2>rmax) {
-        double val_rmax = splines[l](rmax);
-        if(val_rmax!=0) {
-            double rr = fmax(rmax, r1);
-            result += val_rmax * pow(r0/rmax, outerSlope[l]) * monomialInt(rr, r2, n+outerSlope[l], r0);
+
+    // Run the summation loop, replacing the intermediate values Qint, Qext
+    // with the final values Pint, Pext (stored in the same arrays).
+    // In doing so, we use a recurrent relation that avoids over/underflows when
+    // dealing with large powers of r, by replacing r^n with (r/r_prev)^n.
+    for(int m=ind.mmin; m<=ind.mmax; m++) {
+        for(int l=abs(m); l<=ind.lmax; l++) {
+            unsigned int c = ind.index(l, m);
+
+            // Compute Pint by summing from inside out, using the recurrent relation
+            // Pint(r_{k+1}) r_{k+1}^{l+1} = Pint(r_k) r_k^{l+1} + Qint[k] * r_k^{l+2}
+            double val = 0;
+            for(unsigned int k=0; k<gridSizeR; k++) {
+                if(k>0)
+                    val *= math::powInt(gridRadii[k-1] / gridRadii[k], l+1);
+                val += gridRadii[k] * Pint[k][c] * (-4*M_PI);
+                Pint[k][c] = val;
+            }
+
+            // Compute Pext by summing from outside in, using the recurrent relation
+            // Pext(r_k) r_k^{-l} = Pext(r_{k+1}) r_{k+1}^{-l} + Qext[k] * r_k^{1-l}
+            val = 0;
+            for(int k=gridSizeR-1; k>=0; k--) {
+                if(k<(int)gridSizeR-1)
+                    val *= math::powInt(gridRadii[k] / gridRadii[k+1], l);
+                val += gridRadii[k] * Pext[k][c] * (-4*M_PI);
+                Pext[k][c] = val;
+            }
         }
-        if(r1>=rmax)
-            return result;
-        r2=rmax;
     }
-    // integration over the definition region of the spline is done by the spline itself
-    result += splines[l].integrate(r1, r2, MonomialIntegral(n, r0));
-    return result;
+    //TODO!!! optimize loop indexing (lstep,mstep)
 }
 
 }; // namespace

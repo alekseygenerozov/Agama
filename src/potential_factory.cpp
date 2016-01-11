@@ -610,8 +610,7 @@ static void writeDensitySphericalHarmonic(std::ostream& strm, const DensitySpher
     std::vector<double> radii;
     std::vector<std::vector<double> > coefs;
     density.getCoefs(radii, coefs);
-    const double lmax = density.getNumCoefsAngular();
-    assert(coefs.size()==lmax+1);
+    const double lmax = coefs.size()-1;
 
     // use values of polar angle (theta) that correspond to Gauss-Legendre nodes in cos(theta)
     // for the given order of spherical-harmonic expansion lmax

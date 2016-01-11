@@ -7,6 +7,7 @@
 #include "potential_base.h"
 #include "particles_base.h"
 #include "math_spline.h"
+#include "math_sphharm.h"
 
 namespace potential {
 
@@ -218,8 +219,44 @@ private:
 };  // class SplineExp
 
 
+// --------- new api --------- //
+
+/** Determine the symmetry type corresponding to the given spherical-harmonic
+    coefficient indexing scheme */
+SymmetryType getSymmetry(const math::SphHarmIndices& ind);
+
+/** Create the spherical-harmonic indexing scheme for the given symmetry type
+    and expansion order.
+    \param[in] sym  - the type of symmetry that determines which coefficients to omit;
+    \param[in] lmax - (max) order of expansion in colatitude (theta), 
+               the actual lmax may be set to zero if have spherical symmetry;
+    \param[in] mmax - (max) order of expansion in azimuth (phi), the actual may be set to zero.
+    \returns   the instance of indexing scheme to be passed to spherical harmonic transform.
+*/
+math::SphHarmIndices getIndices(const SymmetryType sym, unsigned int lmax, unsigned int mmax);
+
+/** Solve Poisson equation by computing spherical-harmonic potential expansion coefficients.
+    The output is provided as two separate set of coefficients (interior and exterior), defined as
+    \f$  Pint_{l,m}(r) = -4\pi r^{-l-1} \int_0^r \rho_{l,m}(s) s^{l+2} ds  \f$,
+    \f$  Pext_{l,m}(r) = -4\pi r^l \int_r^\infty \rho_{l,m}(s) s^{1-l} ds  \f$,
+    where rho_lm are the sph.-harm. coefs for density, and
+    the total potential is given by \f$  \Phi_{l,m}(r) = Pint_{l,m}(r) + Pext_{l,m}(r)  \f$.
+    \param[in]  dens - the input density profile.
+    \param[in]  ind - indexing scheme for spherical-harmonic coefficients,
+                which determines the order of expansion and its symmetry properties.
+    \param[in]  gridRadii - the array of radial points for the output coefficients;
+                must form an increasing sequence and start from r>0.
+    \param[out] Pint - the array of 'interior' potential coefficients (will be resized as needed).
+    \param[out] Pext - same for 'exterior' potential coefficients.
+    \throws std::invalid_argument if gridRadii is not correct.
+*/
+void computePotentialCoefs(const BaseDensity& dens, 
+    const math::SphHarmIndices& ind, const std::vector<double>& gridRadii,
+    std::vector< std::vector<double> >& Pint, std::vector< std::vector<double> >& Pext);
+
+
 /** Spherical-harmonic expansion of density with coefficients being spline functions of radius */
-class DensitySphericalHarmonic: public BaseDensity, public SphericalHarmonicCoefSet {
+class DensitySphericalHarmonic: public BaseDensity {
 public:
     /** construct the object from the provided density model and grid parameters */
     DensitySphericalHarmonic(unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
@@ -229,25 +266,17 @@ public:
     DensitySphericalHarmonic(const std::vector<double> &gridRadii,
         const std::vector< std::vector<double> > &coefs);
 
-    virtual SymmetryType symmetry() const { return mysymmetry; }
+    virtual SymmetryType symmetry() const { return getSymmetry(ind); }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensitySphericalHarmonic"; };
-
-    /** a faster estimate of M(r) from the l=0 harmonic only:
-        \f$  M(r) \int_0^r 4\pi x^2 \rho_0(x) dx  \f$   */
-    virtual double enclosedMass(const double radius) const {
-        return 4*M_PI * integrate(0, radius, 0, 2); }
-
-    /** return spline-interpolated spherical-harmonic expansion coefficient at the given radius */
-    double rho_l(double r, int l) const;
-
-    /** return the integral of l-th coefficient times (r/r0)^n on the interval 0<=r1<=r2<=infinity */
-    double integrate(double r1, double r2, int l, int n, double r0=1) const;
 
     /** return the radii of spline nodes and the array of density expansion coefficients */
     void getCoefs(std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const;
 
 private:
+    /// indexing scheme for sph.-harm. coefficients
+    math::SphHarmIndices ind;
+
     /// radial dependence of each sph.-harm. expansion term
     std::vector<math::CubicSpline> splines;
 
@@ -257,6 +286,9 @@ private:
     /** construct the array of splines from the provided values at grid nodes */
     void initSpline(const std::vector<double> &gridRadii,
         const std::vector< std::vector<double> > &coefs);
+
+    /** return spline-interpolated spherical-harmonic expansion coefficient at the given radius */
+    double rho_l(double r, int l) const;
 
     /** evaluate density at the position specified in cartesian coordinates */
     virtual double densityCar(const coord::PosCar &pos) const {
