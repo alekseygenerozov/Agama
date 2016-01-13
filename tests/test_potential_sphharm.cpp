@@ -14,10 +14,11 @@
 #include <fstream>
 #include <cstdlib>
 #include <cstdio>
+#include <ctime>
 
-/// define test suite in terms of points for various coord systems
+/// define test suite in terms of points in spherical coordinates
 const int numtestpoints=8;
-const double pos_sph[numtestpoints][3] = {   // order: R, theta, phi
+const double pos_sph[numtestpoints][3] = {   // order: r, theta, phi
     {1  , 2  , 3},   // ordinary point
     {2  , 1  , 0},   // point in x-z plane
     {1  , 0  , 0},   // point along z axis
@@ -46,7 +47,7 @@ particles::PointMassArrayCar make_hernquist(int nbody, double q, double p)
     particles::PointMassArrayCar pts;
     for(int i=0; i<nbody; i++) {
         double m = math::random();
-        double r = 1/(1/sqrt(m)-1);
+        double r = 1/(1/sqrt(m)-1);  // known inversion of M(r)
         double costheta = math::random()*2 - 1;
         double sintheta = sqrt(1-pow_2(costheta));
         double phi = math::random()*2*M_PI;
@@ -99,7 +100,7 @@ void test_average_error(const potential::BasePotential& p1, const potential::Bas
         "_gamma" + utils::convertToString(gamma);
     std::ofstream strm(fileName.c_str());
     const double dlogR=0.25;
-    const int nptbin=100;
+    const int nptbin=1000;
     for(double logR=-4; logR<4; logR+=dlogR) {
         math::Averager difPhi, difForce, difDens;
         for(int n=0; n<nptbin; n++) {
@@ -113,9 +114,9 @@ void test_average_error(const potential::BasePotential& p1, const potential::Bas
             d2 = p2.density(point);
             f1 = sqrt(pow_2(g1.dx)+pow_2(g1.dy)+pow_2(g1.dz));
             f2 = sqrt(pow_2(g2.dx)+pow_2(g2.dy)+pow_2(g2.dz));
-            difPhi  .add((v1-v2)/(v1+v2)*2);
-            difDens .add((d1-d2)/(fabs(d1)+fabs(d2))*2);
-            difForce.add((f1-f2)/(f1+f2)*2);
+            difPhi  .add((v1-v2)/(v1+v2));
+            difDens .add((d1-d2)/(fabs(d1)+fabs(d2)));
+            difForce.add((f1-f2)/(f1+f2));
         }
         strm << pow(10., logR+0.5*dlogR) << '\t' <<
             sqrt(pow_2(difPhi  .mean())+difPhi  .disp()) << '\t' <<
@@ -199,6 +200,7 @@ template<> double myfnc<2, 0>(double theta, double    ) { return 3*cos(2*theta)+
 template<> double myfnc<2, 1>(double theta, double phi) { return sin(theta)*cos(theta)*cos(phi); }
 template<> double myfnc<2, 2>(double theta, double phi) { return (1-cos(2*theta))*cos(2*phi); }
 
+// test spherical-harmonic transformation with the given set of indices and a given SH term (l,m)
 template<int l, int m>
 bool checkSH(const math::SphHarmIndices& ind)
 {
@@ -211,6 +213,7 @@ bool checkSH(const math::SphHarmIndices& ind)
     // array of SH coefficients
     std::vector<double> c(ind.size());
     tr.transform(&d.front(), &c.front());
+    math::eliminateNearZeros(c);
     // check that only one of them is non-zero
     unsigned int t0 = ind.index(l, m);  // index of the only non-zero coef
     for(unsigned int t=0; t<c.size(); t++)
@@ -254,15 +257,22 @@ int main() {
     //test_axi_dens();
 
     // axisymmetric multipole
-    const potential::Dehnen deh1(1., 1., 1., .5, 1.2);
-    const potential::Multipole deh1m(deh1, 1e-3, 1e3, 50, 12);
-    test_average_error(deh1m, deh1);
+    const potential::Dehnen deh1(1., 1., 0.8, .5, 1.2);
+    potential::PtrPotential deh1m = potential::Multipole::create(
+        static_cast<const potential::BaseDensity&>(deh1), 1e-3, 1e3, 50, 12, 12);
+    std::cout << "Created Multipole\n";
+    clock_t clockbegin = std::clock();
+    test_average_error(*deh1m, deh1);
+    std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to test Multipole\n";
     const potential::SplineExp deh1s(50, 12, deh1, 1e-3, 1e3);
+    std::cout << "Created Spline\n";
+    clockbegin = std::clock();
     test_average_error(deh1s, deh1);
-    std::vector<double> radii;
-    std::vector<std::vector<double> > Phi, dPhi;
-    potential::PtrPotential deh1m_clone = write_read(deh1m);
-    test_average_error(deh1m, *deh1m_clone);
+    std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to test Spline\n";
+    //writePotential(std::string("test_potential_sphharm")+getCoefFileExtension(deh1s), deh1s);
+    potential::PtrPotential deh1m_clone = write_read(*deh1m);
+    test_average_error(*deh1m_clone, *deh1m);
+    return 0;
 
     // spherical, cored
     const potential::Plummer plum(10., 5.);

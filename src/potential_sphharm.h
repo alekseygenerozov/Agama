@@ -8,6 +8,7 @@
 #include "particles_base.h"
 #include "math_spline.h"
 #include "math_sphharm.h"
+#include "smart.h"
 
 namespace potential {
 
@@ -228,32 +229,37 @@ SymmetryType getSymmetry(const math::SphHarmIndices& ind);
 /** Create the spherical-harmonic indexing scheme for the given symmetry type
     and expansion order.
     \param[in] sym  - the type of symmetry that determines which coefficients to omit;
-    \param[in] lmax - (max) order of expansion in colatitude (theta), 
+    \param[in] lmax - (max) order of expansion in polar angle (theta), 
                the actual lmax may be set to zero if have spherical symmetry;
     \param[in] mmax - (max) order of expansion in azimuth (phi), the actual may be set to zero.
     \returns   the instance of indexing scheme to be passed to spherical harmonic transform.
 */
-math::SphHarmIndices getIndices(const SymmetryType sym, unsigned int lmax, unsigned int mmax);
+math::SphHarmIndices getIndices(const SymmetryType sym, int lmax, int mmax);
 
-/** Solve Poisson equation by computing spherical-harmonic potential expansion coefficients.
-    The output is provided as two separate set of coefficients (interior and exterior), defined as
-    \f$  Pint_{l,m}(r) = -4\pi r^{-l-1} \int_0^r \rho_{l,m}(s) s^{l+2} ds  \f$,
-    \f$  Pext_{l,m}(r) = -4\pi r^l \int_r^\infty \rho_{l,m}(s) s^{1-l} ds  \f$,
-    where rho_lm are the sph.-harm. coefs for density, and
-    the total potential is given by \f$  \Phi_{l,m}(r) = Pint_{l,m}(r) + Pext_{l,m}(r)  \f$.
+/** Computing spherical-harmonic potential expansion coefficients,
+    by first creating a sph.-harm.representation of the density profile,
+    and then solving the Poisson equation.
     \param[in]  dens - the input density profile.
-    \param[in]  ind - indexing scheme for spherical-harmonic coefficients,
+    \param[in]  ind  - indexing scheme for spherical-harmonic coefficients,
                 which determines the order of expansion and its symmetry properties.
     \param[in]  gridRadii - the array of radial points for the output coefficients;
                 must form an increasing sequence and start from r>0.
-    \param[out] Pint - the array of 'interior' potential coefficients (will be resized as needed).
-    \param[out] Pext - same for 'exterior' potential coefficients.
-    \throws std::invalid_argument if gridRadii is not correct.
+    \param[out] Phi  - the array of sph.-harm. coefficients for the potential:
+                Phi[k][c] is the value of c-th coefficient (where c is a single index 
+                combining both l and m) at the radius r_k; will be resized as needed.
+    \param[out] dPhi - the array of radial derivatives of each sph.-harm. term:
+                dPhi_{l,m}(r) = d(Phi_{l,m})/dr; will be resized as needed.
+    \throws std::invalid_argument if gridRadii are not correct.
 */
 void computePotentialCoefs(const BaseDensity& dens, 
     const math::SphHarmIndices& ind, const std::vector<double>& gridRadii,
-    std::vector< std::vector<double> >& Pint, std::vector< std::vector<double> >& Pext);
+    std::vector< std::vector<double> > &Phi, std::vector< std::vector<double> > &dPhi);
 
+/** Same as above, but compute coefficients from the potential directly,
+    without solving Poisson equation */
+void computePotentialCoefs(const BasePotential& pot,
+    const math::SphHarmIndices& ind, const std::vector<double> &gridRadii,
+    std::vector< std::vector<double> > &Phi, std::vector< std::vector<double> > &dPhi);
 
 /** Spherical-harmonic expansion of density with coefficients being spline functions of radius */
 class DensitySphericalHarmonic: public BaseDensity {
@@ -303,4 +309,85 @@ private:
 
 };  // class DensitySphericalHarmonic
 
+
+class PowerLawPotentialTerm: public BasePotentialSph {
+public:    
+    PowerLawPotentialTerm(double _r0,
+        const std::vector<double>& _S,
+        const std::vector<double>& _V,
+        const std::vector<double>& _U,
+        const std::vector<double>& _W);
+    virtual SymmetryType symmetry() const { return getSymmetry(ind); }
+    virtual const char* name() const { return myName(); };
+    static const char* myName() { return "PowerLaw"; };
+private:
+    /// indexing scheme for sph.-harm. coefficients
+    math::SphHarmIndices ind;
+    double r0;
+    std::vector<double> S, V, U, W;
+    virtual void evalSph(const coord::PosSph &pos,
+        double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const;
+};
+
+/// Multipole expansion for potentials
+class Multipole: public BasePotentialSph{
+public:
+    /** create the potential from the analytic density or potential model.
+        \param[in]  src        is the input density or potential model;
+        \param[in]  rmin, rmax give the radial grid extent;
+        \param[in]  gridSizeR  is the size of logarithmic grid in R;
+        \param[in]  lmax       is the order of sph.-harm. expansion in polar angle (theta);
+        \param[in]  mmax       is the order of expansion in azimuth (phi).
+    */
+    static PtrPotential create(const BaseDensity& src,
+        double rmin, double rmax, unsigned int gridSizeR,
+        int lmax, int mmax);
+
+    static PtrPotential create(const BasePotential& src,
+        double rmin, double rmax, unsigned int gridSizeR,
+        int lmax, int mmax);
+    
+    /** construct the potential from the set of spherical-harmonic coefficients.
+        \param[in]  radii  is the grid in radius;
+        \param[in]  Phi  is the matrix of harmonic coefficients for the potential;
+                    its first dimension is equal to the number of radial grid points,
+                    and the second gives the number of coefficients (lmax+1)^2;
+        \param[in]  dPhi  is the matrix of (log-)radial derivatives of harmonic coefs
+                    (same size as Phi, each element is  d Phi_{l,m}(r) / d(ln r) ).
+    */
+    Multipole(const std::vector<double> &radii,
+        const std::vector<std::vector<double> > &Phi,
+        const std::vector<std::vector<double> > &dPhi);
+
+    /** return the array of spherical-harmonic expansion coefficients.
+        \param[out] radii will contain the radii of grid nodes;
+        \param[out] Phi   will contain the spherical-harmonic expansion coefficients
+                    for the potential at the given radii;
+        \param[out] dPhi  will contain the derivatives of these coefs wrt ln(r).
+    */
+    void getCoefs(std::vector<double> &radii,
+        std::vector<std::vector<double> > &Phi,
+        std::vector<std::vector<double> > &dPhi) const;
+
+    virtual SymmetryType symmetry() const { return getSymmetry(ind); }
+    virtual const char* name() const { return myName(); };
+    static const char* myName() { return "Multipole"; };
+
+private:
+    /// radial grid
+    std::vector<double> gridRadii;
+
+    /// indexing scheme for sph.-harm. coefficients
+    math::SphHarmIndices ind;
+
+    /// actual potential implementation
+    PtrPotential impl;
+
+    /// asymptotic behaviour at small and large radii
+    PtrPotential asymptInner, asymptOuter;
+
+    virtual void evalSph(const coord::PosSph &pos,
+        double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const;
+};
+    
 }  // namespace

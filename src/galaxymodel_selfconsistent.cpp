@@ -174,9 +174,8 @@ void updateTotalPotential(SelfConsistentModel& model)
     // construct potential expansion from the total density
     // and add it as one of potential components (possibly the only one)
     if(totalDensitySph != NULL)
-        compPot.push_back(PtrPotential(
-            new potential::Multipole(*totalDensitySph,
-            model.rminSph, model.rmaxSph, model.sizeRadialSph, model.lmaxAngularSph)));
+        compPot.push_back(potential::Multipole::create(*totalDensitySph,
+            model.rminSph, model.rmaxSph, model.sizeRadialSph, model.lmaxAngularSph, 0));
 
     // now the same for the total density to be used in CylSplineExp for the flattened components
     PtrDensity totalDensityDisk;

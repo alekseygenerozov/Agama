@@ -98,7 +98,13 @@ public:
 
     /// index of coefficient with the given l and m
     /// (0<=l<=lmax, -l<=m<=l, no range check performed!)
-    unsigned int index(int l, int m) const { return l*(l+1)+m; }
+    static unsigned int index(int l, int m) { return l*(l+1)+m; }
+    
+    /// decode the l-index from the combined index of a coefficient
+    static int index_l(unsigned int c);
+    
+    /// decode the m-index from the combined index of a coefficient
+    static int index_m(unsigned int c); 
 };
 
 /** Class for performing forward spherical-harmonic transformation.
@@ -173,7 +179,6 @@ private:
     unsigned int indTrig(int k, int m) const;
     /// index of Fourier coefficient F_m(theta_j) in the intermediate coef array (in transform)
     unsigned int indFour(int j, int m) const;
-
 };
 
 /** Routine for performing inverse spherical-harmonic transformation.
@@ -181,11 +186,15 @@ private:
     it computes the value of function at the given position on unit sphere (theta,phi).
     \param[in]  ind   - coefficient indexing scheme, defining lmax, mmax and skipped coefs
     \param[in]  coefs - the array of coefficients
-    \param[in]  theta - the colatitude angle
+    \param[in]  theta - the polar angle
     \param[in]  phi   - the azimuthal angle
     \returns    the value of function at (theta,phi)
 */
 double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
     const double theta, const double phi);
+
+/** zero out array elements with magnitude smaller than the threshold
+    (relative to the L1-norm of the array) */
+void eliminateNearZeros(std::vector<double>& vec, double threshold=1e-12);
 
 }  // namespace math

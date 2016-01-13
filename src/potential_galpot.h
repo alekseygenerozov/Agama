@@ -11,7 +11,7 @@ address:  Department of Physics and Astronomy, University of Leicester
 Put into the Torus code (with a minimum of fuss) by Paul McMillan, Oxford 2010
 email: p.mcmillan1@physics.ox.ac.uk
 
-Modifications by Eugene Vasiliev, 2015
+Modifications by Eugene Vasiliev, 2015-2016
 
 
 The method, explained in Dehnen & Binney (1998, MNRAS, 294, 429) and based 
@@ -20,7 +20,7 @@ to any disk density profile which is separable in cylindrical coordinates.
 
 Let the density profile of the disk be
 
-\f$  \rho_d(R,z) = f(R) h(z)  \f$,  
+\f$  \rho_d(R,z) = f(R) h(z)  \f$,
 
 and let H(z) be the second integral of h(z) over z.
 Then the potential of the disk can be written as a sum of 'main' and 'residual' parts:
@@ -62,7 +62,6 @@ is provided in potential_factory.h, taking the name of parameter file and the Un
 
 #pragma once
 #include "potential_base.h"
-#include "math_spline.h"
 #include "smart.h"
 #include <vector>
 
@@ -130,7 +129,7 @@ private:
     virtual double densitySph(const coord::PosSph &pos) const
     {  return densityCyl(toPosCyl(pos)); }
 };
-    
+
 /** Part of the disk potential provided analytically as  4 pi f(r) H(z) */
 class DiskAnsatz: public BasePotentialCyl {
 public:
@@ -192,71 +191,6 @@ private:
 };
 
 ///@}
-/// \name  Multipole potential expansion
-///@{
-    
-/** Multipole expansion for axisymmetric potentials, generated from a given axisymmetric 
-    density profile (which may well be an instance of a CompositeDensity class).
-*/
-class Multipole: public BasePotentialCyl{
-public:
-    /** Compute the potential using the multipole expansion and approximate it 
-        by a two-dimensional spline in (R,z) plane. 
-        \param[in]  source_density  is the density model that serves as an input 
-                    to the potential approximation, a std::runtime_error exception 
-                    is raised if it is not axisymmetric;
-        \param[in]  r_min, r_max    give the radial grid extent;
-        \param[in]  gridSizeR       is the size of logarithmic spline grid in R;
-        \param[in]  numCoefsAngular is the order of multipole expansion (l_max).
-    */
-    Multipole(const BaseDensity& source_density,
-        double r_min, double r_max,
-        unsigned int gridSizeR, unsigned int numCoefsAngular);
-
-    /** construct the potential from the set of spherical-harmonic coefficients.
-        \param[in]  radii  is the grid in radius;
-        \param[in]  Phi  is the matrix of harmonic coefficients for the potential;
-                    its first dimension is equal to the number of radial grid points,
-                    and the second gives the number of coefficients (=l_max/2+1);
-        \param[in]  dPhi  is the matrix of (log-)radial derivatives of harmonic coefs
-                    (same size as Phi, each element is  r dPhi_l(r) / dr ).
-    */
-    Multipole(const std::vector<double> &radii,
-        const std::vector<std::vector<double> > &Phi,
-        const std::vector<std::vector<double> > &dPhi);
-
-    /** return the array of spherical-harmonic expansion coefficients.
-        \param[out] radii  will contain the radii of grid nodes;
-        \param[out] Phi  will contain the spherical-harmonic expansion coefficients
-                    for the potential at the given radii;
-        \param[out] dPhi will contain the derivatives of these coefs wrt ln(r).
-    */
-    void getCoefs(std::vector<double> &radii,
-        std::vector<std::vector<double> > &Phi,
-        std::vector<std::vector<double> > &dPhi) const;
-
-    virtual SymmetryType symmetry() const { return isSpherical ? ST_SPHERICAL : ST_AXISYMMETRIC; }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "AxisymmetricMultipole"; };
-private:
-    math::QuinticSpline2d spl; ///< 2d spline in meridional plane for interpolating the potential
-    bool isSpherical;          ///< degree of symmetry of the original density profile
-    double logrmin, logrmax;   ///< radial extent of the grid
-    /// power-law slopes of multipole components at small and large radii
-    std::vector<double> innerSlope, outerSlope;
-    /// coefficients for extrapolating the multipole components at small and large radii
-    std::vector<double> innerCoefU, innerCoefW;
-    std::vector<double> outerCoefU, outerCoefW;
-
-    /** construct interpolating spline from the values and derivatives of harmonic coefficients */
-    void initSpline(const std::vector<double> &radii,
-        const std::vector<std::vector<double> > &Phi,
-        const std::vector<std::vector<double> > &dPhi);
-
-    virtual void evalCyl(const coord::PosCyl &pos,
-        double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
-};
-///@}
 
 /** Construct an array of potential components consisting of a Multipole and a number of 
     DiskAnsatz components, using the provided arrays of parameters for disks and spheroids;
@@ -275,5 +209,5 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
 PtrPotential createGalaxyPotential(
     const std::vector<DiskParam>& DiskParams,
     const std::vector<SphrParam>& SphrParams);
-    
+
 } // namespace potential

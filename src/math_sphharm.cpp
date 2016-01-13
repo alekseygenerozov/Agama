@@ -9,78 +9,140 @@
 
 namespace math{
 
+/** Calculate P_m^m(x) from the analytic result:
+    P_m^m(x) = (-1)^m (2m-1)!! (1-x^2)^(m/2) , m > 0
+             = 1 , m = 0
+*/
+static double legendrePmm(int m, double x)
+{
+    if(m == 0)
+        return 1.0;
+    double value = 1.0;
+    double coeff = 1.0;
+    for(int i=1; i<=m; i++) {
+        value *= -coeff;
+        coeff += 2.0;
+    }
+    value *= powInt(1-x*x, m/2);
+    if(m%2==1)
+        value *= sqrt(1.0-x*x);
+    return value;
+}
+
 double legendrePoly(const int l, const int m, const double x) {
     return gsl_sf_legendre_Plm(l, m, x);
 }
 
 void legendrePolyArray(const int lmax, const int m, const double x,
-    double* result_array, double* deriv_array)
+    double* resultArray, double* derivArray)
 {
-    assert(result_array!=NULL);
+    assert(resultArray!=NULL);
 #if GSL_MAJOR_VERSION < 2
-    if(deriv_array)
-        gsl_sf_legendre_Plm_deriv_array(lmax, m, x, result_array, deriv_array);
+    if(derivArray)
+        gsl_sf_legendre_Plm_deriv_array(lmax, m, x, resultArray, derivArray);
     else
-        gsl_sf_legendre_Plm_array(lmax, m, x, result_array);
+        gsl_sf_legendre_Plm_array(lmax, m, x, resultArray);
 #else
     if(m!=0)
         throw std::runtime_error("m!=0 is not supported anymore in GSL Legendre API");
-    if(deriv_array)
-        gsl_sf_legendre_Pl_deriv_array(lmax, x, result_array, deriv_array);
+    if(derivArray)
+        gsl_sf_legendre_Pl_derivArray(lmax, x, resultArray, derivArray);
     else
-        gsl_sf_legendre_Pl_array(lmax, x, result_array);
+        gsl_sf_legendre_Pl_array(lmax, x, resultArray);
 #endif
 }
 
 void sphHarmonicArray(const int lmax, const int m, const double theta,
-    double* result_array, double* deriv_array, double* deriv2_array)
+    double* resultArray, double* derivArray, double* deriv2Array)
 {
-    assert(result_array!=NULL);
+    if(theta<=42) {
+    assert(resultArray!=NULL);
     double costheta = cos(theta), sintheta=0;
     // compute unnormalized polynomials and then normalize manually, which is faster than computing normalized ones.
     // This is not suitable for large l,m (when overflow may occur), but in our application we aren't going to have such large values.
 #if GSL_MAJOR_VERSION < 2
-    if(deriv_array) {
-        gsl_sf_legendre_Plm_deriv_array(lmax, m, costheta, result_array, deriv_array);
+    if(derivArray) {
+        gsl_sf_legendre_Plm_deriv_array(lmax, m, costheta, resultArray, derivArray);
         sintheta = sin(theta);
     }
     else
-        gsl_sf_legendre_Plm_array(lmax, m, costheta, result_array);
+        gsl_sf_legendre_Plm_array(lmax, m, costheta, resultArray);
 #else
     if(m!=0)
         throw std::runtime_error("m!=0 is not supported anymore in GSL Legendre API");
-    if(deriv_array) {
-        gsl_sf_legendre_Pl_deriv_array(lmax, costheta, result_array, deriv_array);
+    if(derivArray) {
+        gsl_sf_legendre_Pl_derivArray(lmax, costheta, resultArray, derivArray);
         sintheta = sin(theta);
     }
     else
-        gsl_sf_legendre_Pl_array(lmax, costheta, result_array);
+        gsl_sf_legendre_Pl_array(lmax, costheta, resultArray);
 #endif    
     double prefact = 0.5/sqrt(M_PI*factorial(2*m));
     for(int l=m; l<=lmax; l++) {
         double prefactl=sqrt(2*l+1.)*prefact;
-        result_array[l-m] *= prefactl;
-        if(deriv_array)
-            deriv_array[l-m] *= prefactl;
+        resultArray[l-m] *= prefactl;
+        if(derivArray)
+            derivArray[l-m] *= prefactl;
         prefact *= sqrt((l-m+1.)/(l+m+1.));
     }
-    if(deriv2_array) {
-        assert(deriv_array!=NULL);
+    if(deriv2Array) {
+        assert(derivArray!=NULL);
         for(int l=m; l<=lmax; l++) {
             // accurate treatment of asymptotic values to avoid NaN
             if(m==0)
-                deriv2_array[l-m] = costheta * deriv_array[l-m] - l*(l+1) * result_array[l-m];
+                deriv2Array[l-m] = costheta * derivArray[l-m] - l*(l+1) * resultArray[l-m];
             else if(costheta>=1-1e-6)
-                deriv2_array[l-m] = deriv_array[l-m] * (costheta - 2*(l*(l+1)*(costheta-1)/m + m/(costheta+1)) );
+                deriv2Array[l-m] = derivArray[l-m] * (costheta - 2*(l*(l+1)*(costheta-1)/m + m/(costheta+1)) );
             else if(costheta<=-1+1e-6)
-                deriv2_array[l-m] = deriv_array[l-m] * (costheta - 2*(l*(l+1)*(costheta+1)/m + m/(costheta-1)) );
+                deriv2Array[l-m] = derivArray[l-m] * (costheta - 2*(l*(l+1)*(costheta+1)/m + m/(costheta-1)) );
             else
-                deriv2_array[l-m] = costheta * deriv_array[l-m] - (l*(l+1)-pow_2(m/sintheta)) * result_array[l-m];
+                deriv2Array[l-m] = costheta * derivArray[l-m] - (l*(l+1)-pow_2(m/sintheta)) * resultArray[l-m];
         }
     }
-    if(deriv_array) {
+    if(derivArray) {
         for(int l=0; l<=lmax-m; l++)
-            deriv_array[l] *= -sintheta;
+            derivArray[l] *= -sintheta;
+    }
+        return;
+    }
+    if(m<0 || m>lmax || /* x<-1 || x>1 */ resultArray == NULL)
+        throw std::domain_error("Invalid parameters in sphHarmArray");
+    double prefact = 0.5/M_SQRTPI;
+    if(lmax==0) {
+        resultArray[0] = prefact;
+        if(derivArray)
+            derivArray[0] = 0;
+        if(deriv2Array)
+            deriv2Array[0] = 0;
+        return;
+    }
+    double x = cos(theta), y2 = 1-x*x;
+    double y = (derivArray!=NULL || deriv2Array!=NULL) ? sqrt(y2) : 0;  // compute if needed
+    double Pmm = legendrePmm(m, x);
+    prefact *= sqrt( (2*m+1) / factorial(2*m) );
+    resultArray[0] = Pmm * prefact;
+    if(derivArray)
+        derivArray[0] = m * x / y * resultArray[0];
+    if(deriv2Array)
+        deriv2Array[0] = m * (1-m*x*x)/y2 * resultArray[0];
+    if(lmax == m)
+        return;
+    double Plm = x * (2*m+1) * Pmm, Plm1 = Pmm, Plm2 = 0;
+    for(int l=m+1; l<=lmax; l++) {
+        if(l>m+1)  // skip first iteration which was assigned above
+            Plm = (x * (2*l-1) * Plm1 - (l+m-1) * Plm2) / (l-m);  // use recurrence for the rest
+        prefact *= sqrt( (2*l+1.) / (2*l-1.) * (l-m) / (l+m) );
+        //if(fabs(resultArray[l-m])>1e-10 && fabs(resultArray[l-m] - Plm * prefact)>1e-10)
+        resultArray[l-m] = Plm * prefact;
+        Plm2 = Plm1;
+        Plm1 = Plm;
+    }
+    if(derivArray!=NULL || deriv2Array!=NULL) {
+        for(int l=m+1; l<=lmax; l++) {
+            derivArray[l-m] = (l * x * resultArray[l-m] - (l+m) * resultArray[l-m-1]) / y;
+            if(deriv2Array!=NULL)
+                deriv2Array[l-m] = x * derivArray[l-m] - (l*(l+1)-m*m/y2) * resultArray[l-m];
+        }
     }
 }
 
@@ -117,11 +179,22 @@ void LegendreTransform::inverse(const double coefs[], double values[]) const
 
 
 SphHarmIndices::SphHarmIndices(int _lmax, int _lstep, int _mmin, int _mmax, int _mstep) :
-    lmax(_lmax), lstep(_lstep), mmin(_mmin), mmax(_mmax), mstep(mmax>0 ? _mstep : 1)
+    lmax(_lmax), lstep(lmax>0 ? _lstep : 2), mmin(_mmin), mmax(_mmax), mstep(mmax>0||_mstep!=0 ? _mstep : 2)
 {
     if(lmax<0 || mmax<0 || mmax>lmax || (mmin!=0 && mmin!=-mmax) ||
         (lstep!=1 && lstep!=2) || (mstep!=1 && mstep!=2))
         throw std::invalid_argument("SphHarmIndices: incorrect indexing scheme requested");
+}
+
+int SphHarmIndices::index_l(unsigned int c) 
+{
+    return sqrt(c);
+}
+
+int SphHarmIndices::index_m(unsigned int c)
+{
+    int l=index_l(c);
+    return c-l*(l+1);
 }
 
 SphHarmTransformForward::SphHarmTransformForward(const SphHarmIndices& _ind):
@@ -248,15 +321,17 @@ void SphHarmTransformForward::transform(const double values[], double coefs[]) c
                 coefs[ind.index(l, m)] += legFnc[indLeg(j, l, m)] * val_m[indFour(j, m)];
         }
     }
+}
 
-    // polishing: zero out coefs with extremely small magnitude
+void eliminateNearZeros(std::vector<double>& vec, double threshold)
+{
     double mag=0;
-    for(unsigned int t=0; t<ind.size(); t++)
-        mag+=fabs(coefs[t]);
-    mag*=1e-14;
-    for(unsigned int t=0; t<ind.size(); t++)
-        if(fabs(coefs[t])<mag)
-            coefs[t]=0;
+    for(unsigned int t=0; t<vec.size(); t++)
+        mag+=fabs(vec[t]);
+    mag *= threshold;
+    for(unsigned int t=0; t<vec.size(); t++)
+        if(fabs(vec[t]) < mag)
+            vec[t]=0;
 }
 
 double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
@@ -273,7 +348,7 @@ double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
         int absm = abs(m);
         double trig = m==0 ? 1. : m>0 ? tmptrig[m]*M_SQRT2 : tmptrig[ind.mmax-m]*M_SQRT2;
         sphHarmonicArray(ind.lmax, absm, theta, &tmpleg.front());
-        // if lstep is even and m is odd, start from next even number greater than m
+        // if lstep is even and m is odd, start from next even number greater than m (???)
         int lmin = ind.lstep==2 ? (absm+1)/2*2 : absm;
         for(int l=lmin; l<=ind.lmax; l+=ind.lstep) {
             double leg = tmpleg[l-absm] * 2*M_SQRTPI;
