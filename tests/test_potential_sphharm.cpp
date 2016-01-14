@@ -99,7 +99,7 @@ void test_average_error(const potential::BasePotential& p1, const potential::Bas
     std::string fileName = std::string("testerr_") + p1.name() + "_" + p2.name() + 
         "_gamma" + utils::convertToString(gamma);
     std::ofstream strm(fileName.c_str());
-    const double dlogR=0.25;
+    const double dlogR=0.1;
     const int nptbin=1000;
     for(double logR=-4; logR<4; logR+=dlogR) {
         math::Averager difPhi, difForce, difDens;
@@ -163,28 +163,25 @@ bool test_suite(const potential::BasePotential& p, const potential::BasePotentia
     return ok;
 }
 
-#if 0
-void test_axi_dens()
+void testDensSH()
 {
-    const potential::Dehnen deh_axi(1., 1., 1., 0.5, 1.2);
-    const potential::DensitySphericalHarmonic deh_6(50, 6, deh_axi, 1e-2, 100);
-    const potential::DensitySphericalHarmonic deh_10(50, 10, deh_axi, 1e-2, 100);
-    const potential::DensitySphericalHarmonic deh_20(100, 20, deh_axi, 1e-2, 100);
-    // creating a sph-harm expansion from another s-h expansion - should produce identical results
-    // if the location of radial grid points is the same, and l_max is at least as large as the original one.
-    const potential::DensitySphericalHarmonic deh_6a(99, 10, deh_6, 1e-2, 100);
+    const potential::Dehnen dens(1., 1., 0.8, 0.5, 1.2);
+    std::vector<double> radii = math::createExpGrid(51, 0.01, 100);
+    std::vector<std::vector<double> > coefs1, coefs2;
+    computeDensityCoefs(dens, getIndices(dens.symmetry(), 8, 4), radii, coefs1);
+    potential::DensitySphericalHarmonic dens1(radii, coefs1);
+    // creating a sph-harm expansion from another s-h expansion - should produce identical results if
+    // the location of radial grid points is the same, and l_max is at least as large as the original one.
+    computeDensityCoefs(dens1, getIndices(dens1.symmetry(), 10, 6), radii, coefs2);
+    potential::DensitySphericalHarmonic dens2(radii, coefs2);
     for(double r=0.125; r<=8; r*=4) {
         for(double theta=0; theta<M_PI/2; theta+=0.314) {
             coord::PosSph p(r, theta, 0);
-            std::cout << r<< ' '<<theta<<" : " <<deh_axi.density(p) << " = " << 
-                deh_6.density(p)<<", "<<deh_10.density(p)<<", "<<deh_20.density(p)<<", "<<deh_6a.density(p);
-            if(theta==0) std::cout <<"  "<< deh_6.rho_l(r, 0)<<", "<<deh_10.rho_l(r, 0)<<", "<<
-                deh_20.rho_l(r, 0)<<", "<< deh_6a.rho_l(r, 0);
-            std::cout<<"\n";
+            std::cout << r<< ' '<<theta<<" : " <<dens.density(p) << " = " << 
+                dens1.density(p)<<", "<<dens2.density(p)<<"\n";
         }
     }
 }
-#endif
 
 // definition of a single spherical-harmonic term with indices (l,m)
 template<int l, int m>
@@ -209,7 +206,7 @@ bool checkSH(const math::SphHarmIndices& ind)
     std::vector<double> d(tr.size());
     for(int j=0; j<=ind.lmax; j+=ind.lstep)
         for(int k=ind.mmin; k<=ind.mmax; k++)
-            d.at(tr.index(j, k)) = myfnc<l,m>(acos(tr.costheta(j)), tr.phi(k));
+            d.at(tr.index(j, k)) = myfnc<l,m>(tr.theta(j), tr.phi(k));
     // array of SH coefficients
     std::vector<double> c(ind.size());
     tr.transform(&d.front(), &c.front());
@@ -219,13 +216,13 @@ bool checkSH(const math::SphHarmIndices& ind)
     for(unsigned int t=0; t<c.size(); t++)
         if((t==t0) ^ (c[t]!=0))  // xor operation
             return false;
+    double tmp[100];
     // array of function values after inverse transform
     std::vector<double> b(tr.size());
     for(int j=0; j<=ind.lmax; j+=ind.lstep)
         for(int k=ind.mmin; k<=ind.mmax; k++) {
             unsigned int index = tr.index(j, k);
-            b.at(index) = math::sphHarmTransformInverse(ind, &c.front(),
-                acos(tr.costheta(j)), tr.phi(k));
+            b.at(index) = math::sphHarmTransformInverse(ind, &c.front(), tr.theta(j), tr.phi(k), tmp);
             if(fabs(d[index]-b[index])>1e-14)
                 return false;
         }
@@ -254,17 +251,17 @@ int main() {
     ok &= checkSH<2, 1>(math::SphHarmIndices(4, 1,-2, 2, 1));
     ok &= checkSH<2, 2>(math::SphHarmIndices(3, 1, 0, 2, 2));
 
-    //test_axi_dens();
+    testDensSH();
 
     // axisymmetric multipole
     const potential::Dehnen deh1(1., 1., 0.8, .5, 1.2);
     potential::PtrPotential deh1m = potential::Multipole::create(
-        static_cast<const potential::BaseDensity&>(deh1), 1e-3, 1e3, 50, 12, 12);
+        static_cast<const potential::BaseDensity&>(deh1), 1e-3, 1e3, 50, 10, 10);
     std::cout << "Created Multipole\n";
     clock_t clockbegin = std::clock();
     test_average_error(*deh1m, deh1);
     std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to test Multipole\n";
-    const potential::SplineExp deh1s(50, 12, deh1, 1e-3, 1e3);
+    const potential::SplineExp deh1s(50, 10, deh1, 1e-3, 1e3);
     std::cout << "Created Spline\n";
     clockbegin = std::clock();
     test_average_error(deh1s, deh1);

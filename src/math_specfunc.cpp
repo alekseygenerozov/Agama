@@ -91,6 +91,10 @@ double lnfactorial(const unsigned int n) {
     return gsl_sf_lnfact(n);
 }
 
+double dfactorial(const unsigned int n) {
+    return gsl_sf_doublefact(n);
+}
+
 double gamma(const double x) {
     return gsl_sf_gamma(x);
 }

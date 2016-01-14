@@ -5,178 +5,117 @@
 #include <cassert>
 #include <stdexcept>
 #include <gsl/gsl_sf_legendre.h>
-#include <gsl/gsl_version.h>
 
 namespace math{
 
-/** Calculate P_m^m(x) from the analytic result:
-    P_m^m(x) = (-1)^m (2m-1)!! (1-x^2)^(m/2) , m > 0
-             = 1 , m = 0
-*/
-static double legendrePmm(int m, double x)
-{
-    if(m == 0)
-        return 1.0;
-    double value = 1.0;
-    double coeff = 1.0;
-    for(int i=1; i<=m; i++) {
-        value *= -coeff;
-        coeff += 2.0;
-    }
-    value *= powInt(1-x*x, m/2);
-    if(m%2==1)
-        value *= sqrt(1.0-x*x);
-    return value;
-}
-
+//** WILL BE REMOVED **//
 double legendrePoly(const int l, const int m, const double x) {
     return gsl_sf_legendre_Plm(l, m, x);
 }
 
-void legendrePolyArray(const int lmax, const int m, const double x,
-    double* resultArray, double* derivArray)
+
+/** Calculate P_m^m(theta) from the analytic result:
+    P_m^m(theta) = (-1)^m (2m-1)!! (sin(theta))^m , m > 0 ;
+                 = 1 , m = 0 .
+    store the pre-factor sqrt[ (2*m+1) / (4 pi (2m)!) ] in prefact,
+    the value of Pmm in val, and optionally its first/second derivative w.r.t theta
+    in der/der2 if they are not NULL.
+*/
+static inline void legendrePmm(int m, double costheta, double sintheta, 
+    double& prefact, double* value, double* der, double* der2)
 {
-    assert(resultArray!=NULL);
-#if GSL_MAJOR_VERSION < 2
-    if(derivArray)
-        gsl_sf_legendre_Plm_deriv_array(lmax, m, x, resultArray, derivArray);
-    else
-        gsl_sf_legendre_Plm_array(lmax, m, x, resultArray);
-#else
-    if(m!=0)
-        throw std::runtime_error("m!=0 is not supported anymore in GSL Legendre API");
-    if(derivArray)
-        gsl_sf_legendre_Pl_derivArray(lmax, x, resultArray, derivArray);
-    else
-        gsl_sf_legendre_Pl_array(lmax, x, resultArray);
-#endif
+    prefact = 0.5/M_SQRTPI;
+    if(m == 0) {
+        if(der)
+            *der = 0;
+        if(der2)
+            *der2= 0;
+        *value   = prefact;
+        return;
+    }
+    prefact *= sqrt( (2*m+1) / factorial(2*m) );
+    if(m == 1) {
+        if(der)
+            *der = -costheta * prefact;
+        if(der2)
+            *der2=  sintheta * prefact;
+        *value   = -sintheta * prefact;
+        return;
+    }
+    double coef  = prefact * dfactorial(2*m-1) * (m%2 == 1 ? -1 : 1);
+    double sinm2 = powInt(sintheta, m-2);
+    if(der)
+        *der = m * coef * sinm2 * sintheta * costheta;
+    if(der2)
+        *der2= m * coef * sinm2 * (m * pow_2(costheta) - 1);
+    *value   =     coef * sinm2 * pow_2(sintheta);
 }
 
 void sphHarmonicArray(const int lmax, const int m, const double theta,
     double* resultArray, double* derivArray, double* deriv2Array)
 {
-    if(theta<=42) {
-    assert(resultArray!=NULL);
-    double costheta = cos(theta), sintheta=0;
-    // compute unnormalized polynomials and then normalize manually, which is faster than computing normalized ones.
-    // This is not suitable for large l,m (when overflow may occur), but in our application we aren't going to have such large values.
-#if GSL_MAJOR_VERSION < 2
-    if(derivArray) {
-        gsl_sf_legendre_Plm_deriv_array(lmax, m, costheta, resultArray, derivArray);
-        sintheta = sin(theta);
-    }
-    else
-        gsl_sf_legendre_Plm_array(lmax, m, costheta, resultArray);
-#else
-    if(m!=0)
-        throw std::runtime_error("m!=0 is not supported anymore in GSL Legendre API");
-    if(derivArray) {
-        gsl_sf_legendre_Pl_derivArray(lmax, costheta, resultArray, derivArray);
-        sintheta = sin(theta);
-    }
-    else
-        gsl_sf_legendre_Pl_array(lmax, costheta, resultArray);
-#endif    
-    double prefact = 0.5/sqrt(M_PI*factorial(2*m));
-    for(int l=m; l<=lmax; l++) {
-        double prefactl=sqrt(2*l+1.)*prefact;
-        resultArray[l-m] *= prefactl;
-        if(derivArray)
-            derivArray[l-m] *= prefactl;
-        prefact *= sqrt((l-m+1.)/(l+m+1.));
-    }
-    if(deriv2Array) {
-        assert(derivArray!=NULL);
-        for(int l=m; l<=lmax; l++) {
-            // accurate treatment of asymptotic values to avoid NaN
-            if(m==0)
-                deriv2Array[l-m] = costheta * derivArray[l-m] - l*(l+1) * resultArray[l-m];
-            else if(costheta>=1-1e-6)
-                deriv2Array[l-m] = derivArray[l-m] * (costheta - 2*(l*(l+1)*(costheta-1)/m + m/(costheta+1)) );
-            else if(costheta<=-1+1e-6)
-                deriv2Array[l-m] = derivArray[l-m] * (costheta - 2*(l*(l+1)*(costheta+1)/m + m/(costheta-1)) );
-            else
-                deriv2Array[l-m] = costheta * derivArray[l-m] - (l*(l+1)-pow_2(m/sintheta)) * resultArray[l-m];
-        }
-    }
-    if(derivArray) {
-        for(int l=0; l<=lmax-m; l++)
-            derivArray[l] *= -sintheta;
-    }
-        return;
-    }
     if(m<0 || m>lmax || /* x<-1 || x>1 */ resultArray == NULL)
         throw std::domain_error("Invalid parameters in sphHarmArray");
-    double prefact = 0.5/M_SQRTPI;
     if(lmax==0) {
-        resultArray[0] = prefact;
+        resultArray[0] = 0.5/M_SQRTPI;
         if(derivArray)
             derivArray[0] = 0;
         if(deriv2Array)
             deriv2Array[0] = 0;
         return;
     }
-    double x = cos(theta), y2 = 1-x*x;
-    double y = (derivArray!=NULL || deriv2Array!=NULL) ? sqrt(y2) : 0;  // compute if needed
-    double Pmm = legendrePmm(m, x);
-    prefact *= sqrt( (2*m+1) / factorial(2*m) );
-    resultArray[0] = Pmm * prefact;
-    if(derivArray)
-        derivArray[0] = m * x / y * resultArray[0];
-    if(deriv2Array)
-        deriv2Array[0] = m * (1-m*x*x)/y2 * resultArray[0];
+    double x = cos(theta), y = abs(x)<1-1e-6 ? sqrt(1-x*x) : sin(theta);
+    double prefact;
+    legendrePmm(m, x, y, prefact, resultArray, derivArray, deriv2Array);
     if(lmax == m)
         return;
-    double Plm = x * (2*m+1) * Pmm, Plm1 = Pmm, Plm2 = 0;
+
+    const double EPS = 1e-8;  // threshold in y for applying asymptotic expressions for derivatives
+    // values of two previous un-normalized polynomials needed in the recurrent relation
+    double Plm1 = resultArray[0] / prefact, Plm = x * (2*m+1) * Plm1, Plm2 = 0;
+    // values of 2nd derivatives of un-normalized polynomials needed for the special case
+    // m==1 and y<<1, since we need another recurrent relation for computing 2nd derivative
+    double d2Plm1 = y, d2Plm2 = 0, d2Plm = 12 * x * y;
+
     for(int l=m+1; l<=lmax; l++) {
+        int ind = l-m;  // index in the output array
         if(l>m+1)  // skip first iteration which was assigned above
             Plm = (x * (2*l-1) * Plm1 - (l+m-1) * Plm2) / (l-m);  // use recurrence for the rest
         prefact *= sqrt( (2*l+1.) / (2*l-1.) * (l-m) / (l+m) );
-        //if(fabs(resultArray[l-m])>1e-10 && fabs(resultArray[l-m] - Plm * prefact)>1e-10)
-        resultArray[l-m] = Plm * prefact;
+        resultArray[ind] = Plm * prefact;
+        if(derivArray) {
+            double dPlm = 0;
+            if(y >= EPS)
+                dPlm = (l * x * Plm - (l+m) * Plm1) / y;
+            else if(m==0)
+                dPlm = -l*(l+1)/2 * y * (x>0 || l%2==1 ? 1 : -1);
+            else if(m==1)
+                dPlm = -l*(l+1)/2 * (x>0 || l%2==0 ? 1 : -1);
+            else if(m==2)
+                dPlm = l*(l+1)*(l+2)*(l-1)/4 * y * (x>0 || l%2==1 ? 1 : -1);
+            derivArray[ind] = prefact * dPlm;
+        }
+        if(deriv2Array!=NULL) {
+            if(y >= EPS)
+                deriv2Array[ind] = x * derivArray[ind] / (-y) - (l*(l+1)-pow_2(m/y)) * resultArray[ind];
+            else if(m==0)
+                deriv2Array[ind] = -l*(l+1)/2 * prefact * (x>0 || l%2==0 ? 1 : -1);
+            else if(m==1) {
+                if(l>m+1) {
+                    double twodPlm1 = -l*(l-1) * (x>0 || l%2==1 ? 1 : -1);
+                    d2Plm = ( (2*l-1) * (x * (d2Plm1 - Plm1) - y * twodPlm1) - l * d2Plm2) / (l-1);
+                }
+                deriv2Array[ind] = prefact * d2Plm;
+                d2Plm2 = d2Plm1;
+                d2Plm1 = d2Plm;
+            }
+            else if(m==2)
+                deriv2Array[ind] = l*(l+1)*(l+2)*(l-1)/4 * prefact * (x>0 || l%2==0 ? 1 : -1);
+        }
         Plm2 = Plm1;
         Plm1 = Plm;
     }
-    if(derivArray!=NULL || deriv2Array!=NULL) {
-        for(int l=m+1; l<=lmax; l++) {
-            derivArray[l-m] = (l * x * resultArray[l-m] - (l+m) * resultArray[l-m-1]) / y;
-            if(deriv2Array!=NULL)
-                deriv2Array[l-m] = x * derivArray[l-m] - (l*(l+1)-m*m/y2) * resultArray[l-m];
-        }
-    }
 }
-
-// ------ class for performing many transformations with identical setup ------ //
-
-LegendreTransform::LegendreTransform(unsigned int _lmax):
-    lmax(_lmax)
-{
-    nodes.resize(lmax+1);
-    weights.resize(lmax+1);
-    prepareIntegrationTableGL(-1, 1, lmax+1, &nodes.front(), &weights.front());
-    legPoly.resize(pow_2(lmax+1));
-    for(unsigned int i=0; i<=lmax; i++)
-        legendrePolyArray(lmax, 0, nodes[i], &legPoly[ i * (lmax+1) ]);
-}
-
-void LegendreTransform::forward(const double values[], double coefs[]) const
-{
-    for(unsigned int l=0; l<=lmax; l++) {
-        coefs[l]=0;
-        for(unsigned int i=0; i<=lmax; i++)
-            coefs[l] += values[i] * weights[i] * legPoly[ i * (lmax+1) + l ];
-    }
-}
-
-void LegendreTransform::inverse(const double coefs[], double values[]) const
-{
-    for(unsigned int i=0; i<=lmax; i++) {
-        values[i]=0;
-        for(unsigned int l=0; l<=lmax; l++)
-            values[i] += coefs[l] * legPoly[ i * (lmax+1) + l ] * (1+2*l)/2;
-    }
-}
-
 
 SphHarmIndices::SphHarmIndices(int _lmax, int _lstep, int _mmin, int _mmax, int _mstep) :
     lmax(_lmax), lstep(lmax>0 ? _lstep : 2), mmin(_mmin), mmax(_mmax), mstep(mmax>0||_mstep!=0 ? _mstep : 2)
@@ -197,6 +136,8 @@ int SphHarmIndices::index_m(unsigned int c)
     return c-l*(l+1);
 }
 
+// ------ class for performing many transformations with identical setup ------ //
+
 SphHarmTransformForward::SphHarmTransformForward(const SphHarmIndices& _ind):
     ind(_ind),
     nnodth (ind.lmax+1),  // number of nodes in Gauss-Legendre grid in cos(theta)
@@ -214,19 +155,18 @@ SphHarmTransformForward::SphHarmTransformForward(const SphHarmIndices& _ind):
     legFnc.resize(nnodth * nlegfn);
     thnodes.resize(nnodth);
     for(int j=0; j<nnodth; j++) {  // loop over nodes of theta-grid
-        // reorder nodes of theta grid so that even-indexed nodes correspond to costheta>=0
-        // and odd-indexed - to costheta<0, the latter will not be used later if ind.lstep==2
+        // reorder nodes of theta grid so that even-indexed nodes correspond to cos(theta)>=0
+        // and odd-indexed - to cos(theta)<0, the latter will not be used later if ind.lstep==2
         int tmpi = nnodth/2 + (j%2 ? -(j+1)/2 : j/2);
-        thnodes[j] = tmpnodes[tmpi];
+        thnodes[j] = acos(tmpnodes[tmpi]);
         // loop over m and compute all functions of order up to lmax for each m
         for(int m=0; m<=ind.mmax; m++)
-            sphHarmonicArray(ind.lmax, m, acos(thnodes[j]), &legFnc[ j * nlegfn + m * (ind.lmax+1) ]);
+            sphHarmonicArray(ind.lmax, m, thnodes[j], &legFnc[ j * nlegfn + m * (ind.lmax+1) ]);
         // multiply the values of all Legendre functions at theta[i]
         // by the weight of this node in GL quadrature and by additional prefactor
         for(int k=0; k<nlegfn; k++)
             legFnc[ j * nlegfn + k ] *= weights[tmpi] * 0.5 / M_SQRTPI;
     }
-    //TODO!!! optimize space usage for legFnc, eliminate redundant ones, switch to legendrePolyArray
 
     // compute the values of trigonometric functions at nodes of phi-grid for all mmin<=m<=mmax:
     // cos(m phi_k), and optionally sin(m phi_k) if terms with m<0 are non-trivial (i.e. mmin!=0)
@@ -253,8 +193,8 @@ unsigned int SphHarmTransformForward::index(int j, int k) const
     return j * (2*ind.mmax+1) + k+ind.mmax;
 }
 
-/// return the coordinate of j-th node for cos(theta) on (-1:1), 0 <= j <= ind.lmax
-double SphHarmTransformForward::costheta(int j) const
+/// return the coordinate of j-th node for theta on (0:pi), 0 <= j <= ind.lmax
+double SphHarmTransformForward::theta(int j) const
 {
     if(j<0 || j>ind.lmax)
         throw std::range_error("SphHarmTransformForward: index out of range");
@@ -335,19 +275,17 @@ void eliminateNearZeros(std::vector<double>& vec, double threshold)
 }
 
 double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
-    const double theta, const double phi)
+    const double theta, const double phi, double* tmptrig)
 {
-    //TODO!!! get rid of dynamic memory allocation
     const bool useSine = ind.mmin!=0;
-    std::vector<double> tmptrig(2*ind.mmax+1);
     if(ind.mmax>0)
-        trigMultiAngle(phi, ind.mmax, useSine, &tmptrig[1]);
-    std::vector<double> tmpleg(ind.lmax+1);
+        trigMultiAngle(phi, ind.mmax, useSine, tmptrig);
+    double* tmpleg = &tmptrig[2*ind.mmax];
     double result = 0;
     for(int m=ind.mmin; m<=ind.mmax; m+=ind.mstep) {
         int absm = abs(m);
         double trig = m==0 ? 1. : m>0 ? tmptrig[m]*M_SQRT2 : tmptrig[ind.mmax-m]*M_SQRT2;
-        sphHarmonicArray(ind.lmax, absm, theta, &tmpleg.front());
+        sphHarmonicArray(ind.lmax, absm, theta, tmpleg);
         // if lstep is even and m is odd, start from next even number greater than m (???)
         int lmin = ind.lstep==2 ? (absm+1)/2*2 : absm;
         for(int l=lmin; l<=ind.lmax; l+=ind.lstep) {

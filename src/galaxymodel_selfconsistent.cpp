@@ -81,8 +81,8 @@ void ComponentWithSpheroidalDF::update(
         totalPotential, actionFinder, *distrFunc, relError, maxNumEval);
 
     // recompute the spherical-harmonic expansion for the density
-    density.reset(new potential::DensitySphericalHarmonic(
-        numCoefsRadial, numCoefsAngular, densityWrapper, rmin, rmax));
+    density = potential::DensitySphericalHarmonic::create(
+        densityWrapper, rmin, rmax, numCoefsRadial, numCoefsAngular, 0);
 }
 
 ComponentWithDisklikeDF::ComponentWithDisklikeDF(

@@ -236,7 +236,12 @@ SymmetryType getSymmetry(const math::SphHarmIndices& ind);
 */
 math::SphHarmIndices getIndices(const SymmetryType sym, int lmax, int mmax);
 
-/** Computing spherical-harmonic potential expansion coefficients,
+/** Compute spherical-harmonic density expansion coefficients at the given radii */
+void computeDensityCoefs(const BaseDensity& dens, 
+    const math::SphHarmIndices& ind, const std::vector<double>& gridRadii,
+    std::vector< std::vector<double> > &coefs);
+
+/** Compute spherical-harmonic potential expansion coefficients,
     by first creating a sph.-harm.representation of the density profile,
     and then solving the Poisson equation.
     \param[in]  dens - the input density profile.
@@ -265,8 +270,8 @@ void computePotentialCoefs(const BasePotential& pot,
 class DensitySphericalHarmonic: public BaseDensity {
 public:
     /** construct the object from the provided density model and grid parameters */
-    DensitySphericalHarmonic(unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
-        const BaseDensity& density, double Rmin=0, double Rmax=0);
+    static PtrDensity create(const BaseDensity& src,
+        double rmin, double rmax, unsigned int gridSizeR, int lmax, int mmax);
 
     /** construct the object from stored coefficients */
     DensitySphericalHarmonic(const std::vector<double> &gridRadii,
@@ -284,17 +289,10 @@ private:
     math::SphHarmIndices ind;
 
     /// radial dependence of each sph.-harm. expansion term
-    std::vector<math::CubicSpline> splines;
+    std::vector<math::CubicSpline> spl;
 
     /// logarithmic density slopes 's' at small and large radii (rho ~ r^s)
     std::vector<double> innerSlope, outerSlope;
-
-    /** construct the array of splines from the provided values at grid nodes */
-    void initSpline(const std::vector<double> &gridRadii,
-        const std::vector< std::vector<double> > &coefs);
-
-    /** return spline-interpolated spherical-harmonic expansion coefficient at the given radius */
-    double rho_l(double r, int l) const;
 
     /** evaluate density at the position specified in cartesian coordinates */
     virtual double densityCar(const coord::PosCar &pos) const {

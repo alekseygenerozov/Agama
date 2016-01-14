@@ -19,11 +19,7 @@ namespace math {
 */
 double legendrePoly(const int l, const int m, const double x);
 
-/** Array of un-normalized associate Legendre polynomials P_l^m(x) and their derivatives.
-    The output arrays contain values of P and optionally dP/dx  for l=m,m+1,...,lmax;
-*/
-void legendrePolyArray(const int lmax, const int m, const double x,
-    double* result_array, double* deriv_array=0);
+//---------- new api -----------//
 
 /** Array of normalized associate Legendre polynomials W and their derivatives for l=m..lmax
     (theta-dependent factors in spherical-harmonic expansion):
@@ -40,41 +36,7 @@ void legendrePolyArray(const int lmax, const int m, const double x,
     (4) accurately handles values of theta close to 0 or pi.
 */
 void sphHarmonicArray(const int lmax, const int m, const double theta,
-    double* result_array, double* deriv_array=0, double* deriv2_array=0);
-
-/** Helper class for performing forward and reverse Legendre polynomial transformation.
-    It is defined as a 1:1 correspondence between two arrays of length lmax+1:
-      - values of some function f(x) defined on [-1:1], computed at nodes x_i, i=0..lmax;
-      - Legendre expansion coefficients C_l, l=0..lmax.
-    This transformation is exact if x_i are the nodes of Gauss-Legendre quadrature
-    of order lmax+1 on the interval [-1:1].
-    Once the tables have been set up for the given order lmax,
-    one may perform the forward and inverse transformation multiple times for
-    different sets of values/coefficients (note that these transformations are not in-place).
-*/
-class LegendreTransform {
-public:
-    /// set up the table of values of x_i and transformation coefficients
-    LegendreTransform(unsigned int lmax);
-
-    /// return the coordinate of i-th node on (-1:1), 0 <= i <= lmax
-    double x(unsigned int i) const { return nodes.at(i); }
-
-    /// compute the expansion coefficients from the function values specified at the set of nodes
-    void forward(const double values[] /*in*/, double coefs[] /*out*/) const;
-
-    /// compute the function values at the set of nodes from the expansion coefficients
-    void inverse(const double coefs[] /*in*/, double values[] /*out*/) const;
-
-    const unsigned int lmax;  /// order of expansion (>=0)
-private:
-    std::vector<double>
-    nodes,   ///< coordinates of the grid nodes on [-1:1]
-    weights, ///< weights of Gauss-Legendre quadrature rule
-    legPoly; ///< values of all Legendre polynomials of order <= lmax at all nodes of the grid
-};
-
-//---------- new api -----------//
+    double* resultArray, double* derivArray=0, double* deriv2Array=0);
 
 /** Indexing scheme for spherical-harmonic transformation.
     It defines the maximum order of expansion in theta (lmax) and phi (mmax),
@@ -129,6 +91,8 @@ public:
     of input_values need to be filled by the user; the transform routine takes this into account.
     The implementation uses 'naive' summation approach without any FFT or fast Legendre transform
     algorithms, has complexity O(lmax^2*mmax) and is only suitable for lmax <~ few dozen.
+    The transformation is 'lossless' (to machine precision) if the original function is
+    band-limited, i.e. given by a sum of spherical harmonics with order up to lmax and mmax.
 */
 class SphHarmTransformForward {
 public:
@@ -142,8 +106,8 @@ public:
     /// j (for theta, 0<=j<=ind.lmax) and k (for phi, ind.mmin<=k<=ind.mmax)
     unsigned int index(int j, int k) const;
 
-    /// return the coordinate of j-th node for cos(theta) on (-1:1), 0 <= j <= ind.lmax
-    double costheta(int j) const;
+    /// return the coordinate of j-th node for theta on (0:pi), 0 <= j <= ind.lmax
+    double theta(int j) const;
     
     /// return the coordinate of k-th node for phi on (-pi:pi), ind.mmin <= k <= ind.mmax
     double phi(int k) const;
@@ -169,7 +133,7 @@ private:
     nnodphi, ///< number of nodes in uniform grid in phi
     ntrigfn; ///< number of trig functions for each phi-node
     std::vector<double>
-    thnodes, ///< coordinates of the grid nodes in cos(theta) on [-1:1]
+    thnodes, ///< coordinates of the grid nodes in theta on (0:pi)
     legFnc,  ///< values of all associated Legendre functions of order <= lmax,mmax at nodes of theta-grid
     trigFnc; ///< values of sines and cosines at nodes of phi-grid
 
@@ -184,14 +148,16 @@ private:
 /** Routine for performing inverse spherical-harmonic transformation.
     Given the array of coefficients obtained by the forward transformation,
     it computes the value of function at the given position on unit sphere (theta,phi).
-    \param[in]  ind   - coefficient indexing scheme, defining lmax, mmax and skipped coefs
-    \param[in]  coefs - the array of coefficients
-    \param[in]  theta - the polar angle
-    \param[in]  phi   - the azimuthal angle
+    In doing so, it requires temporary storage that must be provided by the calling code.
+    \param[in]  ind   - coefficient indexing scheme, defining lmax, mmax and skipped coefs;
+    \param[in]  coefs - the array of coefficients;
+    \param[in]  theta - the polar angle;
+    \param[in]  phi   - the azimuthal angle;
+    \param[in,out] tmp  is a temporary storage with size (at least) ind.lmax+2*ind.mmax+1;
     \returns    the value of function at (theta,phi)
 */
 double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
-    const double theta, const double phi);
+    const double theta, const double phi, double* tmp);
 
 /** zero out array elements with magnitude smaller than the threshold
     (relative to the L1-norm of the array) */

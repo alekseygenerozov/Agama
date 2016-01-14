@@ -35,6 +35,9 @@ double factorial(const unsigned int n);
 /** Logarithm of factorial of an integer number (doesn't overflow quite that easy) */
 double lnfactorial(const unsigned int n);
 
+/** Double-factorial n!! of an integer number */
+double dfactorial(const unsigned int n);
+
 /** Gamma function */
 double gamma(const double x);
 
