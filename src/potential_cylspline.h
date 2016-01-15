@@ -36,13 +36,13 @@ public:
 
     /// init potential from N-body snapshot
     CylSplineExp(unsigned int _Ncoefs_R, unsigned int _Ncoefs_z, unsigned int _Ncoefs_phi, 
-        const particles::PointMassArray<coord::PosCyl>& points, SymmetryType _sym=ST_TRIAXIAL, 
+        const particles::PointMassArray<coord::PosCyl>& points, coord::SymmetryType _sym=coord::ST_TRIAXIAL, 
         double radius_min=0, double radius_max=0, double z_min=0, double z_max=0);
 
     ~CylSplineExp() {};
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "CylSplineExp"; };
-    virtual SymmetryType symmetry() const { return mysymmetry; };
+    virtual coord::SymmetryType symmetry() const { return mysymmetry; };
 
     /** retrieve coefficients of potential approximation.
         \param[out] gridR will be filled with the array of R-values of grid nodes
@@ -54,7 +54,7 @@ public:
         std::vector< std::vector<double> > &coefs) const;
 
 private:
-    SymmetryType mysymmetry;                  ///< may have different type of symmetry
+    coord::SymmetryType mysymmetry;           ///< may have different type of symmetry
     std::vector<double> grid_R, grid_z;       ///< nodes of the grid in cylindrical radius and vertical direction
     double Rscale;                            ///< scaling coefficient for transforming the interpolated potential; computed as -Phi(0)/Mtotal.
     std::vector<math::CubicSpline2d> splines; ///< array of 2d splines (for each m-component in the expansion in azimuthal angle)
@@ -87,7 +87,7 @@ public:
         The total number of density evaluations is gridR.size()*gridz.size(). */
     DensityCylGrid(const std::vector<double>& gridR, const std::vector<double>& gridz,
         const BaseDensity& srcDensity);
-    virtual potential::SymmetryType symmetry() const { return potential::ST_AXISYMMETRIC; }
+    virtual coord::SymmetryType symmetry() const { return coord::ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensityCylGrid"; };
 

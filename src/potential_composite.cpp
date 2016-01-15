@@ -29,11 +29,11 @@ double CompositeDensity::densitySph(const coord::PosSph &pos) const {
     return sum;
 }
 
-SymmetryType CompositeDensity::symmetry() const {
-    int sym = static_cast<int>(ST_SPHERICAL);
+coord::SymmetryType CompositeDensity::symmetry() const {
+    int sym = static_cast<int>(coord::ST_SPHERICAL);
     for(unsigned int index=0; index<components.size(); index++)
         sym &= static_cast<int>(components[index]->symmetry());
-    return static_cast<SymmetryType>(sym);
+    return static_cast<coord::SymmetryType>(sym);
 };
 
 
@@ -72,11 +72,11 @@ void CompositeCyl::evalCyl(const coord::PosCyl &pos,
     }
 }
 
-SymmetryType CompositeCyl::symmetry() const {
-    int sym = static_cast<int>(ST_SPHERICAL);
+coord::SymmetryType CompositeCyl::symmetry() const {
+    int sym = static_cast<int>(coord::ST_SPHERICAL);
     for(unsigned int index=0; index<components.size(); index++)
         sym &= static_cast<int>(components[index]->symmetry());
-    return static_cast<SymmetryType>(sym);
+    return static_cast<coord::SymmetryType>(sym);
 };
 
 } // namespace potential

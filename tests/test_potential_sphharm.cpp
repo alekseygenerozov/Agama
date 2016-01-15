@@ -73,7 +73,7 @@ potential::PtrPotential create_from_file(
             20,  /*numCoefsRadial*/
             4,   /*numCoefsAngular*/
             pts, /*points*/
-            potential::ST_TRIAXIAL));  /*symmetry (default value)*/
+            coord::ST_TRIAXIAL));  /*symmetry (default value)*/
     } else {
         // a rather lengthy way of setting parameters, used only for illustration:
         // normally these would be read from an INI file or from command line;
@@ -163,24 +163,42 @@ bool test_suite(const potential::BasePotential& p, const potential::BasePotentia
     return ok;
 }
 
-void testDensSH()
+bool testDensSH()
 {
     const potential::Dehnen dens(1., 1., 0.8, 0.5, 1.2);
-    std::vector<double> radii = math::createExpGrid(51, 0.01, 100);
+    std::vector<double> radii1 = math::createExpGrid(51, 0.01, 100);
+    // twice denser grid: every other node coincides with that of the first grid
+    std::vector<double> radii2 = math::createExpGrid(101,0.01, 100);
     std::vector<std::vector<double> > coefs1, coefs2;
-    computeDensityCoefs(dens, getIndices(dens.symmetry(), 8, 4), radii, coefs1);
-    potential::DensitySphericalHarmonic dens1(radii, coefs1);
-    // creating a sph-harm expansion from another s-h expansion - should produce identical results if
-    // the location of radial grid points is the same, and l_max is at least as large as the original one.
-    computeDensityCoefs(dens1, getIndices(dens1.symmetry(), 10, 6), radii, coefs2);
-    potential::DensitySphericalHarmonic dens2(radii, coefs2);
-    for(double r=0.125; r<=8; r*=4) {
-        for(double theta=0; theta<M_PI/2; theta+=0.314) {
-            coord::PosSph p(r, theta, 0);
-            std::cout << r<< ' '<<theta<<" : " <<dens.density(p) << " = " << 
-                dens1.density(p)<<", "<<dens2.density(p)<<"\n";
-        }
-    }
+    computeDensityCoefs(dens, math::SphHarmIndices(8, 6, dens.symmetry()), radii1, coefs1);
+    potential::DensitySphericalHarmonic dens1(radii1, coefs1);
+    // creating a sph-harm expansion from another s-h expansion:
+    // should produce identical results if the location of radial grid points 
+    // (partly) coincides with the first one, and the order of expansions lmax,mmax
+    // are at least as large as the original ones (the extra coefs will be zero).
+    computeDensityCoefs(dens1, math::SphHarmIndices(10, 8, dens1.symmetry()), radii2, coefs2);
+    potential::DensitySphericalHarmonic dens2(radii2, coefs2);
+    bool ok = true;
+    // check that the two sets of coefs are identical at equal radii
+    for(unsigned int c=0; c<coefs2[0].size(); c++)
+        for(unsigned int k=0; k<radii1.size(); k++)
+            if( (c<coefs1[0].size() && fabs(coefs1[k][c] - coefs2[k*2][c]) > 1e-12) ||
+                (c>=coefs1[0].size() && coefs2[k*2][c] != 0) )
+                ok = false;
+    double maxdiff = 0;
+    for(unsigned int k=0; k<radii1.size(); k++)
+        for(double theta=0; theta<M_PI/2; theta+=0.31) 
+            for(double phi=0; phi<M_PI; phi+=0.31) {
+                coord::PosSph p(radii1[k], theta, phi);
+                double d0 = dens .density(p);
+                double d1 = dens1.density(p);
+                double d2 = dens2.density(p);
+                if(fabs(d1-d2) / fabs(d1) > 1e-12)  // two SH expansions should give the same result
+                    ok = false;
+                maxdiff = fmax( maxdiff, fabs(d1-d0) / d0);
+            }
+    std::cout << "Max relative error in density = " << maxdiff << "\n";
+    return ok;
 }
 
 // definition of a single spherical-harmonic term with indices (l,m)
@@ -204,9 +222,8 @@ bool checkSH(const math::SphHarmIndices& ind)
     math::SphHarmTransformForward tr(ind);
     // array of original function values
     std::vector<double> d(tr.size());
-    for(int j=0; j<=ind.lmax; j+=ind.lstep)
-        for(int k=ind.mmin; k<=ind.mmax; k++)
-            d.at(tr.index(j, k)) = myfnc<l,m>(tr.theta(j), tr.phi(k));
+    for(int i=0; i<d.size(); i++)
+        d[i] = myfnc<l,m>(tr.theta(i), tr.phi(i));
     // array of SH coefficients
     std::vector<double> c(ind.size());
     tr.transform(&d.front(), &c.front());
@@ -219,39 +236,58 @@ bool checkSH(const math::SphHarmIndices& ind)
     double tmp[100];
     // array of function values after inverse transform
     std::vector<double> b(tr.size());
-    for(int j=0; j<=ind.lmax; j+=ind.lstep)
-        for(int k=ind.mmin; k<=ind.mmax; k++) {
-            unsigned int index = tr.index(j, k);
-            b.at(index) = math::sphHarmTransformInverse(ind, &c.front(), tr.theta(j), tr.phi(k), tmp);
-            if(fabs(d[index]-b[index])>1e-14)
-                return false;
-        }
+    for(int i=0; i<d.size(); i++) {
+        b[i] = math::sphHarmTransformInverse(ind, &c.front(), tr.theta(i), tr.phi(i), tmp);
+        if(fabs(d[i]-b[i]) > 1e-14)
+            return false;
+    }
     return true;
+}
+
+template<> double myfnc<3,0>(double theta, double phi) 
+{
+    coord::PosCar p(coord::toPosCar(coord::PosSph(1,theta,phi)));
+    return 1/(1+fabs(p.x+0.5*p.y+0.3*p.z));
+    p.x -= 0.5;
+    p.y -= 0.2;
+    p.z -= 0.1;
+    return 1/(1+p.x*p.x+p.y*p.y+p.z*p.z);
 }
 
 int main() {
     bool ok=true;
 
+    /*  test the computation of Plm
+    double th=1e-9;
+    double arr[100],derr[100],derrr[100];
+    std::cout << std::setprecision(15);
+    for(int m=0; m<=4; m++) {
+        math::sphHarmonicArray(10,m,th,arr,derr,derrr);
+        for(int l=m; l<=10; l++)
+            std::cout << "l="<<l<<",m="<<m<<" -> "<<arr[l-m]<<", "<<derr[l-m]<<", "<<derrr[l-m]<<"\n";
+    }*/
+        
     // perform several tests, some of them are expected to fail - because... (see comments below)
-    ok &= checkSH<0, 0>(math::SphHarmIndices(4, 2, 0, 2, 2));
-    ok &= checkSH<1,-1>(math::SphHarmIndices(4, 1,-4, 4, 1));
-    ok &= checkSH<1, 0>(math::SphHarmIndices(2, 1, 0, 0, 0));
-    ok &= checkSH<1, 1>(math::SphHarmIndices(6, 1, 0, 3, 1));
-    ok &= checkSH<1, 1>(math::SphHarmIndices(3, 1,-2, 2, 1));
-    ok &=!checkSH<1, 1>(math::SphHarmIndices(6, 2, 0, 2, 1)); // lstep==2 but we have odd-l term
-    ok &=!checkSH<1, 1>(math::SphHarmIndices(6, 1, 0, 2, 2)); // mstep==2 but we have odd-m term
-    ok &= checkSH<1, 1>(math::SphHarmIndices(6, 1, 0, 2, 1));
-    ok &=!checkSH<2,-2>(math::SphHarmIndices(6, 2, 0, 4, 1)); // mmin==0 but we have sine term
-    ok &= checkSH<2,-2>(math::SphHarmIndices(6, 2,-4, 4, 1));
-    ok &=!checkSH<2,-1>(math::SphHarmIndices(2, 2,-2, 2, 1)); // lstep==2 but we have odd-m term
+    ok &= checkSH<0, 0>(math::SphHarmIndices(4, 2, coord::ST_TRIAXIAL));
+    ok &= checkSH<1,-1>(math::SphHarmIndices(4, 4, coord::ST_XREFLECTION));
+    ok &=!checkSH<1, 0>(math::SphHarmIndices(2, 0, coord::ST_AXISYMMETRIC)); // axisymmetric implies z-reflection symmetry
+    ok &= checkSH<1, 0>(math::SphHarmIndices(2, 0, coord::ST_ZROTATION));    // while in this case it's only z-rotation symmetric
+    ok &= checkSH<1, 1>(math::SphHarmIndices(6, 3, coord::ST_YREFLECTION));
+    ok &= checkSH<1, 1>(math::SphHarmIndices(3, 2, coord::ST_ZREFLECTION));
+    ok &=!checkSH<1, 1>(math::SphHarmIndices(6, 1, coord::ST_XREFLECTION)); // odd-m term
+    ok &=!checkSH<1, 1>(math::SphHarmIndices(6, 2, coord::ST_REFLECTION));  // odd-l term
+    ok &=!checkSH<2,-2>(math::SphHarmIndices(6, 4, coord::ST_YREFLECTION)); // mmin==0 but we have sine term
+    ok &=!checkSH<2,-2>(math::SphHarmIndices(5, 2, coord::ST_XREFLECTION));
+    ok &= checkSH<2,-2>(math::SphHarmIndices(6, 4, coord::ST_ZREFLECTION));
+    /*ok &=!checkSH<2,-1>(math::SphHarmIndices(2, 2,-2, 2, 1)); // lstep==2 but we have odd-m term
     ok &= checkSH<2,-1>(math::SphHarmIndices(2, 1,-2, 2, 1));
     ok &=!checkSH<2,-1>(math::SphHarmIndices(6, 1,-4, 4, 2)); // mstep==2 but we have odd-m term
     ok &= checkSH<2,-1>(math::SphHarmIndices(6, 1,-4, 4, 1));
     ok &= checkSH<2, 0>(math::SphHarmIndices(2, 2, 0, 1, 1));
     ok &= checkSH<2, 1>(math::SphHarmIndices(4, 1,-2, 2, 1));
-    ok &= checkSH<2, 2>(math::SphHarmIndices(3, 1, 0, 2, 2));
-
-    testDensSH();
+    ok &= checkSH<2, 2>(math::SphHarmIndices(3, 1, 0, 2, 2));*/
+    
+    ok &= testDensSH();
 
     // axisymmetric multipole
     const potential::Dehnen deh1(1., 1., 0.8, .5, 1.2);
@@ -302,7 +338,7 @@ int main() {
     particles::PointMassArrayCar points = make_hernquist(100000, 0.8, 0.6);
     ok &= test_suite(*create_from_file(points, potential::BasisSetExp::myName()), hernq, 2e-2);
     // could also use create_from_file(points, "SplineExp");  below
-    potential::SplineExp sp4(20, 4, points, potential::ST_TRIAXIAL);
+    potential::SplineExp sp4(20, 4, points, coord::ST_TRIAXIAL);
     ok &= test_suite(sp4, hernq, 2e-2);
     ok &= test_suite(*create_from_file(points, potential::CylSplineExp::myName()), hernq, 2e-2);
 

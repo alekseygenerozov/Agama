@@ -81,7 +81,7 @@ struct ConfigPotential
 {
     PotentialType potentialType;   ///< type of the potential
     PotentialType densityType;     ///< specifies the density model used for initializing a potential expansion
-    SymmetryType symmetryType;     ///< degree of symmetry (mainly used to explicitly disregard certain terms in a potential expansion)
+    coord::SymmetryType symmetryType; ///< degree of symmetry (mainly used to explicitly disregard certain terms in a potential expansion)
     double mass;                   ///< total mass of the model (not applicable to all potential types)
     double scaleRadius;            ///< scale radius of the model (if applicable)
     double scaleRadius2;           ///< second scale radius of the model (if applicable)
@@ -98,7 +98,7 @@ struct ConfigPotential
     std::string fileName;          ///< name of file with coordinates of points, or coefficients of expansion, or any other external data array
     /// default constructor initializes the fields to some reasonable values
     ConfigPotential() :
-        potentialType(PT_UNKNOWN), densityType(PT_UNKNOWN), symmetryType(ST_DEFAULT),
+        potentialType(PT_UNKNOWN), densityType(PT_UNKNOWN), symmetryType(coord::ST_TRIAXIAL),
         mass(1.), scaleRadius(1.), scaleRadius2(1.), q(1.), p(1.), gamma(1.), sersicIndex(4.),
         numCoefsRadial(20), numCoefsAngular(6), numCoefsVertical(20),
         alpha(0.), splineSmoothFactor(1.), splineRMin(0), splineRMax(0), splineZMin(0), splineZMax(0)
@@ -118,7 +118,7 @@ typedef std::map<PotentialType, const char*> PotentialNameMapType;
 typedef std::map<PotentialType, const char*> DensityNameMapType;
 
 /// lists available symmetry types
-typedef std::map<SymmetryType,  const char*> SymmetryNameMapType;
+typedef std::map<coord::SymmetryType, const char*> SymmetryNameMapType;
 
 static PotentialNameMapType PotentialNames;
 static DensityNameMapType DensityNames;
@@ -163,11 +163,11 @@ static void initPotentialAndSymmetryNameMap()
 //    DensityNames[PT_EXPDISK] = CDensityExpDisk::myName();
 //    DensityNames[PT_SERSIC] = CDensitySersic::myName();
 
-    SymmetryNames[ST_NONE]         = "None";
-    SymmetryNames[ST_REFLECTION]   = "Reflection";
-    SymmetryNames[ST_TRIAXIAL]     = "Triaxial";
-    SymmetryNames[ST_AXISYMMETRIC] = "Axisymmetric";
-    SymmetryNames[ST_SPHERICAL]    = "Spherical";
+    SymmetryNames[coord::ST_NONE]         = "None";
+    SymmetryNames[coord::ST_REFLECTION]   = "Reflection";
+    SymmetryNames[coord::ST_TRIAXIAL]     = "Triaxial";
+    SymmetryNames[coord::ST_AXISYMMETRIC] = "Axisymmetric";
+    SymmetryNames[coord::ST_SPHERICAL]    = "Spherical";
 
     mapinitialized=true;
 }
@@ -207,11 +207,11 @@ static PotentialType getDensityTypeByName(const std::string& DensityName)
 }
 
 /// return the type of symmetry by its name, or ST_DEFAULT if unavailable
-static SymmetryType getSymmetryTypeByName(const std::string& SymmetryName)
+static coord::SymmetryType getSymmetryTypeByName(const std::string& SymmetryName)
 {
     if(!mapinitialized) initPotentialAndSymmetryNameMap();
     if(SymmetryName.empty()) 
-        return ST_DEFAULT;
+        return coord::ST_TRIAXIAL;  // default value
     // compare only the first letter (should abandon this simplification 
     // if more than one symmetry types are defined that could start with the same letter)
     for(SymmetryNameMapType::const_iterator iter=SymmetryNames.begin(); 
@@ -219,7 +219,7 @@ static SymmetryType getSymmetryTypeByName(const std::string& SymmetryName)
         ++iter)
         if(tolower(SymmetryName[0]) == tolower(iter->second[0])) 
             return iter->first;
-    return ST_DEFAULT;
+    return coord::ST_TRIAXIAL;
 }
 
 /// return file extension for writing the coefficients of potential of the given type,

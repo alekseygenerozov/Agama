@@ -17,19 +17,6 @@
 */
 namespace potential{
 
-/** defines the symmetry properties of density or potential */
-enum SymmetryType{ 
-    ST_NONE         = 0, ///< no symmetry whatsoever
-    ST_REFLECTION   = 1, ///< reflection about origin (change of sign of all coordinates simultaneously)
-    ST_PLANESYM     = 2, ///< reflection about principal planes (change of sign of any coordinate)
-    ST_ZROTSYM      = 4, ///< rotation about z axis
-    ST_SPHSYM       = 8, ///< rotation about arbitrary axis
-    ST_TRIAXIAL     = ST_REFLECTION | ST_PLANESYM, ///< triaxial symmetry
-    ST_AXISYMMETRIC = ST_TRIAXIAL | ST_ZROTSYM,    ///< axial symmetry
-    ST_SPHERICAL    = ST_AXISYMMETRIC | ST_SPHSYM, ///< spherical symmetry
-    ST_DEFAULT      = ST_TRIAXIAL                  ///< a default value
-};
-
 /// \name  Base class for all density models
 ///@{
 
@@ -72,7 +59,7 @@ public:
         return densitySph(pos); }
 
     /// returns the symmetry type of this density or potential
-    virtual SymmetryType symmetry() const = 0;
+    virtual coord::SymmetryType symmetry() const = 0;
 
     /// return the name of density or potential model
     virtual const char* name() const = 0;
@@ -293,7 +280,7 @@ class BasePotentialSph: public BasePotential, coord::IScalarFunction<coord::Sph>
     Conversion into other coordinate systems is implemented in this class. */
 class BasePotentialSphericallySymmetric: public BasePotential, math::IFunction{
 
-    virtual SymmetryType symmetry() const { return ST_SPHERICAL; }
+    virtual coord::SymmetryType symmetry() const { return coord::ST_SPHERICAL; }
 
     /** find the mass enclosed within a given radius from the radial component of force */
     virtual double enclosedMass(const double radius) const;
@@ -337,24 +324,24 @@ inline double totalEnergy(const BasePotential& potential, const coord::PosVelSph
 
 /** check if the density model is spherically symmetric */
 inline bool isSpherical(const BaseDensity& dens) {
-    return (dens.symmetry() & ST_SPHERICAL) == ST_SPHERICAL;
+    return (dens.symmetry() & coord::ST_SPHERICAL) == coord::ST_SPHERICAL;
 }
 
 /** check if the density model is axisymmetric in the 'common definition'
     (i.e., invariant under rotation about z axis and under change of sign in z) */
 inline bool isAxisymmetric(const BaseDensity& dens) {
-    return (dens.symmetry() & ST_AXISYMMETRIC) == ST_AXISYMMETRIC;
+    return (dens.symmetry() & coord::ST_AXISYMMETRIC) == coord::ST_AXISYMMETRIC;
 }
 
 /** check if the density model is rotationally symmetric about z axis */
 inline bool isZRotSymmetric(const BaseDensity& dens) {
-    return (dens.symmetry() & ST_ZROTSYM) == ST_ZROTSYM;
+    return (dens.symmetry() & coord::ST_ZROTATION) == coord::ST_ZROTATION;
 }
 
 /** check if the density model is triaxial
     (symmetric under reflection about any of the three principal planes) */
 inline bool isTriaxial(const BaseDensity& dens) {
-    return (dens.symmetry() & ST_TRIAXIAL) == ST_TRIAXIAL;
+    return (dens.symmetry() & coord::ST_TRIAXIAL) == coord::ST_TRIAXIAL;
 }
 
 
@@ -380,7 +367,7 @@ coord::PosCyl unscaleCoords(const double vars[], double* jac=0);
 class DensityIntegrandNdim: public math::IFunctionNdim {
 public:
     DensityIntegrandNdim(const BaseDensity& _dens, bool _nonnegative = false) :
-        dens(_dens), axisym((_dens.symmetry() & ST_ZROTSYM) == ST_ZROTSYM), nonnegative(_nonnegative) {}
+        dens(_dens), axisym(isZRotSymmetric(_dens)), nonnegative(_nonnegative) {}
 
     /// integrand for the density at a given point (R,z,phi) with appropriate coordinate scaling
     virtual void eval(const double vars[], double values[]) const;

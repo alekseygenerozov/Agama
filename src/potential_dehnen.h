@@ -14,8 +14,8 @@ public:
     Dehnen(double _mass, double _scalerad, double _q, double _p, double _gamma);
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Dehnen"; };
-    virtual SymmetryType symmetry() const { 
-        return (q==1 ? (p==1 ? ST_SPHERICAL : ST_AXISYMMETRIC) : ST_TRIAXIAL); };
+    virtual coord::SymmetryType symmetry() const { 
+        return (q==1 ? (p==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC) : coord::ST_TRIAXIAL); };
     virtual double totalMass() const { return mass; }
 private:
     const double mass;       ///< total mass of the model

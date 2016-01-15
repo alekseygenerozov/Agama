@@ -17,7 +17,7 @@ public:
     CompositeDensity(const std::vector<PtrDensity>& _components);
 
     /** provides the 'least common denominator' for the symmetry degree */
-    virtual SymmetryType symmetry() const;
+    virtual coord::SymmetryType symmetry() const;
 
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "CompositeDensity"; };
@@ -38,7 +38,7 @@ public:
     CompositeCyl(const std::vector<PtrPotential>& _components);
     
     /** provides the 'least common denominator' for the symmetry degree */
-    virtual SymmetryType symmetry() const;
+    virtual coord::SymmetryType symmetry() const;
 
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "CompositePotential"; };

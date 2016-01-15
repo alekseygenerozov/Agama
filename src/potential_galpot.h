@@ -117,7 +117,7 @@ public:
     /// construct a generic profile with user-specified radial and vertical functions
     DiskDensity(const math::PtrFunction& _radialFnc, const math::PtrFunction& _verticalFnc) :
         radialFnc(_radialFnc), verticalFnc(_verticalFnc) {};
-    virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
+    virtual coord::SymmetryType symmetry() const { return coord::ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DiskDensity"; };
 private:
@@ -138,7 +138,7 @@ public:
         verticalFnc(createVerticalDiskFnc(_params)) {};
     DiskAnsatz(const math::PtrFunction& _radialFnc, const math::PtrFunction& _verticalFnc) :
         radialFnc(_radialFnc), verticalFnc(_verticalFnc) {};
-    virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
+    virtual coord::SymmetryType symmetry() const { return coord::ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DiskAnsatz"; };
 private:
@@ -177,8 +177,8 @@ struct SphrParam{
 class SpheroidDensity: public BaseDensity{
 public:
     SpheroidDensity (const SphrParam &_params);
-    virtual SymmetryType symmetry() const { 
-        return params.axisRatio==1?ST_SPHERICAL:ST_AXISYMMETRIC; }
+    virtual coord::SymmetryType symmetry() const { 
+        return params.axisRatio==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "SpheroidDensity"; };
 private:

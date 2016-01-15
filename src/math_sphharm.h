@@ -4,6 +4,7 @@
     \author Eugene Vasiliev
 */
 #pragma once
+#include "coord.h"
 #include <vector>
 
 namespace math {
@@ -42,21 +43,30 @@ void sphHarmonicArray(const int lmax, const int m, const double theta,
     It defines the maximum order of expansion in theta (lmax) and phi (mmax),
     that should satisfy 0 <= mmax <= lmax (0 means using only one term),
     and also defines which coefficients to skip (they are assumed to be identically zero
-    due to particular symmetries of the function), specified by lstep, mmin and mstep.
+    due to particular symmetries of the function), specified by step, lmin and mmin.
+    Namely, the loop over coefficients should look like
+    \code
+    for(int m=ind.mmin(); m<=ind.mmax; m++)
+       for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step)
+           doSomethingWithCoefficient(ind.index(l, m));
+    \endcode
     This scheme is used in the forward and inverse SH transformation routines.
 */
 class SphHarmIndices {
 public:
-    SphHarmIndices(int _lmax, int _lstep, int _mmin, int _mmax, int _mstep);
     const int
     lmax,  ///< order of expansion in theta (>=0)
-    lstep, ///< 1 if all coefs in theta are used, 2 if only even-l are used
-    mmin,  ///< 0 if only cosines are used, -mmax if both sine and cosine coefs are used
     mmax,  ///< order of expansion in phi (0<=mmax<=lmax)
-    mstep; ///< 1 if all coefs in phi are used, 2 if only even-m coefs are used
+    step;  ///< 1 if all l terms are used, 2 if only every other l term for each m is used
+
+    /// initialize the index set with given maximum order and symmetry properties
+    SphHarmIndices(int lmax, int mmax, coord::SymmetryType sym);
+
+    /// return symmetry properties of this index set
+    coord::SymmetryType symmetry() const { return sym; }
 
     /// number of elements in the array of spherical-harmonic coefficients
-    unsigned int size() const { return (lmax+1)*(lmax+1); }
+    inline unsigned int size() const { return (lmax+1)*(lmax+1); }
 
     /// index of coefficient with the given l and m
     /// (0<=l<=lmax, -l<=m<=l, no range check performed!)
@@ -66,7 +76,31 @@ public:
     static int index_l(unsigned int c);
     
     /// decode the m-index from the combined index of a coefficient
-    static int index_m(unsigned int c); 
+    static int index_m(unsigned int c);
+
+    /// minimum l-index for the given m (if larger than lmax, it means that this value of m is not used)
+    inline int lmin(int m) const { return lmin_arr[m+mmax]; }
+
+    /// minimum m-index
+    inline int mmin() const { return (sym & coord::ST_YREFLECTION) == coord::ST_YREFLECTION ? 0 : -mmax; }
+
+private:
+    coord::SymmetryType sym;   ///< symmetry properties of this index set
+    std::vector<int> lmin_arr; ///< array of minimum l-indices for each m
+};
+
+SphHarmIndices getIndicesFromCoefs(const std::vector<double> &C);
+
+class FourierTransformForward {
+public:
+    FourierTransformForward(int mmax, bool useSine);
+    inline unsigned int size() const { return useSine ? mmax*2+1 : mmax+1; }
+    inline double phi(unsigned int i) const { return i*M_PI/(mmax+0.5); }
+    void transform(const double values[] /*in*/, double coefs[] /*out*/) const;
+private:
+    const int mmax;
+    const bool useSine;
+    std::vector<double> trigFnc;
 };
 
 /** Class for performing forward spherical-harmonic transformation.
@@ -76,14 +110,12 @@ public:
     The workflow is the following:
       - create the instance of forward transform class for the given indexing scheme;
       - for each function f(theta,phi) the user should collect its values at the nodes of grid
-        specified by member functions `costheta(j)` and `phi(k)` and store in a 2d array
-        with length `size()`, using the following loop:
+        specified by member functions `theta(i)` and `phi(i)` into an array with length `size()`:
         \code
         SphHarmTransformForward trans(ind);
         std::vector<double> input_values(trans.size());
-        for(int j=0; j<=ind.lmax; j+=ind.lstep)
-            for(int k=ind.mmin; k<=ind.mmax; k++)
-                input_values[trans.index(j, k)] = my_function(trans.costheta(j), trans.phi(k));
+        for(unsigned int i=0; i<trans.size(); i++)
+            input_values[i] = my_function(trans.theta(i), trans.phi(i));
         std::vector<double> output_coefs(ind.size());
         trans.transform(&values.front(), &output_coefs.front());
         \endcode
@@ -100,42 +132,34 @@ public:
     SphHarmTransformForward(const SphHarmIndices& ind);
 
     /// return the required size of input array for the forward transformation
-    unsigned int size() const { return (ind.lmax+1) * (2*ind.mmax+1); }
+    inline unsigned int size() const { return thetasize() * fourier.size(); }
 
-    /// return the index of element in the input array for the given indices
-    /// j (for theta, 0<=j<=ind.lmax) and k (for phi, ind.mmin<=k<=ind.mmax)
-    unsigned int index(int j, int k) const;
-
-    /// return the coordinate of j-th node for theta on (0:pi), 0 <= j <= ind.lmax
-    double theta(int j) const;
+    /// return the theta coordinate (0:pi) of i-th element of input array, 0 <= i < size()
+    inline double theta(unsigned int i) const { return thnodes[i / fourier.size()]; }
     
-    /// return the coordinate of k-th node for phi on (-pi:pi), ind.mmin <= k <= ind.mmax
-    double phi(int k) const;
+    /// return the theta coordinate [0:2pi) of i-th element of input array, 0 <= i < size()
+    inline double phi(unsigned int i) const { return fourier.phi(i % fourier.size()); }
 
     /** perform the transformation of input array (values) into the array of coefficients.
-        \param[in]  values is the array of function values at a rectangular grid in (theta,phi):
-        cos(theta_j) and phi_k are given by the member functions `costheta(j)` and `phi(k)`;
-        the input array of length `size()` must be arranged so that
-        values[index(j,k)] = f(theta_j, phi_k).
+        \param[in]  values is the array of function values at a rectangular grid in (theta,phi),
+        arranged so that  values[i] = f(theta(i), phi(i)), 0 <= i < size().
         \param[out] coefs must point to an existing array of length `ind.size()`,
         which will be filled with spherical-harmonic expansion coefficients as follows:
         coefs[ind.index(l,m)] = C_lm, 0 <= l <= lmax, -l <= m <= l.
     */
     void transform(const double values[] /*in*/, double coefs[] /*out*/) const;
 
-    /// coefficient indexing scheme (including lmax and mmax)
-    const SphHarmIndices ind;
-
 private:
-    const int 
+    const SphHarmIndices ind;  ///< coefficient indexing scheme (including lmax and mmax)
+    const FourierTransformForward fourier;
+   /* const int 
     nnodth,  ///< number of nodes in Gauss-Legendre grid in cos(theta)
     nlegfn,  ///< number of Legendre functions for each theta-node
     nnodphi, ///< number of nodes in uniform grid in phi
-    ntrigfn; ///< number of trig functions for each phi-node
+    ntrigfn; ///< number of trig functions for each phi-node*/
     std::vector<double>
-    thnodes, ///< coordinates of the grid nodes in theta on (0:pi)
-    legFnc,  ///< values of all associated Legendre functions of order <= lmax,mmax at nodes of theta-grid
-    trigFnc; ///< values of sines and cosines at nodes of phi-grid
+    thnodes, ///< coordinates of the grid nodes in theta on (0:pi/2]
+    legFnc;  ///< values of all associated Legendre functions of order <= lmax,mmax at nodes of theta-grid
 
     /// index of Legendre function P_{lm}(theta_j) in the `legFnc` array
     unsigned int indLeg (int j, int l, int m) const;
@@ -143,6 +167,10 @@ private:
     unsigned int indTrig(int k, int m) const;
     /// index of Fourier coefficient F_m(theta_j) in the intermediate coef array (in transform)
     unsigned int indFour(int j, int m) const;
+    /// whether the values of function at z<0 need to be computed in addition to z>0
+    bool zsym() const { return (ind.symmetry() & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION; }
+    /// number of sample points in theta, spanning either (0:pi/2] or (0:pi)
+    unsigned int thetasize() const { return zsym() ? ind.lmax/2+1 : ind.lmax+1; }
 };
 
 /** Routine for performing inverse spherical-harmonic transformation.

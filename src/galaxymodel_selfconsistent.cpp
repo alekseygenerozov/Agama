@@ -32,7 +32,7 @@ public:
         double _relError, unsigned int _maxNumEval) :
     model(pot, af, df), relError(_relError), maxNumEval(_maxNumEval) {};
 
-    virtual potential::SymmetryType symmetry() const { return potential::ST_AXISYMMETRIC; }
+    virtual coord::SymmetryType symmetry() const { return coord::ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensityFromDF"; };
     virtual double enclosedMass(const double) const {  // should never be used -- too slow

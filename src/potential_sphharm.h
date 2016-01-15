@@ -19,12 +19,12 @@ public:
     unsigned int getNumCoefsAngular() const { return Ncoefs_angular; }
 
 protected:
-    SymmetryType mysymmetry;             ///< specifies the type of symmetry
+    coord::SymmetryType mysymmetry;      ///< specifies the type of symmetry
     unsigned int Ncoefs_angular;         ///< l_max, the order of angular expansion (0 means spherically symmetric model)
     int lmax, lstep, mmin, mmax, mstep;  ///< range of angular coefficients used for given symmetry
 
     /// assigns the range for angular coefficients based on mysymmetry
-    void setSymmetry(SymmetryType sym);
+    void setSymmetry(coord::SymmetryType sym);
 
 };  // class SphericalHarmonicCoefSet
 
@@ -49,7 +49,7 @@ private:
     virtual void evalSph(const coord::PosSph &pos,
         double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const;
 
-    virtual SymmetryType symmetry() const { return mysymmetry; }
+    virtual coord::SymmetryType symmetry() const { return mysymmetry; }
 
 };  // class BasePotentialSphericalHarmonic
 
@@ -63,7 +63,7 @@ public:
 
     /// init potential from a discrete point mass set
     BasisSetExp(double _Alpha, unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
-        const particles::PointMassArray<coord::PosSph> &points, SymmetryType sym=ST_TRIAXIAL);
+        const particles::PointMassArray<coord::PosSph> &points, coord::SymmetryType sym=coord::ST_TRIAXIAL);
 
     /// init potential from stored coefficients
     BasisSetExp(double _Alpha, const std::vector< std::vector<double> > &coefs);
@@ -132,7 +132,7 @@ public:
     */
     SplineExp(unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
         const particles::PointMassArray<coord::PosSph> &points, 
-        SymmetryType sym=ST_TRIAXIAL, double smoothFactor=0, 
+        coord::SymmetryType sym=coord::ST_TRIAXIAL, double smoothFactor=0, 
         double Rmin=0, double Rmax=0);
 
     /// init potential from stored spherical-harmonic coefficients at given radii
@@ -224,7 +224,7 @@ private:
 
 /** Determine the symmetry type corresponding to the given spherical-harmonic
     coefficient indexing scheme */
-SymmetryType getSymmetry(const math::SphHarmIndices& ind);
+//SymmetryType getSymmetry(const math::SphHarmIndices& ind);
 
 /** Create the spherical-harmonic indexing scheme for the given symmetry type
     and expansion order.
@@ -234,7 +234,7 @@ SymmetryType getSymmetry(const math::SphHarmIndices& ind);
     \param[in] mmax - (max) order of expansion in azimuth (phi), the actual may be set to zero.
     \returns   the instance of indexing scheme to be passed to spherical harmonic transform.
 */
-math::SphHarmIndices getIndices(const SymmetryType sym, int lmax, int mmax);
+//math::SphHarmIndices getIndices(const SymmetryType sym, int lmax, int mmax);
 
 /** Compute spherical-harmonic density expansion coefficients at the given radii */
 void computeDensityCoefs(const BaseDensity& dens, 
@@ -277,7 +277,7 @@ public:
     DensitySphericalHarmonic(const std::vector<double> &gridRadii,
         const std::vector< std::vector<double> > &coefs);
 
-    virtual SymmetryType symmetry() const { return getSymmetry(ind); }
+    virtual coord::SymmetryType symmetry() const { return ind.symmetry(); }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensitySphericalHarmonic"; };
 
@@ -315,7 +315,7 @@ public:
         const std::vector<double>& _V,
         const std::vector<double>& _U,
         const std::vector<double>& _W);
-    virtual SymmetryType symmetry() const { return getSymmetry(ind); }
+    virtual coord::SymmetryType symmetry() const { return ind.symmetry(); }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "PowerLaw"; };
 private:
@@ -367,7 +367,7 @@ public:
         std::vector<std::vector<double> > &Phi,
         std::vector<std::vector<double> > &dPhi) const;
 
-    virtual SymmetryType symmetry() const { return getSymmetry(ind); }
+    virtual coord::SymmetryType symmetry() const { return ind.symmetry(); }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Multipole"; };
 

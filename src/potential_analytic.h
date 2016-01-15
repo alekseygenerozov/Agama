@@ -50,7 +50,7 @@ class MiyamotoNagai: public BasePotentialCyl{
 public:
     MiyamotoNagai(double _mass, double _scaleRadiusA, double _scaleRadiusB) :
         BasePotentialCyl(), mass(_mass), scaleRadiusA(_scaleRadiusA), scaleRadiusB(_scaleRadiusB) {};
-    virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
+    virtual coord::SymmetryType symmetry() const { return coord::ST_AXISYMMETRIC; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "MiyamotoNagai"; };
     virtual double totalMass() const { return mass; }
@@ -70,8 +70,8 @@ public:
     Logarithmic(double sigma, double coreRadius=0, double axisRatioYtoX=1, double axisRatioZtoX=1) :
         BasePotentialCar(), sigma2(pow_2(sigma)), coreRadius2(pow_2(coreRadius)),
         q2(pow_2(axisRatioYtoX)), p2(pow_2(axisRatioZtoX)) {};
-    virtual SymmetryType symmetry() const { 
-        return p2==1 ? (q2==1 ? ST_SPHERICAL : ST_AXISYMMETRIC) : ST_TRIAXIAL; }
+    virtual coord::SymmetryType symmetry() const { 
+        return p2==1 ? (q2==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC) : coord::ST_TRIAXIAL; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Logarithmic"; };
     virtual double totalMass() const { return INFINITY; }
@@ -91,8 +91,8 @@ class Harmonic: public BasePotentialCar{
 public:
     Harmonic(double Omega, double axisRatioYtoX=1, double axisRatioZtoX=1) :
         BasePotentialCar(), Omega2(pow_2(Omega)), q2(pow_2(axisRatioYtoX)), p2(pow_2(axisRatioZtoX)) {};
-    virtual SymmetryType symmetry() const { 
-        return p2==1 ? (q2==1 ? ST_SPHERICAL : ST_AXISYMMETRIC) : ST_TRIAXIAL; }
+    virtual coord::SymmetryType symmetry() const { 
+        return p2==1 ? (q2==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC) : coord::ST_TRIAXIAL; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Harmonic"; };
     virtual double totalMass() const { return INFINITY; }

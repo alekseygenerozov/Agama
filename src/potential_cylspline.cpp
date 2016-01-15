@@ -162,12 +162,12 @@ public:
 
     /// init potential from N-body snapshot
     DirectPotential(const particles::PointMassArray<coord::PosCyl>& _points, 
-        unsigned int mmax, SymmetryType sym);
+        unsigned int mmax, coord::SymmetryType sym);
 
     virtual ~DirectPotential() {};
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Direct"; };
-    virtual SymmetryType symmetry() const { return mysymmetry; }
+    virtual coord::SymmetryType symmetry() const { return mysymmetry; }
 
     /// compute m-th azimuthal harmonic of potential
     double Rho_m(double R, double z, int m) const;
@@ -188,7 +188,7 @@ private:
     const particles::PointMassArray<coord::PosCyl>* points;
 
     /// symmetry type of the input density model (axisymmetric or not)
-    SymmetryType mysymmetry;
+    coord::SymmetryType mysymmetry;
 
     /// interpolating splines for Fourier harmonics Rho_m(R,z), 
     /// in case that the input density is not axisymmetric
@@ -209,7 +209,7 @@ DirectPotential::DirectPotential(const BaseDensity& _density, unsigned int _mmax
     // initialize approximating spline for faster hypergeometric function evaluation
     for(unsigned int m=0; m<=_mmax; m++)
         besselInts.push_back(BesselIntegral(m));
-    if((mysymmetry & ST_AXISYMMETRIC)==ST_AXISYMMETRIC)
+    if((mysymmetry & coord::ST_AXISYMMETRIC)==coord::ST_AXISYMMETRIC)
         return;  // no further action necessary
     // otherwise prepare interpolating splines in (R,z) for Fourier expansion of density in angle phi
     int mmax=_mmax;
@@ -231,11 +231,11 @@ DirectPotential::DirectPotential(const BaseDensity& _density, unsigned int _mmax
     }
     math::Matrix<double> values(grid.size(), gridz.size());
     // whether densities at z and -z are different
-    bool zsymmetry = (density->symmetry()&ST_PLANESYM)==ST_PLANESYM;
+    bool zsymmetry = (density->symmetry()&coord::ST_TRIAXIAL)==coord::ST_TRIAXIAL;
     // if triaxial symmetry, do not use sine terms which correspond to m<0
-    int mmin = (density->symmetry() & ST_PLANESYM)==ST_PLANESYM ? 0 :-1;
+    int mmin = (density->symmetry() & coord::ST_TRIAXIAL)==coord::ST_TRIAXIAL ? 0 :-1;
     // if triaxial symmetry, use only even m
-    int mstep= (density->symmetry() & ST_PLANESYM)==ST_PLANESYM ? 2 : 1;
+    int mstep= (density->symmetry() & coord::ST_TRIAXIAL)==coord::ST_TRIAXIAL ? 2 : 1;
     for(int m=mmax*mmin; m<=mmax; m+=mstep) {
         for(unsigned int iR=0; iR<grid.size(); iR++)
             for(unsigned int iz=0; iz<grid.size(); iz++) {
@@ -259,7 +259,7 @@ DirectPotential::DirectPotential(const BaseDensity& _density, unsigned int _mmax
 }
 
 DirectPotential::DirectPotential(const particles::PointMassArray<coord::PosCyl>& _points, 
-    unsigned int _mmax, SymmetryType sym) :
+    unsigned int _mmax, coord::SymmetryType sym) :
     density(NULL), points(&_points), mysymmetry(sym) 
 {
     if(points->size()==0)
@@ -368,7 +368,7 @@ double DirectPotential::Phi_m(double R, double Z, int m) const
         {
             const coord::PosCyl& pc = pt->first;
             double val1 = besselInts[math::abs(m)].value(R, pc.R, Z-pc.z);
-            if((mysymmetry & ST_PLANESYM)==ST_PLANESYM)   // add symmetric contribution from -Z
+            if((mysymmetry & coord::ST_TRIAXIAL)==coord::ST_TRIAXIAL)   // add symmetric contribution from -Z
                 val1 = (val1 + besselInts[math::abs(m)].value(R, pc.R, Z+pc.z))/2.;
             if(math::isFinite(val1))
                 val += pt->second * val1 * (m==0 ? 1 : m>0 ? 2*cos(m*pc.phi) : 2*sin(-m*pc.phi) );
@@ -419,12 +419,12 @@ CylSplineExp::CylSplineExp(unsigned int Ncoefs_R, unsigned int Ncoefs_z, unsigne
 }
 
 CylSplineExp::CylSplineExp(unsigned int Ncoefs_R, unsigned int Ncoefs_z, unsigned int Ncoefs_phi, 
-    const particles::PointMassArray<coord::PosCyl>& points, SymmetryType _sym, 
+    const particles::PointMassArray<coord::PosCyl>& points, coord::SymmetryType _sym, 
     double radius_min, double radius_max, double z_min, double z_max)
 {
     mysymmetry=_sym;
     if(Ncoefs_phi==0)
-        mysymmetry=(SymmetryType)(mysymmetry | ST_ZROTSYM);
+        mysymmetry=(coord::SymmetryType)(mysymmetry | coord::ST_ZROTATION);
     DirectPotential pot_tmp(points, Ncoefs_phi, mysymmetry);
     initPot(Ncoefs_R, Ncoefs_z, Ncoefs_phi, pot_tmp, radius_min, radius_max, z_min, z_max);
 }
@@ -443,11 +443,11 @@ CylSplineExp::CylSplineExp(const std::vector<double> &gridR, const std::vector<d
         initSplines(coefs);
         // check symmetry
         int mmax=static_cast<int>(splines.size()/2);
-        mysymmetry=mmax==0 ? ST_AXISYMMETRIC : ST_TRIAXIAL;
+        mysymmetry=mmax==0 ? coord::ST_AXISYMMETRIC : coord::ST_TRIAXIAL;
         for(int m=-mmax; m<=mmax; m++)
             if(!splines[m+mmax].isEmpty()) {
                 if(m<0 || (m>0 && m%2==1))
-                    mysymmetry = ST_NONE;//(SymmetryType)(mysymmetry & ~ST_PLANESYM & ~ST_ZROTSYM);
+                    mysymmetry = coord::ST_NONE;//(SymmetryType)(mysymmetry & ~ST_TRIAXIAL & ~ST_ZROTSYM);
             }
     }
 }
@@ -474,7 +474,7 @@ double CylSplineExp::computePhi_m(double R, double z, int m, const BasePotential
         // compute azimuthal Fourier harmonic coefficient for the given m
         // by averaging the input potential over phi
         if(R==0 && m!=0) return 0;
-        double phimax=(potential.symmetry() & ST_PLANESYM)==ST_PLANESYM ? M_PI_2 : 2*M_PI;
+        double phimax=(potential.symmetry() & coord::ST_TRIAXIAL)==coord::ST_TRIAXIAL ? M_PI_2 : 2*M_PI;
         return math::integrate(PotentialAzimuthalAverageIntegrand(potential, R, z, m),
             0, phimax, EPSREL_POTENTIAL_INT) / phimax;
     }
@@ -489,11 +489,11 @@ void CylSplineExp::initPot(unsigned int _Ncoefs_R, unsigned int _Ncoefs_z, unsig
         throw std::invalid_argument("CylSplineExp: invalid grid size");
     mysymmetry = potential.symmetry();
     // whether we need to compute potential at z<0 independently from z>0
-    bool zsymmetry= (mysymmetry & ST_PLANESYM)==ST_PLANESYM;
-    int mmax = (mysymmetry & ST_AXISYMMETRIC) == ST_AXISYMMETRIC ? 0 : _Ncoefs_phi;
+    bool zsymmetry= (mysymmetry & coord::ST_TRIAXIAL)==coord::ST_TRIAXIAL;
+    int mmax = (mysymmetry & coord::ST_AXISYMMETRIC) == coord::ST_AXISYMMETRIC ? 0 : _Ncoefs_phi;
     // if triaxial symmetry, do not use sine terms which correspond to m<0
-    int mmin = (mysymmetry & ST_PLANESYM)==ST_PLANESYM ? 0 :-1;
-    int mstep= (mysymmetry & ST_PLANESYM)==ST_PLANESYM ? 2 : 1;  // if triaxial symmetry, use only even m
+    int mmin = (mysymmetry & coord::ST_TRIAXIAL)==coord::ST_TRIAXIAL ? 0 :-1;
+    int mstep= (mysymmetry & coord::ST_TRIAXIAL)==coord::ST_TRIAXIAL ? 2 : 1;  // if triaxial symmetry, use only even m
     if(radius_max==0 || radius_min==0) {
         double totalmass = potential.totalMass();
         if(!math::isFinite(totalmass))
@@ -753,7 +753,7 @@ void CylSplineExp::evalCyl(const coord::PosCyl &pos,
                 sHess.dzdphi += dPhi_m_dzscaled* -m*sinmphi;
             }
         }
-    /*if(pos.z==0 && (mysymmetry & ST_PLANESYM)==ST_PLANESYM) { // symmetric about z -> -z
+    /*if(pos.z==0 && (mysymmetry & ST_TRIAXIAL)==ST_TRIAXIAL) { // symmetric about z -> -z
         sGrad.dz=0;
         sHess.dzdphi=0;
         sHess.dRdz=0;

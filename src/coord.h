@@ -77,6 +77,31 @@ struct ProlSph{
 };
 
 ///@}
+/// \name   Primitive data types: symmetry in 3d space
+///@{
+    
+/** defines the symmetry properties of a function in three-dimensional space */
+enum SymmetryType{ 
+    ST_NONE         = 0, ///< no symmetry whatsoever
+    // basic symmetries:
+    ST_XREFLECTION  = 1, ///< change of sign in x (flip about yz plane)
+    ST_YREFLECTION  = 2, ///< change of sign in y
+    ST_ZREFLECTION  = 4, ///< change of sign in z
+    ST_REFLECTION   = 8, ///< reflection about origin (change of sign of all coordinates simultaneously)
+    ST_ZROTATION    =16, ///< rotation about z axis
+    ST_ROTATION     =32, ///< rotation about arbitrary axis
+    // composite symmetries:
+    /// triaxial - reflection about principal planes (change of sign of any coordinate):
+    /// note that while the combination of reflection symmetries about all three principal planes
+    /// implies the reflection symmetry about origin (mirroring), the converse is not true, 
+    /// that's why these are separate concepts; if all three plane-reflection symmetries are present,
+    /// then mirror-reflection is implied, and this all is encoded in the ST_TRIAXIAL value
+    ST_TRIAXIAL     = ST_XREFLECTION | ST_YREFLECTION | ST_ZREFLECTION | ST_REFLECTION, 
+    ST_AXISYMMETRIC = ST_TRIAXIAL | ST_ZROTATION,    ///< axial symmetry combined with plane symmetry
+    ST_SPHERICAL    = ST_AXISYMMETRIC | ST_ROTATION, ///< spherical symmetry
+};
+
+///@}
 /// \name   Primitive data types: position in different coordinate systems
 ///@{
 

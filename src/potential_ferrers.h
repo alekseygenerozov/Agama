@@ -18,7 +18,7 @@ public:
     ~Ferrers() {};
     virtual const char* name() const { return myName(); }
     static const char* myName() { return "Ferrers"; }
-    virtual SymmetryType symmetry() const { return ST_TRIAXIAL; }
+    virtual coord::SymmetryType symmetry() const { return coord::ST_TRIAXIAL; }
 private:
     const double a, b, c;       ///< principal axis of ellipsoidal density 
     const double mass, rho0;    ///< total mass and central density of the model

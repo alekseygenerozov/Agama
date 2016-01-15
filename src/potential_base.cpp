@@ -166,7 +166,7 @@ double computeRho_m(const BaseDensity& dens, double R, double z, int m)
     // by averaging the input density over phi, if this is necessary at all
     if(isAxisymmetric(dens))
         return (m==0 ? dens.density(coord::PosCyl(R, z, 0)) : 0);
-    double phimax = (dens.symmetry() & ST_PLANESYM) == ST_PLANESYM ? M_PI_2 : 2*M_PI;
+    double phimax = (dens.symmetry() & coord::ST_TRIAXIAL) == coord::ST_TRIAXIAL ? M_PI_2 : 2*M_PI;
     if(m==0)
         return math::integrate(DensityAzimuthalAverageIntegrand(dens, R, z, m),
             0, phimax, EPSREL_DENSITY_INT) / phimax;

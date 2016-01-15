@@ -22,7 +22,7 @@ class OblatePerfectEllipsoid: public BasePotential,
 public:
     OblatePerfectEllipsoid(double _mass, double major_axis, double minor_axis);
 
-    virtual SymmetryType symmetry() const { return ST_AXISYMMETRIC; }
+    virtual coord::SymmetryType symmetry() const { return coord::ST_AXISYMMETRIC; }
 
     const coord::ProlSph& coordsys() const { return coordSys; }
     
