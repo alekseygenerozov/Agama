@@ -80,37 +80,16 @@ protected:
 }  // internal namespace
 
 //----------------------------------------------------------------------------//
-/*  Table of spherical-harmonic terms for various symmetries
-    m>=0 correspond to cos(m phi) and m<0 - to sin(|m| phi)
-+-----------------------------------------------------------+
-| invariance       |       coefficients that are zero       |
-| under transform  |     l is odd    |      l is even  |    |  
-|                  |m>0  m>0 m<0  m<0|m>0  m>0 m<0  m<0|m!=0|
-|                  |even odd even odd|even odd even odd|    |
-|------------------+----------------------------------------|
-|x -> -x           |      0   0             0   0           |
-|y -> -y           |          0    0            0    0      |
-|z -> -z           | 0        0             0        0      |
-|x,y,z -> -x,-y,-z | 0    0   0    0                        | ST_REFLECTION
-|z-axis rotation   |                                      0 | ST_ZROTATION
-|triaxial sym.     | 0    0   0    0        0   0    0      | ST_TRIAXIAL
-|axisymmetric      | 0    0   0    0        0   0    0    0 | ST_AXISYMMETRIC
-|spherical         |       only  l=0, m=0 remains nonzero   | ST_SPHERICAL
-+-----------------------------------------------------------+
-Presently this scheme is not implemented in full generality:
-the first three symmetries are combined in one triaxial symmetry
-and it is not possible to treat them separately.
-*/
 
 // BasePotentialSphericalHarmonic -- parent class for all potentials 
 // using angular expansion in spherical harmonics
 void SphericalHarmonicCoefSet::setSymmetry(coord::SymmetryType sym)
 {
     mysymmetry = sym;
-    lmax = (mysymmetry & coord::ST_ROTATION)    ==coord::ST_ROTATION     ? 0 :     // if spherical model, use only l=0,m=0 term
+    lmax = (mysymmetry & coord::ST_ROTATION)  ==coord::ST_ROTATION   ? 0 :     // if spherical model, use only l=0,m=0 term
         static_cast<int>(std::min<unsigned int>(Ncoefs_angular, MAX_NCOEFS_ANGULAR-1));
     lstep= (mysymmetry & coord::ST_REFLECTION)==coord::ST_REFLECTION ? 2 : 1;  // if reflection symmetry, use only even l
-    mmax = (mysymmetry & coord::ST_ZROTATION)   ==coord::ST_ZROTATION    ? 0 : 1;  // if axisymmetric model, use only m=0 terms, otherwise all terms up to l (1 is the multiplying factor)
+    mmax = (mysymmetry & coord::ST_ZROTATION) ==coord::ST_ZROTATION  ? 0 : 1;  // if axisymmetric model, use only m=0 terms, otherwise all terms up to l (1 is the multiplying factor)
     mmin = (mysymmetry & coord::ST_TRIAXIAL)  ==coord::ST_TRIAXIAL   ? 0 :-1;  // if triaxial symmetry, do not use sine terms which correspond to m<0
     mstep= (mysymmetry & coord::ST_TRIAXIAL)  ==coord::ST_TRIAXIAL   ? 2 : 1;  // if triaxial symmetry, use only even m
 }
@@ -133,7 +112,7 @@ void BasePotentialSphericalHarmonic::evalSph(const coord::PosSph &pos,
     double legendre_deriv_array[MAX_NCOEFS_ANGULAR];
     double legendre_deriv2_array[MAX_NCOEFS_ANGULAR];
     for(int m=0; m<=mmax*lmax; m+=mstep) {
-        math::sphHarmonicArray(lmax, m, pos.theta, legendre_array, 
+        math::sphHarmArray(lmax, m, pos.theta, legendre_array, 
             grad!=NULL||hess!=NULL ? legendre_deriv_array : NULL, 
             hess!=NULL ? legendre_deriv2_array : NULL);
         double cosmphi = (m==0 ? 1 : cos(m*pos.phi)*M_SQRT2) * (2*M_SQRTPI);   // factor \sqrt{4\pi} from the definition of spherical function Y_l^m absorbed into this term
@@ -316,7 +295,7 @@ void BasisSetExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::Po
         double ralpha=pow(point.r, 1/Alpha);
         double xi=(ralpha-1)/(ralpha+1);
         for(int m=0; m<=lmax; m+=mstep)
-            math::sphHarmonicArray(lmax, m, point.theta, legendre_array[m]);
+            math::sphHarmArray(lmax, m, point.theta, legendre_array[m]);
         for(int l=0; l<=lmax; l+=lstep) {
             double w=(2*l+1)*Alpha+0.5;
             double phil=pow(point.r, l) * pow(1+ralpha, -(2*l+1)*Alpha);
@@ -555,7 +534,7 @@ void SplineExp::computeCoefsFromPoints(const particles::PointMassArray<coord::Po
     // initialize SH expansion coefs at each point's location
     for(size_t i=0; i<npoints; i++) {
         for(int m=0; m<=lmax; m+=mstep)
-            math::sphHarmonicArray(lmax, m, points.point(i).theta, legendre_array[m]);
+            math::sphHarmArray(lmax, m, points.point(i).theta, legendre_array[m]);
         for(int l=0; l<=lmax; l+=lstep)
             for(int m=l*mmin; m<=l*mmax; m+=mstep) {
                 int coefind = l*(l+1)+m;
@@ -1060,6 +1039,9 @@ double SplineExp::enclosedMass(const double r) const
 
 ///////////-------- NEW IMPLEMENTATIONS -----------/////////////
 
+// helper function to deduce symmetry from the list of non-zero coefficients;
+// combine the array of coefficients at different radii into a single array
+// and then call the corresponding routine from math::
 static math::SphHarmIndices getIndicesFromCoefs(
     const std::vector< std::vector<double> > &C1)
 {
@@ -1078,6 +1060,7 @@ static math::SphHarmIndices getIndicesFromCoefs(
     return math::getIndicesFromCoefs(C);
 }
 
+// same as above, but for two sets of arrays
 static math::SphHarmIndices getIndicesFromCoefs(
     const std::vector< std::vector<double> > &C1,
     const std::vector< std::vector<double> > &C2)
@@ -1140,10 +1123,10 @@ void computePotentialCoefs(const BaseDensity& dens,
     const math::SphHarmIndices& ind, const std::vector<double>& gridRadii,
     std::vector< std::vector<double> >& Phi, std::vector< std::vector<double> >& dPhi)
 {
-    unsigned int gridSizeR = gridRadii.size();
+    int gridSizeR = gridRadii.size();
     if(gridSizeR<2)
         throw std::invalid_argument("computePotentialCoefs: radial grid size too small");
-    for(unsigned int k=0; k<gridSizeR; k++)
+    for(int k=0; k<gridSizeR; k++)
         if(gridRadii[k] <= (k==0 ? 0 : gridRadii[k-1]))
             throw std::invalid_argument("computePotentialCoefs: "
                 "radii of grid points must be positive and sorted in increasing order");
@@ -1156,7 +1139,7 @@ void computePotentialCoefs(const BaseDensity& dens,
     std::vector< std::vector<double> >& Pext = dPhi;
     Phi .resize(gridSizeR);
     dPhi.resize(gridSizeR);
-    for(unsigned int k=0; k<gridSizeR; k++) {
+    for(int k=0; k<gridSizeR; k++) {
         Phi [k].assign(ind.size(), 0);
         dPhi[k].assign(ind.size(), 0);
     }
@@ -1166,17 +1149,20 @@ void computePotentialCoefs(const BaseDensity& dens,
     std::vector<double> glx(Nsub), glw(Nsub);  // Gauss-Legendre nodes and weights
     math::prepareIntegrationTableGL(0, 1, Nsub, &glx.front(), &glw.front());
 
-    // prepare temporary storage for SH coefs
+    // prepare SH transformation
     math::SphHarmTransformForward trans(ind);
-    std::vector<double> densValues(trans.size());
-    std::vector<double> tmpCoefs(ind.size());
 
     // Loop over radial grid segments and compute integrals of rho_lm(r) times powers of radius,
     // for each interval of radii in the input grid (0 <= k < Nr):
     //   Qint[k][l,m] = \int_{r_{k-1}}^{r_k} \rho_{l,m}(r) (r/r_k)^{l+2} dr,  with r_{-1} = 0;
     //   Qext[k][l,m] = \int_{r_k}^{r_{k+1}} \rho_{l,m}(r) (r/r_k)^{1-l} dr,  with r_{Nr} = \infty.
     // Here \rho_{l,m}(r) are the sph.-harm. coefs for density at each radius.
-    for(unsigned int k=0; k<=gridSizeR; k++) {
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for(int k=0; k<=gridSizeR; k++) {
+        std::vector<double> densValues(trans.size());
+        std::vector<double> tmpCoefs(ind.size());
         double rkminus1 = (k>0 ? gridRadii[k-1] : 0);
         double deltaGridR = k<gridSizeR ?
             gridRadii[k] - rkminus1 :  // length of k-th radial segment
@@ -1232,7 +1218,7 @@ void computePotentialCoefs(const BaseDensity& dens,
             // Compute Pint by summing from inside out, using the recurrent relation
             // Pint(r_{k+1}) r_{k+1}^{l+1} = Pint(r_k) r_k^{l+1} + Qint[k] * r_k^{l+2}
             double val = 0;
-            for(unsigned int k=0; k<gridSizeR; k++) {
+            for(int k=0; k<gridSizeR; k++) {
                 if(k>0)
                     val *= math::powInt(gridRadii[k-1] / gridRadii[k], l+1);
                 val += gridRadii[k] * Qint[k][c];
@@ -1243,7 +1229,7 @@ void computePotentialCoefs(const BaseDensity& dens,
             // Pext(r_k) r_k^{-l} = Pext(r_{k+1}) r_{k+1}^{-l} + Qext[k] * r_k^{1-l}
             val = 0;
             for(int k=gridSizeR-1; k>=0; k--) {
-                if(k<(int)gridSizeR-1)
+                if(k<gridSizeR-1)
                     val *= math::powInt(gridRadii[k] / gridRadii[k+1], l);
                 val += gridRadii[k] * Qext[k][c];
                 Pext[k][c] = val;
@@ -1252,19 +1238,17 @@ void computePotentialCoefs(const BaseDensity& dens,
             // Finally, put together the interior and exterior coefs to compute 
             // the potential and its radial derivative for each spherical-harmonic term
             double mul = -4*M_PI / (2*l+1);
-            for(unsigned int k=0; k<gridSizeR; k++) {
+            for(int k=0; k<gridSizeR; k++) {
                 double tmpPhi = mul * (Pint[k][c] + Pext[k][c]);
                 dPhi[k][c]    = mul * (-(l+1)*Pint[k][c] + l*Pext[k][c]) / gridRadii[k];
                 // extra step needed because Phi/dPhi and Pint/Pext are aliased
                 Phi[k][c]     = tmpPhi;
-                //if(!math::isFinite(Phi[k][c]))
-                //    throw std::runtime_error("Error in Multipole: bad value of potential");
             }
         }
     }
 
     // polishing: zero out coefs with small magnitude at each radius
-    for(unsigned int k=0; k<gridSizeR; k++) {
+    for(int k=0; k<gridSizeR; k++) {
         math::eliminateNearZeros(Phi[k]);
         math::eliminateNearZeros(dPhi[k]);
     }
@@ -1336,11 +1320,12 @@ static double der2f(double f0, double f1, double f2,
     This corresponds to the density profile extrapolated as rho ~ r^(s-2).
 */
 static void computeExtrapolationCoefs(double Phi0, double Phi1, double Phi2,
-    double dPhi0, double dPhi1, double dPhi2, double lnr0, double lnr1, double lnr2,
+    double dPhi0, double dPhi1, double dPhi2, double r0, double r1, double r2,
     int v, double& s, double& U, double& W)
 {
-    dPhi0 *= exp(lnr0); dPhi1 *= exp(lnr1); dPhi2 *= exp(lnr2);
-    double d2Phi1 = der2f(Phi0, Phi1, Phi2, dPhi0, dPhi1, dPhi2, lnr0, lnr1, lnr2);
+    // the routine below operates on a function Phi(log(r)), thus we transform dPhi/dr -> dPhi/d(ln r)
+    dPhi0 *= r0; dPhi1 *= r1; dPhi2 *= r2;
+    double d2Phi1 = der2f(Phi0, Phi1, Phi2, dPhi0, dPhi1, dPhi2, log(r0), log(r1), log(r2));
     s = (d2Phi1 - v*dPhi1) / (dPhi1 - v*Phi1);
     // safeguard against weird slope determination
     if(v>=0 && (!math::isFinite(s) || s<=-1))
@@ -1360,10 +1345,6 @@ static PtrPotential initAsympt(const double radii[3],
     const std::vector<double> Phi[3],
     const std::vector<double> dPhi[3], bool inner)
 {
-    double
-    lnr0 = log(radii[0]),
-    lnr1 = log(radii[1]),
-    lnr2 = log(radii[2]);
     unsigned int nc = Phi[0].size();
     std::vector<double> S(nc), V(nc), U(nc), W(nc);
 
@@ -1374,12 +1355,13 @@ static PtrPotential initAsympt(const double radii[3],
         computeExtrapolationCoefs(
             Phi [0][c], Phi [1][c], Phi [2][c],
             dPhi[0][c], dPhi[1][c], dPhi[2][c],
-            lnr0,       lnr1,       lnr2, V[c],
+            radii[0],   radii[1],   radii[2],  V[c],
             /*output*/ S[c], U[c], W[c]);
+        // TODO!!!: limit the slopes of l!=0 harmonics to not exceed that of the principal one
 #ifdef VERBOSE_REPORT
         if(U[c]!=0)
             std::cout << "l=" << l << ", m=" << math::SphHarmIndices::index_m(c) <<
-                ", slope=" << (S[c]-2) << "\n";
+                ", " << (inner ? "inner" : "outer") << " slope=" << (S[c]-2) << "\n";
 #endif
     }
     return PtrPotential(new PowerLawPotentialTerm(radii[1], S, V, U, W));
@@ -1410,7 +1392,7 @@ static void sphHarmTransformPolar(const double theta,
             dC_m[mm].dr = dC_m[mm].dtheta = 0;
         if(d2C_m)
             d2C_m[mm].dr2 = d2C_m[mm].dtheta2 = d2C_m[mm].drdtheta = 0;
-        math::sphHarmonicArray(ind.lmax, absm, theta, P_lm, dP_lm, d2P_lm);
+        math::sphHarmArray(ind.lmax, absm, theta, P_lm, dP_lm, d2P_lm);
         for(int l=lmin; l<=ind.lmax; l+=ind.step) {
             unsigned int c = ind.index(l, m), p = l-absm;
             if(C_m)
@@ -1434,7 +1416,7 @@ static void fourierTransformAzimuth(const double phi,
     const double C_m[], const coord::GradSph dC_m[], const coord::HessSph d2C_m[],
     double* val, coord::GradSph* grad, coord::HessSph* hess)
 {
-    const bool useSine = ind.mmin()<0;
+    const bool useSine = ind.mmin()<0 || grad!=NULL || hess!=NULL;
     double trig_m[2*MAX_NCOEFS_ANGULAR];
     if(ind.mmax>0)
         math::trigMultiAngle(phi, ind.mmax, useSine, trig_m);
@@ -1448,9 +1430,9 @@ static void fourierTransformAzimuth(const double phi,
     for(int m=ind.mmin(); m<=ind.mmax; m++) {
         if(ind.lmin(m)>ind.lmax)
             continue;  // empty harmonic
-        unsigned int mm = m+ind.mmax;
+        unsigned int mm = m+ind.mmax;  // index of element in C_m array
         double trig  = m==0 ? 1. : m>0 ? trig_m[m-1] : trig_m[ind.mmax-m-1];  // cos or sin
-        double dtrig = m==0 ? 0. : m>0 ? -m*trig_m[ind.mmax-m-1] : m*trig_m[m-1];
+        double dtrig = m==0 ? 0. : m>0 ? -m*trig_m[ind.mmax+m-1] : -m*trig_m[-m-1];
         double d2trig = -m*m*trig;
         if(val)
             *val += C_m[mm] * trig;
@@ -1481,25 +1463,6 @@ static inline void transformRadialDerivs(double r, coord::GradSph* grad, coord::
     if(grad)
         grad->dr /= r;
 }
-
-// TODO: redesign this common block without the use of preprocessor.
-// declare temporary arrays for storing coefficients and use only the needed ones
-#define EVALSPH_HEADER \
-    double   Phi_lm_arr[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR]; \
-    double  dPhi_lm_arr[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR]; \
-    double d2Phi_lm_arr[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR]; \
-    double           Phi_m_arr[2*MAX_NCOEFS_ANGULAR-1]; \
-    coord::GradSph  dPhi_m_arr[2*MAX_NCOEFS_ANGULAR-1]; \
-    coord::HessSph d2Phi_m_arr[2*MAX_NCOEFS_ANGULAR-1]; \
-    bool needPhi  = true; \
-    bool needGrad = grad!=NULL || hess!=NULL; \
-    bool needHess = hess!=NULL; \
-    double *  Phi_lm = needPhi  ?   Phi_lm_arr : NULL; \
-    double * dPhi_lm = needGrad ?  dPhi_lm_arr : NULL; \
-    double *d2Phi_lm = needHess ? d2Phi_lm_arr : NULL; \
-    double *  Phi_m  = needPhi  ?   Phi_m_arr  : NULL; \
-    coord::GradSph *dPhi_m  = needGrad ? dPhi_m_arr  : NULL; \
-    coord::HessSph *d2Phi_m = needHess ? d2Phi_m_arr : NULL;
 
 //------ Spherical-harmonic expansion of density ------//
 
@@ -1651,10 +1614,19 @@ static PtrPotential createMultipole(const BaseDensityOrPotential& src,
     if(gridSizeR<=2 || rmin<=0 || rmax<=rmin)
         throw std::invalid_argument("Error in Multipole: invalid grid parameters");
     std::vector<double> gridRadii = math::createExpGrid(gridSizeR, rmin, rmax);
+    // to improve accuracy of SH coefficient computation, we may increase the order of expansion
+    // that determines the number of integration points in angles
+    int lmax_tmp =     isSpherical(src) ? 0 : std::max<int>(lmax, 16);
+    int mmax_tmp = isZRotSymmetric(src) ? 0 : std::max<int>(mmax, 16);
     std::vector<std::vector<double> > Phi, dPhi;
     computePotentialCoefs(src,
-        math::SphHarmIndices(lmax, mmax, src.symmetry()),
+        math::SphHarmIndices(lmax_tmp, mmax_tmp, src.symmetry()),
         gridRadii, Phi, dPhi);
+    // now resize the coefficients back to the requested order
+    for(unsigned int k=0; k<gridSizeR; k++) {
+        Phi [k].resize(pow_2(lmax+1));
+        dPhi[k].resize(pow_2(lmax+1));
+    }
     return PtrPotential(new Multipole(gridRadii, Phi, dPhi));
 }
 
@@ -1709,6 +1681,27 @@ void Multipole::evalSph(const coord::PosSph &pos,
         impl->eval(pos, potential, deriv, deriv2);
 }
 
+// ------- Implementations of multipole potential interpolators ------- //
+
+// TODO: redesign this common block without the use of preprocessor.
+// declare temporary arrays for storing coefficients and use only the needed ones
+#define EVALSPH_HEADER \
+    double   Phi_lm_arr[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR]; \
+    double  dPhi_lm_arr[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR]; \
+    double d2Phi_lm_arr[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR]; \
+    double           Phi_m_arr[2*MAX_NCOEFS_ANGULAR-1]; \
+    coord::GradSph  dPhi_m_arr[2*MAX_NCOEFS_ANGULAR-1]; \
+    coord::HessSph d2Phi_m_arr[2*MAX_NCOEFS_ANGULAR-1]; \
+    bool needPhi  = true; \
+    bool needGrad = grad!=NULL || hess!=NULL; \
+    bool needHess = hess!=NULL; \
+    double *  Phi_lm = needPhi  ?   Phi_lm_arr : NULL; \
+    double * dPhi_lm = needGrad ?  dPhi_lm_arr : NULL; \
+    double *d2Phi_lm = needHess ? d2Phi_lm_arr : NULL; \
+    double *  Phi_m  = needPhi  ?   Phi_m_arr  : NULL; \
+    coord::GradSph *dPhi_m  = needGrad ? dPhi_m_arr  : NULL; \
+    coord::HessSph *d2Phi_m = needHess ? d2Phi_m_arr : NULL;
+
 // ------- PowerLawPotential ------- //
 
 PowerLawPotentialTerm::PowerLawPotentialTerm(double _r0,
@@ -1721,10 +1714,10 @@ PowerLawPotentialTerm::PowerLawPotentialTerm(double _r0,
 void PowerLawPotentialTerm::evalSph(const coord::PosSph &pos,
     double* potential, coord::GradSph* grad, coord::HessSph* hess) const
 {
+    EVALSPH_HEADER
     // define {v=l, r0=rmin} for the inner or {v=-l-1, r0=rmax} for the outer extrapolation;
     // Phi_{l,m}(r) = U_{l,m} * (r/r0)^{s_{l,m}}            + W_{l,m} * (r/r0)^v   if s!=v,
     // Phi_{l,m}(r) = U_{l,m} * (r/r0)^{s_{l,m}} * ln(r/r0) + W_{l,m} * (r/r0)^v   if s==v.
-    EVALSPH_HEADER
     double dlogr = log(pos.r / r0);
     for(int m=ind.mmin(); m<=ind.mmax; m++)
         for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
@@ -1867,7 +1860,7 @@ MultipoleInterp2d::MultipoleInterp2d(
         double mul = m==0 ? 2*M_SQRTPI : 2*M_SQRTPI*M_SQRT2;
         // assign Phi_m, dPhi_m/d(ln r) & dPhi_m/d(cos(theta)) at each node of 2d grid (r_k, theta_j)
         for(unsigned int j=0; j<gridSizeT; j++) {
-            math::sphHarmonicArray(ind.lmax, absm, gridT[j], &Plm.front(), &dPlm.front());
+            math::sphHarmArray(ind.lmax, absm, gridT[j], &Plm.front(), &dPlm.front());
             for(unsigned int k=0; k<gridSizeR; k++) {            
                 double val=0, dR=0, dT=0;
                 for(int l=lmin; l<=ind.lmax; l+=ind.step) {
@@ -1900,12 +1893,11 @@ void MultipoleInterp2d::evalSph(const coord::PosSph &pos,
     bool needHess = hess!=NULL;
     
     // compute azimuthal harmonics
-    double logr = log(pos.r);
     for(int m=ind.mmin(); m<=ind.mmax; m++) {
         if(ind.lmin(m) > ind.lmax)
             continue;
         unsigned int mm = m+ind.mmax;
-        spl[mm].evalDeriv(logr, pos.theta, 
+        spl[mm].evalDeriv(log(pos.r), pos.theta, 
             needPhi  ?   &Phi_m[mm]          : NULL, 
             needGrad ?  &dPhi_m[mm].dr       : NULL,
             needGrad ?  &dPhi_m[mm].dtheta   : NULL,

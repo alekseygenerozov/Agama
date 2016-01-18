@@ -338,6 +338,26 @@ inline bool isZRotSymmetric(const BaseDensity& dens) {
     return (dens.symmetry() & coord::ST_ZROTATION) == coord::ST_ZROTATION;
 }
 
+/** chech if the density model is symmetric w.r.t.change of sign in x */
+inline bool isXReflSymmetric(const BaseDensity& dens) {
+    return (dens.symmetry() & coord::ST_XREFLECTION) == coord::ST_XREFLECTION;
+}
+    
+/** chech if the density model is symmetric w.r.t.change of sign in y */
+inline bool isYReflSymmetric(const BaseDensity& dens) {
+    return (dens.symmetry() & coord::ST_YREFLECTION) == coord::ST_YREFLECTION;
+}
+
+/** chech if the density model is symmetric w.r.t.change of sign in z */
+inline bool isZReflSymmetric(const BaseDensity& dens) {
+    return (dens.symmetry() & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION;
+}
+
+/** chech if the density model is symmetric w.r.t.mirror reflection */
+inline bool isReflSymmetric(const BaseDensity& dens) {
+    return (dens.symmetry() & coord::ST_REFLECTION) == coord::ST_REFLECTION;
+}
+
 /** check if the density model is triaxial
     (symmetric under reflection about any of the three principal planes) */
 inline bool isTriaxial(const BaseDensity& dens) {

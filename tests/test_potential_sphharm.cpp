@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <ctime>
+#include "math_specfunc.h"
 
 /// define test suite in terms of points in spherical coordinates
 const int numtestpoints=8;
@@ -100,7 +101,7 @@ void test_average_error(const potential::BasePotential& p1, const potential::Bas
         "_gamma" + utils::convertToString(gamma);
     std::ofstream strm(fileName.c_str());
     const double dlogR=0.1;
-    const int nptbin=1000;
+    const int nptbin=100;
     for(double logR=-4; logR<4; logR+=dlogR) {
         math::Averager difPhi, difForce, difDens;
         for(int n=0; n<nptbin; n++) {
@@ -222,7 +223,7 @@ bool checkSH(const math::SphHarmIndices& ind)
     math::SphHarmTransformForward tr(ind);
     // array of original function values
     std::vector<double> d(tr.size());
-    for(int i=0; i<d.size(); i++)
+    for(unsigned int i=0; i<d.size(); i++)
         d[i] = myfnc<l,m>(tr.theta(i), tr.phi(i));
     // array of SH coefficients
     std::vector<double> c(ind.size());
@@ -236,7 +237,7 @@ bool checkSH(const math::SphHarmIndices& ind)
     double tmp[100];
     // array of function values after inverse transform
     std::vector<double> b(tr.size());
-    for(int i=0; i<d.size(); i++) {
+    for(unsigned int i=0; i<d.size(); i++) {
         b[i] = math::sphHarmTransformInverse(ind, &c.front(), tr.theta(i), tr.phi(i), tmp);
         if(fabs(d[i]-b[i]) > 1e-14)
             return false;
@@ -244,48 +245,58 @@ bool checkSH(const math::SphHarmIndices& ind)
     return true;
 }
 
-template<> double myfnc<3,0>(double theta, double phi) 
-{
-    coord::PosCar p(coord::toPosCar(coord::PosSph(1,theta,phi)));
-    return 1/(1+fabs(p.x+0.5*p.y+0.3*p.z));
-    p.x -= 0.5;
-    p.y -= 0.2;
-    p.z -= 0.1;
-    return 1/(1+p.x*p.x+p.y*p.y+p.z*p.z);
-}
-
 int main() {
+#if 0
+    for(unsigned int m=0; m<=12; m++) {
+    double dd=math::powInt(0.5,14);
+    double sum=0, sumd, max=0, maxd=0;
+    std::ofstream ff(("appr"+utils::convertToString(m)).c_str());
+    ff << std::setprecision(15);
+    for(double x=dd; x<1; x+=dd) {
+        double der1, der2, val2;
+        double val1 = math::legendreQ(m-0.5, 1/sqrt(x), &der1);
+        try{ val2 = math::legendreQ(m-0.500000000000001, 1/sqrt(x), &der2); }
+        catch(...) { val2=val1; der2=der1; }
+        if(fabs(der2)>1e8) { val2=val1; der2=der1; } // overflow
+        ff << x << ", "<<val1 << ", " << (val2-val1) << "; " << der1 << ", " << (der2-der1) << "\n";
+        sum += pow_2(val2-val1)/pow_2(val1);
+        sumd+= pow_2(der2-der1)/pow_2(der1);
+        max = fmax(max, fabs((val2-val1)/val1));
+        maxd= fmax(maxd,fabs((der2-der1)/der1));
+    }
+    ff.close();
+    std::cout << "m="<<m<<": rel.error in fnc="<<sqrt(sum*dd)<<" (max="<<max<<
+    "), in deriv="<<sqrt(sumd*dd)<<" (max="<<maxd<<")\n";
+    }
+#endif
     bool ok=true;
 
-    /*  test the computation of Plm
-    double th=1e-9;
-    double arr[100],derr[100],derrr[100];
-    std::cout << std::setprecision(15);
-    for(int m=0; m<=4; m++) {
-        math::sphHarmonicArray(10,m,th,arr,derr,derrr);
-        for(int l=m; l<=10; l++)
-            std::cout << "l="<<l<<",m="<<m<<" -> "<<arr[l-m]<<", "<<derr[l-m]<<", "<<derrr[l-m]<<"\n";
-    }*/
-        
     // perform several tests, some of them are expected to fail - because... (see comments below)
     ok &= checkSH<0, 0>(math::SphHarmIndices(4, 2, coord::ST_TRIAXIAL));
     ok &= checkSH<1,-1>(math::SphHarmIndices(4, 4, coord::ST_XREFLECTION));
-    ok &=!checkSH<1, 0>(math::SphHarmIndices(2, 0, coord::ST_AXISYMMETRIC)); // axisymmetric implies z-reflection symmetry
-    ok &= checkSH<1, 0>(math::SphHarmIndices(2, 0, coord::ST_ZROTATION));    // while in this case it's only z-rotation symmetric
+        // axisymmetric implies z-reflection symmetry, but we have l=1 term
+    ok &=!checkSH<1, 0>(math::SphHarmIndices(2, 0, coord::ST_AXISYMMETRIC));
+        // while in this case it's only z-rotation symmetric, so a correct variant is below
+    ok &= checkSH<1, 0>(math::SphHarmIndices(2, 0, coord::ST_ZROTATION));
     ok &= checkSH<1, 1>(math::SphHarmIndices(6, 3, coord::ST_YREFLECTION));
     ok &= checkSH<1, 1>(math::SphHarmIndices(3, 2, coord::ST_ZREFLECTION));
-    ok &=!checkSH<1, 1>(math::SphHarmIndices(6, 1, coord::ST_XREFLECTION)); // odd-m term
-    ok &=!checkSH<1, 1>(math::SphHarmIndices(6, 2, coord::ST_REFLECTION));  // odd-l term
-    ok &=!checkSH<2,-2>(math::SphHarmIndices(6, 4, coord::ST_YREFLECTION)); // mmin==0 but we have sine term
+        // odd-m cosine term is not possible with x-reflection symmetry
+    ok &=!checkSH<1, 1>(math::SphHarmIndices(6, 1, coord::ST_XREFLECTION));
+        // odd-l term is not possible with mirror symmetry
+    ok &=!checkSH<1, 1>(math::SphHarmIndices(6, 2, coord::ST_REFLECTION));
+        // y-reflection implies no sine terms (mmin==0), but we have them
+    ok &=!checkSH<2,-2>(math::SphHarmIndices(6, 4, coord::ST_YREFLECTION));
+        // x-reflection excludes even-m sine terms
     ok &=!checkSH<2,-2>(math::SphHarmIndices(5, 2, coord::ST_XREFLECTION));
     ok &= checkSH<2,-2>(math::SphHarmIndices(6, 4, coord::ST_ZREFLECTION));
-    /*ok &=!checkSH<2,-1>(math::SphHarmIndices(2, 2,-2, 2, 1)); // lstep==2 but we have odd-m term
-    ok &= checkSH<2,-1>(math::SphHarmIndices(2, 1,-2, 2, 1));
-    ok &=!checkSH<2,-1>(math::SphHarmIndices(6, 1,-4, 4, 2)); // mstep==2 but we have odd-m term
-    ok &= checkSH<2,-1>(math::SphHarmIndices(6, 1,-4, 4, 1));
-    ok &= checkSH<2, 0>(math::SphHarmIndices(2, 2, 0, 1, 1));
-    ok &= checkSH<2, 1>(math::SphHarmIndices(4, 1,-2, 2, 1));
-    ok &= checkSH<2, 2>(math::SphHarmIndices(3, 1, 0, 2, 2));*/
+        // terms with odd l+m are excluded under z-reflection 
+    ok &=!checkSH<2,-1>(math::SphHarmIndices(2, 2, coord::ST_ZREFLECTION));
+    ok &= checkSH<2,-1>(math::SphHarmIndices(2, 1,
+        static_cast<coord::SymmetryType>(coord::ST_REFLECTION | coord::ST_XREFLECTION)));
+    ok &= checkSH<2, 0>(math::SphHarmIndices(2, 2, coord::ST_AXISYMMETRIC));
+    ok &= checkSH<2, 1>(math::SphHarmIndices(3, 1,
+        static_cast<coord::SymmetryType>(coord::ST_REFLECTION | coord::ST_YREFLECTION)));
+    ok &= checkSH<2, 2>(math::SphHarmIndices(5, 3, coord::ST_TRIAXIAL));
     
     ok &= testDensSH();
 
@@ -302,10 +313,8 @@ int main() {
     clockbegin = std::clock();
     test_average_error(deh1s, deh1);
     std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to test Spline\n";
-    //writePotential(std::string("test_potential_sphharm")+getCoefFileExtension(deh1s), deh1s);
     potential::PtrPotential deh1m_clone = write_read(*deh1m);
     test_average_error(*deh1m_clone, *deh1m);
-    return 0;
 
     // spherical, cored
     const potential::Plummer plum(10., 5.);
@@ -328,10 +337,23 @@ int main() {
     const potential::Dehnen deh0(1., 1., 0.8, 0.6, 0.);
     const potential::BasisSetExp bs3(1., 20, 6, deh0);
     const potential::SplineExp sp3(20, 6, deh0);
+    clockbegin = std::clock();
     const potential::CylSplineExp cy3(20, 20, 6, static_cast<const potential::BaseDensity&>(deh0));
+    std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to create old CylSpline\n";
+    test_average_error(cy3, deh0);
     ok &= test_suite(bs3, deh0, 5e-5);
     ok &= test_suite(sp3, deh0, 5e-5);
     ok &= test_suite(cy3, deh0, 1e-4);
+    writePotential("CylSplineOld", cy3);
+    clockbegin = std::clock();
+    std::vector<double> gridR = math::createNonuniformGrid(20, 0.1235460252325984, 967.1723622787455, true), gridz=gridR;
+    std::vector<std::vector<double> > Phi, dPhidR, dPhidz;
+    potential::computePotentialCoefs(deh0, 6, gridR, gridz, Phi, dPhidR, dPhidz);
+    std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to create new CylSpline\n";
+    const potential::CylSplineExp cy4(gridR, gridz, Phi);
+    test_average_error(cy4, deh0);
+    ok &= test_suite(cy4, deh0, 1e-4);
+    writePotential("CylSplineNew", cy4);
 
     // mildly triaxial, created from N-body samples
     const potential::Dehnen hernq(1., 1., 0.8, 0.6, 1.0);
@@ -341,7 +363,6 @@ int main() {
     potential::SplineExp sp4(20, 4, points, coord::ST_TRIAXIAL);
     ok &= test_suite(sp4, hernq, 2e-2);
     ok &= test_suite(*create_from_file(points, potential::CylSplineExp::myName()), hernq, 2e-2);
-
 
     if(ok)
         std::cout << "ALL TESTS PASSED\n";

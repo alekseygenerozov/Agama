@@ -109,7 +109,9 @@ void ComponentWithDisklikeDF::update(
         totalPotential, actionFinder, *distrFunc, relError, maxNumEval);
 
     // reinit the interpolator for density in meridional plane
-    density.reset(new potential::DensityCylGrid(gridR, gridz, densityWrapper));
+    std::vector< std::vector<double> > coefs;
+    computeDensityCoefs(densityWrapper, 0, gridR, gridz, coefs);
+    density.reset(new potential::DensityAzimuthalHarmonic(gridR, gridz, coefs));
 }
 
 

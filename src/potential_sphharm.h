@@ -12,6 +12,8 @@
 
 namespace potential {
 
+// ------ old api ------ //
+
 class SphericalHarmonicCoefSet {
 public:
     SphericalHarmonicCoefSet(unsigned int _Ncoefs_angular) :
@@ -222,21 +224,22 @@ private:
 
 // --------- new api --------- //
 
-/** Determine the symmetry type corresponding to the given spherical-harmonic
-    coefficient indexing scheme */
-//SymmetryType getSymmetry(const math::SphHarmIndices& ind);
 
-/** Create the spherical-harmonic indexing scheme for the given symmetry type
-    and expansion order.
-    \param[in] sym  - the type of symmetry that determines which coefficients to omit;
-    \param[in] lmax - (max) order of expansion in polar angle (theta), 
-               the actual lmax may be set to zero if have spherical symmetry;
-    \param[in] mmax - (max) order of expansion in azimuth (phi), the actual may be set to zero.
-    \returns   the instance of indexing scheme to be passed to spherical harmonic transform.
+/** Compute spherical-harmonic density expansion coefficients at the given radii.
+    First it collects the values of density at a 3d grid in radii and angles,
+    then applies sph.-harm. transform at each radius.
+    The first step is OpenMP-parallelized, so that it may be efficiently used
+    for an input density profile that is expensive to compute.
+    \param[in]  dens - the input density profile.
+    \param[in]  ind  - indexing scheme for spherical-harmonic coefficients,
+                which determines the order of expansion and its symmetry properties.
+    \param[in]  gridRadii - the array of radial points for the output coefficients;
+                must form an increasing sequence and start from r>0.
+    \param[out] coefs - the array of sph.-harm. coefficients:
+                coefs[k][c] is the value of c-th coefficient (where c is a single index 
+                combining both l and m) at the radius r_k; will be resized as needed.
+    \throws std::invalid_argument if gridRadii are not correct.
 */
-//math::SphHarmIndices getIndices(const SymmetryType sym, int lmax, int mmax);
-
-/** Compute spherical-harmonic density expansion coefficients at the given radii */
 void computeDensityCoefs(const BaseDensity& dens, 
     const math::SphHarmIndices& ind, const std::vector<double>& gridRadii,
     std::vector< std::vector<double> > &coefs);
@@ -265,6 +268,7 @@ void computePotentialCoefs(const BaseDensity& dens,
 void computePotentialCoefs(const BasePotential& pot,
     const math::SphHarmIndices& ind, const std::vector<double> &gridRadii,
     std::vector< std::vector<double> > &Phi, std::vector< std::vector<double> > &dPhi);
+
 
 /** Spherical-harmonic expansion of density with coefficients being spline functions of radius */
 class DensitySphericalHarmonic: public BaseDensity {
@@ -319,10 +323,9 @@ public:
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "PowerLaw"; };
 private:
-    /// indexing scheme for sph.-harm. coefficients
-    math::SphHarmIndices ind;
-    double r0;
-    std::vector<double> S, V, U, W;
+    math::SphHarmIndices ind;  ///< indexing scheme for sph.-harm. coefficients
+    double r0;                 ///< reference radius 
+    std::vector<double> S, V, U, W;  ///< potential coefficients
     virtual void evalSph(const coord::PosSph &pos,
         double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const;
 };
@@ -331,6 +334,11 @@ private:
 class Multipole: public BasePotentialSph{
 public:
     /** create the potential from the analytic density or potential model.
+        This is not a constructor but a static member function returning a shared pointer
+        to the newly created potential.
+        It exists in two variants: the first one takes a density model as input
+        and solves Poisson equation to find the potential sph.-harm. coefficients;
+        the second one takes a potential model and computes these coefs directly.
         \param[in]  src        is the input density or potential model;
         \param[in]  rmin, rmax give the radial grid extent;
         \param[in]  gridSizeR  is the size of logarithmic grid in R;
@@ -341,6 +349,7 @@ public:
         double rmin, double rmax, unsigned int gridSizeR,
         int lmax, int mmax);
 
+    /** same as above, but takes a potential model as an input */
     static PtrPotential create(const BasePotential& src,
         double rmin, double rmax, unsigned int gridSizeR,
         int lmax, int mmax);

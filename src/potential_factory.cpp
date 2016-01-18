@@ -157,7 +157,7 @@ static void initPotentialAndSymmetryNameMap()
     DensityNames[PT_DEHNEN]  = Dehnen::myName();
     DensityNames[PT_FERRERS] = Ferrers::myName();
     DensityNames[PT_PERFECTELLIPSOID] = OblatePerfectEllipsoid::myName();
-    DensityNames[PT_DENS_CYLGRID] = DensityCylGrid::myName();
+    DensityNames[PT_DENS_CYLGRID] = DensityAzimuthalHarmonic::myName();
     DensityNames[PT_DENS_SPHHARM] = DensitySphericalHarmonic::myName();
 //    DensityNames[PT_ISOCHRONE] = CDensityIsochrone::myName();
 //    DensityNames[PT_EXPDISK] = CDensityExpDisk::myName();
@@ -585,9 +585,9 @@ static void writeDensitySphericalHarmonic(std::ostream& strm, const DensitySpher
     }
 }
 
-static void writeDensityCylGrid(std::ostream& strm, const DensityCylGrid& density)
+static void writeDensityCylGrid(std::ostream& strm, const DensityAzimuthalHarmonic& density)
 {
-    std::vector<double> gridR, gridz;
+    /*std::vector<double> gridR, gridz;
     math::Matrix<double> densVal;
     density.getCoefs(gridR, gridz, densVal);
     strm << "#R\\z";
@@ -599,7 +599,7 @@ static void writeDensityCylGrid(std::ostream& strm, const DensityCylGrid& densit
         for(unsigned int iz=0; iz<gridz.size(); iz++)
             strm << '\t' << densVal(iR, iz);
         strm << '\n';
-    }
+    }*/  // TODO!!! fixme
 }
 
 
@@ -623,7 +623,7 @@ bool writeDensity(const std::string& fileName, const BaseDensity& dens)
         writePotentialCylSpline(strm, dynamic_cast<const CylSplineExp&>(dens));
         break;
     case PT_DENS_CYLGRID:
-        writeDensityCylGrid(strm, dynamic_cast<const DensityCylGrid&>(dens));
+        writeDensityCylGrid(strm, dynamic_cast<const DensityAzimuthalHarmonic&>(dens));
         break;
     case PT_DENS_SPHHARM:
         writeDensitySphericalHarmonic(strm, dynamic_cast<const DensitySphericalHarmonic&>(dens));

@@ -390,7 +390,7 @@ private:
 std::vector<double> createExpGrid(unsigned int nnodes, double xmin, double xmax);
 
 /** generate a grid with exponentially growing spacing:
-    x[k] = (exp(Z k) - 1)/(exp(Z) - 1), i.e. coordinates of nodes increase nearly linearly
+    x[k] = (exp(Z k) - 1)/(exp(Z) - 1), i.e., coordinates of nodes increase nearly linearly
     at the beginning and then nearly exponentially towards the end;
     the value of Z is computed so the the 1st element is at xmin and last at xmax.
     \param[in]  nnodes   is the total number of grid points (>=2);
@@ -402,7 +402,7 @@ std::vector<double> createExpGrid(unsigned int nnodes, double xmin, double xmax)
 std::vector<double> createNonuniformGrid(unsigned int nnodes, double xmin, double xmax, bool zeroelem);
 
 /** create an almost uniform grid so that each bin contains at least minbin points from input array.
-    input points are in srcpoints array and MUST BE SORTED in ascending order (assumed but not cheched).
+    Input points are in srcpoints array and MUST BE SORTED in ascending order (assumed but not cheched).
     \param[in]  srcpoints is the input array of points;
     \param[in]  minbin    is the minimum number of points per bin;
     \param[in]  gridsize  is the required length of the output array;
@@ -413,6 +413,15 @@ std::vector<double> createNonuniformGrid(unsigned int nnodes, double xmin, doubl
 */
 std::vector<double> createAlmostUniformGrid(const std::vector<double> &srcpoints,
     unsigned int minbin, unsigned int& gridsize);
+
+/** extend the input grid to negative values, by reflecting it about origin.
+    \param[in]  input is the vector of N values that should start at zero
+                and be monotonically increasing;
+    \return     a new vector that has 2*N-1 elements, so that
+                input[i] = output[N-1+i] = -output[N-1-i] for 0<=i<N
+    \throw      std::invalid_argument if the input does not start with zero or is not increasing.
+*/
+std::vector<double> mirrorGrid(const std::vector<double> &input);
 
 ///@}
 }  // namespace

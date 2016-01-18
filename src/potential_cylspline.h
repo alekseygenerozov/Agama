@@ -77,26 +77,29 @@ private:
     double computePhi_m(double R, double z, int m, const BasePotential& potential) const;
 };
 
-/** Auxiliary class for representing an axisymmetric density profile,
-    computed at nodes of a 2d grid in cylindrical coordinates and interpolated between them.
+/** Density profile expressed as a Fourier expansion in azimuthal angle (phi)
+    with coefficients interpolated on a 2d grid in meridional plane (R,z).
 */
-class DensityCylGrid: public BaseDensity{
+class DensityAzimuthalHarmonic: public BaseDensity {
 public:
-    /** Construct the interpolator by querying the source density values at the nodes
-        of 2d grid specified by two one-dimensional arrays, gridR and gridz.
-        The total number of density evaluations is gridR.size()*gridz.size(). */
-    DensityCylGrid(const std::vector<double>& gridR, const std::vector<double>& gridz,
-        const BaseDensity& srcDensity);
-    virtual coord::SymmetryType symmetry() const { return coord::ST_AXISYMMETRIC; }
+    /** construct the object from the array of coefficients */
+    DensityAzimuthalHarmonic(const std::vector<double>& gridR, const std::vector<double>& gridz,
+        const std::vector< std::vector<double> > &coefs);
+    virtual coord::SymmetryType symmetry() const { return sym; }
     virtual const char* name() const { return myName(); };
-    static const char* myName() { return "DensityCylGrid"; };
+    static const char* myName() { return "DensityAzimuthalHarmonic"; };
 
-    /** retrieve the values of density at the nodes of 2d grid used for interpolation */
+    /** retrieve the values of density expansion coefficients 
+        and the nodes of 2d grid used for interpolation */
     void getCoefs(std::vector<double> &gridR, std::vector<double>& gridz, 
-        math::Matrix<double> &densityValues) const;
+        std::vector< std::vector<double> > &coefs) const;
+    
+    /** return the value of m-th Fourier harmonic at the given point in R,z plane */
+    double rho_m(int m, double R, double z) const;
+
 private:
-    math::CubicSpline2d grid;  ///< spline for log(rho(R,z)+valadd)
-    double valadd;  ///< value added to the source density before taking its log (possibly zero)
+    std::vector<math::CubicSpline2d> spl;  ///< spline for rho_m(R,z)
+    coord::SymmetryType sym;
 
     virtual double densityCar(const coord::PosCar &pos) const {
         return densityCyl(toPosCyl(pos)); }
@@ -108,4 +111,23 @@ private:
     virtual double densityCyl(const coord::PosCyl &pos) const;
 };
 
+/** Compute the coefficients of azimuthal Fourier expansion of density profile,
+    used for constructing a DensityAzimuthalHarmonic object.
+    The input density values are taken at the nodes of 2d grid in (R,z) specified by
+    two one-dimensional arrays, gridR and gridz, and nphi distinct values of phi, 
+    where nphi=mmax+1 if the density is reflection-symmetric in y, or nphi=2*mmax+1 otherwise.
+    The total number of density evaluations is gridR.size() * gridz.size() * nphi.
+*/
+void computeDensityCoefs(const BaseDensity& dens,
+    const unsigned int mmax, const std::vector<double> &gridR, const std::vector<double> &gridz,
+    std::vector< std::vector<double> > &coefs);
+
+/** Compute the coefficients of azimuthal Fourier expansion of potential from
+    from the given density profile, used for creating a CylSpline object.
+*/
+void computePotentialCoefs(const BaseDensity& dens, 
+    const unsigned int mmax, const std::vector<double> &gridR, const std::vector<double> &gridz,
+    std::vector< std::vector<double> > &Phi,
+    std::vector< std::vector<double> > &dPhidR, std::vector< std::vector<double> > &dPhidz);
+    
 }  // namespace

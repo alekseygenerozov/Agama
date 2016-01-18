@@ -7,16 +7,6 @@
 
 namespace math {
 
-/*  Compute the values of cosines and optionally sines of an arithmetic progression of angles:
-    cos(phi), cos(2 phi), ..., cos(m phi), [ sin(phi), sin(2 phi), ..., sin(m phi) ].
-    \param[in]  phi - the angle;
-    \param[in[  m   - the number of multiples of this angle to process, must be >=1 (not checked);
-    \param[in]  needSine - whether to compute sines as well (if false then only cosines are computed);
-    \param[out] outputArray - pointer to an existing array of length m (if needSine==false)
-                or 2m (if needSine==true) that will store the output values.
-*/
-void trigMultiAngle(const double phi, const unsigned int m, const bool needSine, double* outputArray);
-
 /** Gegenbauer (ultraspherical) polynomial:  \f$ C_n^{(\lambda)}(x) \f$ */
 double gegenbauer(const int n, double lambda, double x);
 
@@ -28,6 +18,9 @@ double erfinv(const double x);
 
 /** Gauss's hypergeometric function 2F1(a, b; c; x) */
 double hypergeom2F1(const double a, const double b, const double c, const double x);
+
+/** Associate Legendre function of the second kind, together with its derivative if necessary */
+double legendreQ(const double m, const double x, double* deriv=0);
 
 /** Factorial of an integer number */
 double factorial(const unsigned int n);

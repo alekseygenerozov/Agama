@@ -91,6 +91,8 @@ enum SymmetryType{
     ST_ZROTATION    =16, ///< rotation about z axis
     ST_ROTATION     =32, ///< rotation about arbitrary axis
     // composite symmetries:
+    /// mirror symmetry in xy-plane - change of sign in x and y simultaneously
+    ST_XYREFLECTION = ST_ZREFLECTION | ST_REFLECTION,
     /// triaxial - reflection about principal planes (change of sign of any coordinate):
     /// note that while the combination of reflection symmetries about all three principal planes
     /// implies the reflection symmetry about origin (mirroring), the converse is not true, 

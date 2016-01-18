@@ -1373,4 +1373,20 @@ std::vector<double> createAlmostUniformGrid(const std::vector<double> &srcpoints
     return grid;
 }
 
+std::vector<double> mirrorGrid(const std::vector<double> &input)
+{
+    unsigned int size = input.size();
+    if(size==0 || input[0]!=0)
+        throw std::invalid_argument("incorrect input in mirrorGrid");
+    std::vector<double> output(size*2-1);
+    output[size-1] = 0;
+    for(unsigned int i=1; i<size; i++) {
+        if(input[i] <= input[i-1])
+            throw std::invalid_argument("incorrect input in mirrorGrid");
+        output[size-1-i] = -input[i];
+        output[size-1+i] =  input[i];
+    }
+    return output;
+}
+
 }  // namespace

@@ -45,12 +45,12 @@ int main() {
     // #3. Initialize potential approximations from these particles
     tbegin=std::clock();
     potential::PtrPotential halo(new potential::SplineExp
-        (20, 2, haloparticles, potential::ST_AXISYMMETRIC, 1.0 /*default smoothfactor*/));
+        (20, 2, haloparticles, coord::ST_AXISYMMETRIC, 1.0 /*default smoothfactor*/));
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init halo potential;  "
         "value at origin=" << halo->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     tbegin=std::clock();
     potential::PtrPotential disk(new potential::CylSplineExp
-        (20, 20, 0, diskparticles, potential::ST_AXISYMMETRIC));
+        (20, 20, 0, diskparticles, coord::ST_AXISYMMETRIC));
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init disk potential;  "
         "value at origin=" << disk->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     // not necessary, but we may store the potential coefs into a file and then load them back to speed up process

@@ -88,7 +88,7 @@ private:
 int main(){
     particles::PointMassArrayCar particles;
     readSnapshot("sampled_model.txt", units::ExternalUnits(), particles);
-    potential::PtrPotential pot(new potential::SplineExp(20, 4, particles, potential::ST_AXISYMMETRIC, 1.));
+    potential::PtrPotential pot(new potential::SplineExp(20, 4, particles, coord::ST_AXISYMMETRIC, 1.));
     const actions::ActionFinderAxisymFudge actf(pot);
     ActionArray particleActions(particles.size());
     for(unsigned int i=0; i<particles.size(); i++) {
