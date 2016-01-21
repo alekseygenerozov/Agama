@@ -27,7 +27,7 @@ def model_likelihood(params, points):
     print "J0=%6.5g, alpha=%6.5g, ar=%6.5g, az=%6.5g, beta=%6.5g: " \
         % (params['j0'], params['alpha'], params['ar'], params['az'], params['beta']),
     try:
-        dpl = agama.DistributionFunction(params)
+        dpl = agama.DistributionFunction(**params)
         norm = dpl.total_mass()
         sumlog = numpy.sum( numpy.log(dpl(points)/norm) )
         print "LogL=%8g, norm=%6.5g" % (sumlog, norm)

@@ -293,13 +293,4 @@ private:
 double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
     const double theta, const double phi, double* tmp);
 
-/** zero out array elements with magnitude smaller than the threshold
-    (relative to the L1-norm of the array); useful for filtering out coefficients
-    which are nearly zero but finite due to roundoff errors, after a sph.-harm. transform.
-*/
-void eliminateNearZeros(std::vector<double>& vec, double threshold=1e-12);
-
-/** check whether all elements of an array are zeros (return true for an empty array as well) */
-bool allZeros(const std::vector<double>& vec);
-
 }  // namespace math

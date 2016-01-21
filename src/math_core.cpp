@@ -1,4 +1,5 @@
 #include "math_core.h"
+#include "utils.h"
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_sf_trig.h>
@@ -696,7 +697,9 @@ static int integrandNdimWrapperCuba(const int *ndim, const double xscaled[],
         for(unsigned int i=0; i<param->F.numValues(); i++)
             result+=fval[i];
         if(!isFinite(result)) {
-            param->error = "Invalid function value encountered";
+            param->error = "Invalid function value encountered at";
+            for(int n=0; n< *ndim; n++)
+                param->error += " "+utils::convertToString(param->xvalue[n], 15);
             return -1;
         }        
         return 0;   // success
@@ -715,8 +718,8 @@ struct CubatureParams {
     explicit CubatureParams(const IFunctionNdim& _F) :
         F(_F), numEval(0){};
 };
-static int integrandNdimWrapperCubature(unsigned ndim, const double *x, void *v_param,
-    unsigned fdim, double *fval)
+static int integrandNdimWrapperCubature(unsigned int ndim, const double *x, void *v_param,
+    unsigned int fdim, double *fval)
 {
     CubatureParams* param = static_cast<CubatureParams*>(v_param);
     assert(ndim == param->F.numVars() && fdim == param->F.numValues());
@@ -727,7 +730,9 @@ static int integrandNdimWrapperCubature(unsigned ndim, const double *x, void *v_
         for(unsigned int i=0; i<param->F.numValues(); i++)
             result+=fval[i];
         if(!isFinite(result)) {
-            param->error = "Invalid function value encountered";
+            param->error = "Invalid function value encountered at";
+            for(unsigned int n=0; n<ndim; n++)
+                param->error += " "+utils::convertToString(x[n], 15);
             return -1;
         }
         return 0;   // success

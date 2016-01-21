@@ -94,6 +94,7 @@ potential::PtrPotential create_from_file(
     return newpot;
 }
 
+// test the accuracy of potential, force and density approximation at different radii
 void test_average_error(const potential::BasePotential& p1, const potential::BasePotential& p2)
 {
     double gamma = getInnerDensitySlope(p2);
@@ -101,23 +102,23 @@ void test_average_error(const potential::BasePotential& p1, const potential::Bas
         "_gamma" + utils::convertToString(gamma);
     std::ofstream strm(fileName.c_str());
     const double dlogR=0.1;
-    const int nptbin=100;
+    const int nptbin=500;
     for(double logR=-4; logR<4; logR+=dlogR) {
         math::Averager difPhi, difForce, difDens;
         for(int n=0; n<nptbin; n++) {
             coord::PosSph point( pow(10., logR+dlogR*n/nptbin),
                 acos(math::random()*2-1), math::random()*2*M_PI);
             coord::GradCar g1, g2;
-            double v1, v2, f1, f2, d1, d2;
+            double v1, v2, df, f2, d1, d2;
             p1.eval(coord::toPosCar(point), &v1, &g1);
             p2.eval(coord::toPosCar(point), &v2, &g2);
             d1 = p1.density(point);
             d2 = p2.density(point);
-            f1 = sqrt(pow_2(g1.dx)+pow_2(g1.dy)+pow_2(g1.dz));
+            df = sqrt(pow_2(g1.dx-g2.dx)+pow_2(g1.dy-g2.dy)+pow_2(g1.dz-g2.dz));
             f2 = sqrt(pow_2(g2.dx)+pow_2(g2.dy)+pow_2(g2.dz));
             difPhi  .add((v1-v2)/(v1+v2));
             difDens .add((d1-d2)/(fabs(d1)+fabs(d2)));
-            difForce.add((f1-f2)/(f1+f2));
+            difForce.add(df/f2);
         }
         strm << pow(10., logR+0.5*dlogR) << '\t' <<
             sqrt(pow_2(difPhi  .mean())+difPhi  .disp()) << '\t' <<
@@ -126,6 +127,28 @@ void test_average_error(const potential::BasePotential& p1, const potential::Bas
     }
 }
 
+// test the accuracy of density approximation at different radii
+void test_average_error(const potential::BaseDensity& p1, const potential::BaseDensity& p2)
+{
+    double gamma = getInnerDensitySlope(p2);
+    std::string fileName = std::string("testerr_") + p1.name() + "_" + p2.name() + 
+        "_gamma" + utils::convertToString(gamma);
+    std::ofstream strm(fileName.c_str());
+    const double dlogR=0.1;
+    const int nptbin=500;
+    for(double logR=-4; logR<4; logR+=dlogR) {
+        math::Averager avg;
+        for(int n=0; n<nptbin; n++) {
+            coord::PosSph point( pow(10., logR+dlogR*n/nptbin),
+                acos(math::random()*2-1), math::random()*2*M_PI);
+            double d1 = p1.density(point);
+            double d2 = p2.density(point);
+            avg.add((d1-d2)/(fabs(d1)+fabs(d2)));
+        }
+        strm << pow(10., logR+0.5*dlogR) << '\t' <<
+            sqrt(pow_2(avg.mean())+avg.disp()) << '\n';
+    }
+}
 
 /// compare potential and its derivatives between the original model and its spherical-harmonic approximation
 bool test_suite(const potential::BasePotential& p, const potential::BasePotential& orig, double eps_pot)
@@ -171,13 +194,13 @@ bool testDensSH()
     // twice denser grid: every other node coincides with that of the first grid
     std::vector<double> radii2 = math::createExpGrid(101,0.01, 100);
     std::vector<std::vector<double> > coefs1, coefs2;
-    computeDensityCoefs(dens, math::SphHarmIndices(8, 6, dens.symmetry()), radii1, coefs1);
+    computeDensityCoefsSph(dens, math::SphHarmIndices(8, 6, dens.symmetry()), radii1, coefs1);
     potential::DensitySphericalHarmonic dens1(radii1, coefs1);
     // creating a sph-harm expansion from another s-h expansion:
     // should produce identical results if the location of radial grid points 
     // (partly) coincides with the first one, and the order of expansions lmax,mmax
     // are at least as large as the original ones (the extra coefs will be zero).
-    computeDensityCoefs(dens1, math::SphHarmIndices(10, 8, dens1.symmetry()), radii2, coefs2);
+    computeDensityCoefsSph(dens1, math::SphHarmIndices(10, 8, dens1.symmetry()), radii2, coefs2);
     potential::DensitySphericalHarmonic dens2(radii2, coefs2);
     bool ok = true;
     // check that the two sets of coefs are identical at equal radii
@@ -186,19 +209,19 @@ bool testDensSH()
             if( (c<coefs1[0].size() && fabs(coefs1[k][c] - coefs2[k*2][c]) > 1e-12) ||
                 (c>=coefs1[0].size() && coefs2[k*2][c] != 0) )
                 ok = false;
-    double maxdiff = 0;
+
+    // test the accuracy at grid radii
     for(unsigned int k=0; k<radii1.size(); k++)
         for(double theta=0; theta<M_PI/2; theta+=0.31) 
             for(double phi=0; phi<M_PI; phi+=0.31) {
-                coord::PosSph p(radii1[k], theta, phi);
-                double d0 = dens .density(p);
-                double d1 = dens1.density(p);
-                double d2 = dens2.density(p);
+                coord::PosSph point(radii1[k], theta, phi);
+                double d1 = dens1.density(point);
+                double d2 = dens2.density(point);
                 if(fabs(d1-d2) / fabs(d1) > 1e-12)  // two SH expansions should give the same result
                     ok = false;
-                maxdiff = fmax( maxdiff, fabs(d1-d0) / d0);
             }
-    std::cout << "Max relative error in density = " << maxdiff << "\n";
+    test_average_error(dens1, dens);
+    test_average_error(dens1, dens2);
     return ok;
 }
 
@@ -297,13 +320,18 @@ int main() {
     ok &= checkSH<2, 1>(math::SphHarmIndices(3, 1,
         static_cast<coord::SymmetryType>(coord::ST_REFLECTION | coord::ST_YREFLECTION)));
     ok &= checkSH<2, 2>(math::SphHarmIndices(5, 3, coord::ST_TRIAXIAL));
-    
+
     ok &= testDensSH();
+    const potential::MiyamotoNagai mn(1, 3, 0.5);
+    potential::PtrDensity mna = potential::DensityAzimuthalHarmonic::create(
+        mn, 0, 30, 1e-2, 1e2, 30, 1e-2, 1e2);
+    test_average_error(*mna, mn);
+#if 0
 
     // axisymmetric multipole
     const potential::Dehnen deh1(1., 1., 0.8, .5, 1.2);
     potential::PtrPotential deh1m = potential::Multipole::create(
-        static_cast<const potential::BaseDensity&>(deh1), 1e-3, 1e3, 50, 10, 10);
+        static_cast<const potential::BaseDensity&>(deh1), 10, 10, 50, 1e-3, 1e3);
     std::cout << "Created Multipole\n";
     clock_t clockbegin = std::clock();
     test_average_error(*deh1m, deh1);
@@ -334,26 +362,41 @@ int main() {
     ok &= test_suite(sp2, deh15, 2e-4);
 
     // mildly triaxial, cored
+#endif
     const potential::Dehnen deh0(1., 1., 0.8, 0.6, 0.);
-    const potential::BasisSetExp bs3(1., 20, 6, deh0);
-    const potential::SplineExp sp3(20, 6, deh0);
+    //const potential::MiyamotoNagai deh0(1, 2, 0.5);
+    potential::PtrPotential deh0m = potential::Multipole::create(
+        deh0, 12, 8, 30, 1e-3, 1e3);
+    clock_t clockbegin = std::clock();
+    //test_average_error(*deh0m, deh0);
+    std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds for Multipole\n";
+    //const potential::BasisSetExp bs3(1., 20, 6, deh0);
+    //const potential::SplineExp sp3(20, 6, deh0);
+    //const potential::CylSplineExp cy3(20, 20, 6, static_cast<const potential::BaseDensity&>(deh0));
+    //std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to create old CylSpline\n";
+    const potential::CylSplineExpOld cy3(30, 30, 8, static_cast<const potential::BaseDensity&>(deh0), 1e-3, 1e3, 1e-3, 1e3);
     clockbegin = std::clock();
-    const potential::CylSplineExp cy3(20, 20, 6, static_cast<const potential::BaseDensity&>(deh0));
-    std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to create old CylSpline\n";
     test_average_error(cy3, deh0);
-    ok &= test_suite(bs3, deh0, 5e-5);
-    ok &= test_suite(sp3, deh0, 5e-5);
-    ok &= test_suite(cy3, deh0, 1e-4);
+    std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds for old spline\n";
+    //ok &= test_suite(bs3, deh0, 5e-5);
+    //ok &= test_suite(sp3, deh0, 5e-5);
+    //ok &= test_suite(cy3, deh0, 1e-4);
     writePotential("CylSplineOld", cy3);
+    //clockbegin = std::clock();
+    std::vector<double> gridR = math::createNonuniformGrid(30, 1e-3, 1e3, true);
+    std::vector<double> gridz = math::createNonuniformGrid(30, 1e-3, 1e3, true);
+    std::vector<math::Matrix<double> > Phi, dPhidR, dPhidz;
+    computePotentialCoefsCyl(static_cast<const potential::BaseDensity&>(deh0), 8, gridR, gridz, Phi, dPhidR, dPhidz);
+    //computePotentialCoefsCyl(deh0, 8, gridR, gridz, Phi, dPhidR, dPhidz);
+    //std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to create new CylSpline\n";
+    const potential::CylSplineExp cy5(gridR, gridz, Phi, dPhidR, dPhidz);
     clockbegin = std::clock();
-    std::vector<double> gridR = math::createNonuniformGrid(20, 0.1235460252325984, 967.1723622787455, true), gridz=gridR;
-    std::vector<std::vector<double> > Phi, dPhidR, dPhidz;
-    potential::computePotentialCoefs(deh0, 6, gridR, gridz, Phi, dPhidR, dPhidz);
-    std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds to create new CylSpline\n";
-    const potential::CylSplineExp cy4(gridR, gridz, Phi);
-    test_average_error(cy4, deh0);
-    ok &= test_suite(cy4, deh0, 1e-4);
-    writePotential("CylSplineNew", cy4);
+    test_average_error(cy5, deh0);
+    std::cout << (std::clock()-clockbegin)*1.0/CLOCKS_PER_SEC << " seconds for new spline\n";
+    //ok &= test_suite(cy4, deh0, 1e-4);
+    writePotential("CylSplineNew", cy5);
+    potential::PtrPotential cy5_clone = write_read(cy5);
+    //test_average_error(*cy5_clone, cy5);
 
     // mildly triaxial, created from N-body samples
     const potential::Dehnen hernq(1., 1., 0.8, 0.6, 1.0);

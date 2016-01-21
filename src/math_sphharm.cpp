@@ -244,25 +244,6 @@ std::vector<int> getIndicesAzimuthal(int mmax, coord::SymmetryType sym)
     return result;
 }
 
-void eliminateNearZeros(std::vector<double>& vec, double threshold)
-{
-    double mag=0;
-    for(unsigned int t=0; t<vec.size(); t++)
-        mag+=fabs(vec[t]);
-    mag *= threshold;
-    for(unsigned int t=0; t<vec.size(); t++)
-        if(fabs(vec[t]) <= mag)
-            vec[t]=0;
-}
-
-bool allZeros(const std::vector<double>& vec)
-{
-    for(unsigned int i=0; i<vec.size(); i++)
-        if(vec[i]!=0)
-            return false;
-    return true;
-}
-
 // ------ classes for performing many transformations with identical setup ------ //
 
 FourierTransformForward::FourierTransformForward(int _mmax, bool _useSine) :

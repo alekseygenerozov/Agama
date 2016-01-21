@@ -120,7 +120,7 @@ double convertToDouble(const char* val) {
 }
 template<typename ValueType> std::string convertToString(ValueType val, unsigned int width) {
     char buf[100];
-    int len=snprintf(buf, 100, "%*g", width, val);
+    int len=snprintf(buf, 100, "%.*g", width, val);
     int offset=0;
     while(offset<len && buf[offset]==' ') offset++;
     return std::string(buf+offset);

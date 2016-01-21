@@ -82,7 +82,7 @@ void ComponentWithSpheroidalDF::update(
 
     // recompute the spherical-harmonic expansion for the density
     density = potential::DensitySphericalHarmonic::create(
-        densityWrapper, rmin, rmax, numCoefsRadial, numCoefsAngular, 0);
+        densityWrapper, numCoefsAngular, 0, numCoefsRadial, rmin, rmax);
 }
 
 ComponentWithDisklikeDF::ComponentWithDisklikeDF(
@@ -109,8 +109,8 @@ void ComponentWithDisklikeDF::update(
         totalPotential, actionFinder, *distrFunc, relError, maxNumEval);
 
     // reinit the interpolator for density in meridional plane
-    std::vector< std::vector<double> > coefs;
-    computeDensityCoefs(densityWrapper, 0, gridR, gridz, coefs);
+    std::vector< math::Matrix<double> > coefs;
+    computeDensityCoefsCyl(densityWrapper, 0, gridR, gridz, coefs);
     density.reset(new potential::DensityAzimuthalHarmonic(gridR, gridz, coefs));
 }
 
@@ -177,7 +177,7 @@ void updateTotalPotential(SelfConsistentModel& model)
     // and add it as one of potential components (possibly the only one)
     if(totalDensitySph != NULL)
         compPot.push_back(potential::Multipole::create(*totalDensitySph,
-            model.rminSph, model.rmaxSph, model.sizeRadialSph, model.lmaxAngularSph, 0));
+            model.lmaxAngularSph, 0 /*mmax*/, model.sizeRadialSph, model.rminSph, model.rmaxSph));
 
     // now the same for the total density to be used in CylSplineExp for the flattened components
     PtrDensity totalDensityDisk;
@@ -187,10 +187,9 @@ void updateTotalPotential(SelfConsistentModel& model)
         totalDensityDisk = compDensDisk[0];
 
     if(totalDensityDisk != NULL)
-        compPot.push_back(PtrPotential(
-            new potential::CylSplineExp(model.sizeRadialCyl, model.sizeVerticalCyl, 0,
-                *totalDensityDisk,
-                model.RminCyl, model.RmaxCyl, model.zminCyl, model.zmaxCyl)));
+        compPot.push_back(potential::CylSplineExp::create(*totalDensityDisk, 0 /*mmax*/,
+            model.sizeRadialCyl,   model.RminCyl, model.RmaxCyl,
+            model.sizeVerticalCyl, model.zminCyl, model.zmaxCyl));
 
     // now check if the total potential is elementary or composite
     if(compPot.size()==0)

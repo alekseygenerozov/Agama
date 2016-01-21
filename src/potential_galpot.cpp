@@ -282,7 +282,7 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
     // create multipole potential from this combined density
     double rmin = GALPOT_RMIN * lengthMin;
     double rmax = GALPOT_RMAX * lengthMax;
-    componentsPot.push_back(Multipole::create(dens, rmin, rmax, GALPOT_NRAD, GALPOT_LMAX, 0));
+    componentsPot.push_back(Multipole::create(dens, GALPOT_LMAX, 0, GALPOT_NRAD, rmin, rmax));
 
     // the array of components to be passed to the constructor of CompositeCyl potential:
     // the multipole and the non-residual parts of disk potential

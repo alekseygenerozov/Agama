@@ -1,8 +1,50 @@
 #include "math_linalg.h"
+#include <cmath>
 #include <gsl/gsl_blas.h>
 #include <gsl/gsl_linalg.h>
 
 namespace math{
+
+void eliminateNearZeros(std::vector<double>& vec, double threshold)
+{
+    double mag=0;
+    for(unsigned int t=0; t<vec.size(); t++)
+        mag = fmax(mag, fabs(vec[t]));
+    mag *= threshold;
+    for(unsigned int t=0; t<vec.size(); t++)
+        if(fabs(vec[t]) <= mag)
+            vec[t]=0;
+}
+
+void eliminateNearZeros(Matrix<double>& mat, double threshold)
+{
+    double mag=0;
+    for(unsigned int i=0; i<mat.numCols(); i++)
+        for(unsigned int j=0; j<mat.numRows(); j++)
+            mag = fmax(mag, fabs(mat(i,j)));
+    mag *= threshold;
+    for(unsigned int i=0; i<mat.numCols(); i++)
+        for(unsigned int j=0; j<mat.numRows(); j++)
+            if(fabs(mat(i,j)) <= mag)
+                mat(i,j)=0;
+}
+
+bool allZeros(const std::vector<double>& vec)
+{
+    for(unsigned int i=0; i<vec.size(); i++)
+        if(vec[i]!=0)
+            return false;
+    return true;
+}
+
+bool allZeros(const Matrix<double>& mat)
+{
+    for(unsigned int i=0; i<mat.numCols(); i++)
+        for(unsigned int j=0; j<mat.numRows(); j++)
+            if(mat(i,j) != 0)
+                return false;
+    return true;
+}
 
 // ---- wrappers for GSL vector and matrix views (access the data arrays without copying) ----- //
 struct Vec {

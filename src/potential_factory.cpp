@@ -20,6 +20,8 @@
 
 namespace potential {
 
+namespace {  // internal definitions and routines
+
 /// \name Definitions of all known potential types and parameters
 //        -------------------------------------------------------
 ///@{
@@ -235,10 +237,6 @@ static const char* getCoefFileExtension(PotentialType pottype)
     }
 }
 
-/// return file extension for writing the coefficients of expansion of the given potential
-const char* getCoefFileExtension(const std::string& potName) {
-    return getCoefFileExtension(getPotentialTypeByName(potName)); }
-
 ///@}
 /// \name Conversion between string key/value maps and structured potential parameters
 //        ----------------------------------------------------------------------------
@@ -369,6 +367,57 @@ static PtrPotential readPotentialSphHarmExp(
     }
 }
 
+/// read an array of azimuthal harmonics from text stream:
+/// one or more blocks corresponding to each m, where the block is a 2d matrix of values,
+/// together with the coordinates in the 1st line and 1st column
+static bool readAzimuthalHarmonics(std::istream& strm,
+    int mmax, unsigned int size_R, unsigned int size_z,
+    std::vector<double>& gridR, std::vector<double>& gridz,
+    std::vector< math::Matrix<double> > &data)
+{
+    std::string buffer;
+    std::vector<std::string> fields;
+    bool ok=true;
+    // total # of harmonics possible, not all of them need to be present in the file
+    data.resize(mmax*2+1);
+    while(ok && std::getline(strm, buffer) && !strm.eof()) {
+        if(buffer.size()==0 || buffer[0] == '\n' || buffer[0] == '\r')
+            return ok;  // end block with an empty line
+        utils::splitString(buffer, "# \t", fields);
+        int m = utils::convertToInt(fields[0]);  // m (azimuthal harmonic index)
+        if(m < -mmax || m > mmax)
+            ok=false;
+        std::getline(strm, buffer);  // radii
+        if(gridR.size()==0) {  // read values of R only once
+            utils::splitString(buffer, "# \t", fields);
+            for(unsigned int i=1; i<fields.size(); i++) {
+                gridR.push_back(utils::convertToDouble(fields[i]));
+                if(i>1 && gridR[i-1]<=gridR[i-2])
+                    ok=false;  // the values must be in increasing order
+            }
+        }
+        ok &= gridR.size() == size_R;
+        gridz.clear();
+        data[m+mmax].resize(size_R, size_z);
+        for(unsigned int iz=0; ok && iz<size_z; iz++) {
+            std::getline(strm, buffer);
+            utils::splitString(buffer, "# \t", fields);
+            gridz.push_back(utils::convertToDouble(fields[0]));
+            if(iz>0 && gridz.back()<=gridz[iz-1]) 
+                ok=false;  // the values of z should be in increasing order
+            for(unsigned int iR=0; iR<size_R; iR++) {
+                double val=0;
+                if(iR+1<fields.size())
+                    val = utils::convertToDouble(fields[iR+1]);
+                else
+                    ok=false;
+                data[m+mmax](iR, iz) = val;
+            }
+        }
+    }
+    return ok;
+}
+
 /// attempt to load coefficients of CylSplineExp stored in a text file
 static PtrPotential readPotentialCylSpline(std::istream& strm)
 {
@@ -376,52 +425,38 @@ static PtrPotential readPotentialCylSpline(std::istream& strm)
     std::vector<std::string> fields;
     bool ok = std::getline(strm, buffer);
     utils::splitString(buffer, "# \t", fields);
-    size_t size_R = utils::convertToInt(fields[0]);
+    unsigned int size_R = utils::convertToInt(fields[0]);
     ok &= std::getline(strm, buffer).good();
     utils::splitString(buffer, "# \t", fields);
-    size_t ncoefsAngular = utils::convertToInt(fields[0]);
+    int mmax = utils::convertToInt(fields[0]);
     ok &= std::getline(strm, buffer).good();
     utils::splitString(buffer, "# \t", fields);
-    size_t size_z = utils::convertToInt(fields[0]);
-    ok &= std::getline(strm, buffer).good();  // time, ignored
-    ok &= size_R>0 && size_z>0;
+    unsigned int size_z = utils::convertToInt(fields[0]);
+    ok &= size_R>0 && size_z>0 && mmax>=0;
     std::vector<double> gridR, gridz;
-    std::vector<std::vector<double> > coefs(2*ncoefsAngular+1);
-    while(ok && std::getline(strm, buffer) && !strm.eof()) {
-        utils::splitString(buffer, "# \t", fields);
-        int m = utils::convertToInt(fields[0]);  // m (azimuthal harmonic index)
-        if(m < -static_cast<int>(ncoefsAngular) || m > static_cast<int>(ncoefsAngular))
-            ok=false;
-        std::getline(strm, buffer);  // radii
-        if(gridR.size()==0) {  // read values of R only once
-            utils::splitString(buffer, "# \t", fields);
-            for(size_t i=1; i<fields.size(); i++)
-                gridR.push_back(utils::convertToDouble(fields[i]));
-            if(gridR.size() != size_R)
-                ok=false;
-        }
-        gridz.clear();
-        coefs[m+ncoefsAngular].assign(size_R*size_z,0);
-        for(size_t iz=0; ok && iz<size_z; iz++) {
-            std::getline(strm, buffer);
-            utils::splitString(buffer, "# \t", fields);
-            gridz.push_back(utils::convertToDouble(fields[0]));
-            if(iz>0 && gridz.back()<=gridz[iz-1]) 
-                ok=false;  // the values of z should be in increasing order
-            for(size_t iR=0; iR<size_R; iR++) {
-                double val=0;
-                if(iR+1<fields.size())
-                    val = utils::convertToDouble(fields[iR+1]);
-                else
-                    ok=false;
-                coefs[m+ncoefsAngular][iz*size_R+iR]=val;
-            }
-        }
+    std::vector< math::Matrix<double> > Phi, dPhidR, dPhidz;
+    ok &= std::getline(strm, buffer).good();
+    ok &= buffer.find("Phi") != std::string::npos;
+    if(ok)
+        ok &= readAzimuthalHarmonics(strm, mmax, size_R, size_z, gridR, gridz, Phi);
+    bool ok1 = std::getline(strm, buffer).good();
+    ok1 &= buffer.find("dPhi/dR") != std::string::npos;
+    if(ok1)
+        ok1 &= readAzimuthalHarmonics(strm, mmax, size_R, size_z, gridR, gridz, dPhidR);
+    ok1 &= std::getline(strm, buffer).good();
+    ok1 &= buffer.find("dPhi/dz") != std::string::npos;
+    if(ok1)
+        ok1 &= readAzimuthalHarmonics(strm, mmax, size_R, size_z, gridR, gridz, dPhidz);
+    if(!ok1) {  // have to live without derivatives...
+        dPhidR.clear();
+        dPhidz.clear();
     }
     if(!ok)
         throw std::runtime_error(std::string("Error loading potential ") + CylSplineExp::myName());
-    return PtrPotential(new CylSplineExp(gridR, gridz, coefs));
+    return PtrPotential(new CylSplineExp(gridR, gridz, Phi, dPhidR, dPhidz));
 }
+
+}  // end internal namespace
 
 // Main routine: load potential expansion coefficients from a text file
 PtrPotential readPotential(const std::string& fileName)
@@ -460,104 +495,109 @@ PtrPotential readPotential(const std::string& fileName)
 /// \name Routines for storing various Density and Potential classes into a stream
 //        ------------------------------------------------------------------------
 ///@{
+namespace {
 
-static void writePotentialSphHarmExp(std::ostream& strm,
-    const BasePotential& potential)
+static void writeSphericalHarmonics(std::ostream& strm,
+    const std::vector<double> &radii,
+    const std::vector< std::vector<double> > &coefs)
 {
-    std::vector<double> indices;
-    std::vector< std::vector<double> > coefs, coefs1;
-    unsigned int ncoefsAngular=0;
-    PotentialType ptype = getPotentialTypeByName(potential.name());
-    switch(ptype)
-    {
-    case PT_BSE: {
-        const BasisSetExp& potBSE = dynamic_cast<const BasisSetExp&>(potential);
-        indices.resize(potBSE.getNumCoefsRadial()+1);
-        for(size_t i=0; i<indices.size(); i++) indices[i]=i*1.0;
-        potBSE.getCoefs(coefs);
-        assert(coefs.size() == indices.size());
-        ncoefsAngular = potBSE.getNumCoefsAngular();
-        strm << BasisSetExp::myName() << "\t#header\n" << 
-            (potBSE.getNumCoefsRadial()+1) << "\t#n_radial\n" << 
-            ncoefsAngular << "\t#l_max\n" << 
-            potBSE.getAlpha() <<"\t#alpha\n0\t#time\n";
-        strm << "#index";
-        break; 
-    }
-    case PT_SPLINE: {
-        const SplineExp& potSpline = dynamic_cast<const SplineExp&>(potential);
-        potSpline.getCoefs(indices, coefs);
-        assert(coefs.size() == indices.size());
-        assert(indices[0] == 0);  // leftmost radius is 0
-        coefs[0].resize(1);       // retain only l=0 term for r=0, the rest is supposed to be zero
-        ncoefsAngular = potSpline.getNumCoefsAngular();
-        strm << SplineExp::myName() << "\t#header\n" << 
-            (potSpline.getNumCoefsRadial()+1) << "\t#n_radial\n" << 
-            ncoefsAngular << "\t#l_max\n" <<
-            0 <<"\t#unused\n0\t#time\n";
-        strm << "#radius";
-        break; 
-    }
-    case PT_MULTIPOLE: {
-        const Multipole& potMul = dynamic_cast<const Multipole&>(potential);
-        potMul.getCoefs(indices, coefs, coefs1);
-        assert(coefs.size() > 0 && coefs.size() == indices.size() && coefs1.size() == coefs.size());
-        ncoefsAngular = sqrt(coefs[0].size())-1;
-        strm << Multipole::myName() << "\t#header\n" << 
-            coefs.size() << "\t#n_radial\n" << 
-            ncoefsAngular << "\t#l_max\n" <<
-            0 <<"\t#unused\n0\t#time\n";
-        strm << "#radius";
-        break; 
-    }
-    default:  // shouldn't occur, the potential type was checked in the caller
-        throw std::invalid_argument("Unknown type of potential to write");
-    }
-    for(int l=0; l<=static_cast<int>(ncoefsAngular); l++)
+    assert(coefs.size()>0);
+    int lmax = sqrt(coefs[0].size())-1;
+    for(int l=0; l<=lmax; l++)
         for(int m=-l; m<=l; m++)
             strm << "\tl="<<l<<",m="<<m;  // header line
-    strm << "\n";
-    for(unsigned int n=0; n<indices.size(); n++)
-    {
-        strm << indices[n];
-        // leading coeft should be high-accuracy at least for spline potential
-        strm << "\t" << std::setprecision(16) << coefs[n][0] << std::setprecision(12);
-        for(unsigned int i=1; i<coefs[n].size(); i++)
+    strm << "\n" << std::setprecision(16);
+    for(unsigned int n=0; n<radii.size(); n++) {
+        strm << radii[n];
+        for(unsigned int i=0; i<coefs[n].size(); i++)
             strm << "\t" << coefs[n][i];
         strm << "\n";
     }
-    if(ptype != PT_MULTIPOLE) return;
-    strm << "#radius\\dPhi/dr\n";
-    for(unsigned int n=0; n<indices.size(); n++) {
-        strm << indices[n];
-        strm << "\t" << std::setprecision(16) << coefs1[n][0] << std::setprecision(12);
-        for(unsigned int i=1; i<coefs1[n].size(); i++)
-            strm << "\t" << coefs1[n][i];
-        strm << "\n";
-    }
+}
+    
+static void writePotentialBSE(std::ostream& strm, const BasisSetExp& potBSE)
+{
+    std::vector<double> indices;
+    std::vector< std::vector<double> > coefs;
+    indices.resize(potBSE.getNumCoefsRadial()+1);
+    for(size_t i=0; i<indices.size(); i++) indices[i]=i*1.0;
+    potBSE.getCoefs(coefs);
+    assert(coefs.size() == indices.size());
+    int lmax = potBSE.getNumCoefsAngular();
+    strm << BasisSetExp::myName() << "\t#header\n" << 
+        (potBSE.getNumCoefsRadial()+1) << "\t#n_radial\n" << 
+        lmax << "\t#l_max\n" << 
+        potBSE.getAlpha() <<"\t#alpha\n0\t#time\n#index";
+    writeSphericalHarmonics(strm, indices, coefs);
+}
+
+static void writePotentialSpline(std::ostream& strm, const SplineExp& potSpline)
+{
+    std::vector<double> radii;
+    std::vector< std::vector<double> > coefs;
+    potSpline.getCoefs(radii, coefs);
+    assert(radii[0] == 0 && coefs.size() == radii.size());
+    coefs[0].resize(1);       // retain only l=0 term for r=0, the rest is supposed to be zero
+    int lmax = potSpline.getNumCoefsAngular();
+    strm << SplineExp::myName() << "\t#header\n" << 
+        (potSpline.getNumCoefsRadial()+1) << "\t#n_radial\n" << 
+        lmax << "\t#l_max\n" <<
+        0 <<"\t#unused\n0\t#time\n#radius";
+    writeSphericalHarmonics(strm, radii, coefs);
+}
+
+static void writePotentialMultipole(std::ostream& strm, const Multipole& potMul)
+{
+    std::vector<double> radii;
+    std::vector< std::vector<double> > Phi, dPhi;
+    potMul.getCoefs(radii, Phi, dPhi);
+    assert(radii[0] == 0 && Phi.size() > 0 && Phi.size() == radii.size() && dPhi.size() == Phi.size());
+    int lmax = sqrt(Phi[0].size())-1;
+    strm << Multipole::myName() << "\t#header\n" << 
+        Phi.size() << "\t#n_radial\n" << 
+        lmax << "\t#l_max\n" <<
+        0 <<"\t#unused\nPhi\n#radius";
+    writeSphericalHarmonics(strm, radii, Phi);
+    strm << "dPhi/dr\n#radius";
+    writeSphericalHarmonics(strm, radii, dPhi);
+}
+
+static void writeAzimuthalHarmonics(std::ostream& strm,
+    const std::vector<double>& gridR,
+    const std::vector<double>& gridz,
+    const std::vector< math::Matrix<double> >& data)
+{
+    int mmax = (-1+data.size())/2;
+    assert(mmax>=0);
+    for(unsigned int mm=0; mm<data.size(); mm++) 
+        if(data[mm].numRows()*data[mm].numCols()>0) {
+            strm << (-mmax+mm) << "\t#m\n#z\\R";
+            for(unsigned int iR=0; iR<gridR.size(); iR++)
+                strm << "\t" << gridR[iR];
+            strm << "\n";
+            for(unsigned int iz=0; iz<gridz.size(); iz++) {
+                strm << gridz[iz];
+                for(unsigned int iR=0; iR<gridR.size(); iR++)
+                    strm << "\t" << data[mm](iR, iz);
+                strm << "\n";
+            }
+        }
 }
 
 static void writePotentialCylSpline(std::ostream& strm, const CylSplineExp& potential)
 {
     std::vector<double> gridR, gridz;
-    std::vector<std::vector<double> > coefs;
-    potential.getCoefs(gridR, gridz, coefs);
-    int mmax = coefs.size()/2;
+    std::vector<math::Matrix<double> > Phi, dPhidR, dPhidz;
+    potential.getCoefs(gridR, gridz, Phi, dPhidR, dPhidz);
+    int mmax = Phi.size()/2;
     strm << CylSplineExp::myName() << "\t#header\n" << gridR.size() << "\t#size_R\n" << mmax << "\t#m_max\n" <<
-        gridz.size() << "\t#size_z\n0\t#time\n" << std::setprecision(16);
-    for(int m=0; m<static_cast<int>(coefs.size()); m++) 
-        if(coefs[m].size()>0) {
-            strm << (m-mmax) << "\t#m\n#z\\R";
-            for(size_t iR=0; iR<gridR.size(); iR++)
-                strm << "\t" << gridR[iR];
-            strm << "\n";
-            for(size_t iz=0; iz<gridz.size(); iz++) {
-                strm << gridz[iz];
-                for(size_t iR=0; iR<gridR.size(); iR++)
-                    strm << "\t" << coefs[m][iz*gridR.size()+iR];
-                strm << "\n";
-            }
-        }
+        gridz.size() << "\t#size_z\n" << std::setprecision(12);
+    strm << "Phi\n";
+    writeAzimuthalHarmonics(strm, gridR, gridz, Phi);
+    strm << "\ndPhi/dR\n";
+    writeAzimuthalHarmonics(strm, gridR, gridz, dPhidR);
+    strm << "\ndPhi/dz\n";
+    writeAzimuthalHarmonics(strm, gridR, gridz, dPhidz);
 }
 
 static void writeDensitySphericalHarmonic(std::ostream& strm, const DensitySphericalHarmonic& density)
@@ -565,43 +605,19 @@ static void writeDensitySphericalHarmonic(std::ostream& strm, const DensitySpher
     std::vector<double> radii;
     std::vector<std::vector<double> > coefs;
     density.getCoefs(radii, coefs);
-    const double lmax = coefs.size()-1;
-
-    // use values of polar angle (theta) that correspond to Gauss-Legendre nodes in cos(theta)
-    // for the given order of spherical-harmonic expansion lmax
-    std::vector<double> theta(lmax+2), weights(lmax+1);
-    math::prepareIntegrationTableGL(-1, 1, lmax+1, &theta.front(), &weights.front());
-    for(int i=lmax/2; i<=lmax; i++)  // use only upper half of points
-        theta[i] = acos(theta[i]);
-    strm << "#r\\theta:";
-    for(int t=lmax/2; t<=lmax; t++)
-        strm << '\t' << theta[t];
-    strm << '\n';
-    for(unsigned int i=0; i<radii.size(); i++) {
-        strm << radii[i];
-        for(int t=lmax/2; t<=lmax; t++)
-            strm << '\t' << density.density(coord::PosSph(radii[i], theta[t], 0));
-        strm << '\n';
-    }
+    strm << "radius";
+    writeSphericalHarmonics(strm, radii, coefs);
 }
 
 static void writeDensityCylGrid(std::ostream& strm, const DensityAzimuthalHarmonic& density)
 {
-    /*std::vector<double> gridR, gridz;
-    math::Matrix<double> densVal;
-    density.getCoefs(gridR, gridz, densVal);
-    strm << "#R\\z";
-    for(unsigned int iz=0; iz<gridz.size(); iz++)
-        strm << '\t' << gridz[iz];
-    strm << '\n';
-    for(unsigned int iR=0; iR<gridR.size(); iR++) {
-        strm << gridR[iR];
-        for(unsigned int iz=0; iz<gridz.size(); iz++)
-            strm << '\t' << densVal(iR, iz);
-        strm << '\n';
-    }*/  // TODO!!! fixme
+    std::vector<double> gridR, gridz;
+    std::vector<math::Matrix<double> > coefs;
+    density.getCoefs(gridR, gridz, coefs);
+    writeAzimuthalHarmonics(strm, gridR, gridz, coefs);
 }
 
+} // end internal namespace
 
 bool writeDensity(const std::string& fileName, const BaseDensity& dens)
 {
@@ -615,9 +631,13 @@ bool writeDensity(const std::string& fileName, const BaseDensity& dens)
         type = getDensityTypeByName(dens.name());
     switch(type) {
     case PT_BSE:
+        writePotentialBSE(strm, dynamic_cast<const BasisSetExp&>(dens));
+        break;
     case PT_SPLINE:
+        writePotentialSpline(strm, dynamic_cast<const SplineExp&>(dens));
+        break;
     case PT_MULTIPOLE:
-        writePotentialSphHarmExp(strm, dynamic_cast<const BasePotential&>(dens));
+        writePotentialMultipole(strm, dynamic_cast<const Multipole&>(dens));
         break;
     case PT_CYLSPLINE:
         writePotentialCylSpline(strm, dynamic_cast<const CylSplineExp&>(dens));
@@ -703,7 +723,7 @@ PtrPotential createPotentialFromPoints(const ConfigPotential& config,
             points, config.symmetryType, config.splineSmoothFactor, 
             config.splineRMin, config.splineRMax));
     case PT_CYLSPLINE:
-        return PtrPotential(new CylSplineExp(
+        return PtrPotential(new CylSplineExpOld(
             config.numCoefsRadial, config.numCoefsVertical,
             config.numCoefsAngular, points, config.symmetryType, 
             config.splineRMin, config.splineRMax,
@@ -737,6 +757,8 @@ template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params
     const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosSph>& points);
 template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
     const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosVelSph>& points);
+
+namespace {
 
 /** Create a density model according to the parameters. 
     This only deals with finite-mass models, including some of the Potential descendants.
@@ -834,12 +856,12 @@ static PtrPotential createPotentialExpansion(const ConfigPotential& config)
             config.densityType == PT_FERRERS ||
             config.densityType == PT_MIYAMOTONAGAI ) 
         {   // use potential for initialization, without intermediate DirectPotential step
-            return PtrPotential(new CylSplineExp(
+            return PtrPotential(new CylSplineExpOld(
                 config.numCoefsRadial, config.numCoefsVertical, config.numCoefsAngular,
                 *createAnalyticPotential(config),
                 config.splineRMin, config.splineRMax, config.splineZMin, config.splineZMax));
         } else {
-            return PtrPotential(new CylSplineExp(
+            return PtrPotential(new CylSplineExpOld(
                 config.numCoefsRadial, config.numCoefsVertical, config.numCoefsAngular, 
                 *createAnalyticDensity(config), 
                 config.splineRMin, config.splineRMax, config.splineZMin, config.splineZMax));
@@ -886,6 +908,8 @@ static PtrPotential createAnyPotential(const ConfigPotential& params,
     } else  // elementary potential, or an error
         return createAnalyticPotential(params);
 }
+
+}  // end internal namespace
 
 // create elementary density
 PtrDensity createDensity(
@@ -960,6 +984,10 @@ PtrPotential createPotential(
         throw std::runtime_error("INI file does not contain any [Potential] section");
     return createPotential(components, converter);
 }
+
+/// return file extension for writing the coefficients of expansion of the given potential
+const char* getCoefFileExtension(const std::string& potName) {
+    return getCoefFileExtension(getPotentialTypeByName(potName)); }
 
 ///@}
 }; // namespace

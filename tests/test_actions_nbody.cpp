@@ -49,7 +49,7 @@ int main() {
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init halo potential;  "
         "value at origin=" << halo->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     tbegin=std::clock();
-    potential::PtrPotential disk(new potential::CylSplineExp
+    potential::PtrPotential disk(new potential::CylSplineExpOld
         (20, 20, 0, diskparticles, coord::ST_AXISYMMETRIC));
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init disk potential;  "
         "value at origin=" << disk->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
