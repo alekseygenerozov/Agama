@@ -2,17 +2,34 @@
     \brief   potential approximation based on 2d spline in cylindrical coordinates
     \author  Eugene Vasiliev
     \date    2014-2016
+ 
+    The classes and routines in this file deal with a generic way of representing
+    an arbitrary density or potential profile as a 1d expansion + 2d interpolation:
+    the azimuthal dependence for a non-axisymmetric profile is represented by 
+    a Fourier expansion in phi angle, with the coefficients of expansion being
+    2d interpolated functions in meridional plane (R,z).
+
+    The coefficients of expansion are stored as arrays of m-th harmonic terms
+    (cos(m phi), sin(m phi), 0 <= m <= mmax), where each term is a 2d matrix
+    of coefficients, with two additional arrays defining grids in R and z directions.
+    The density interpolator uses one set of coefficients (the value of density),
+    while the potential uses three - the value of potential and its R- and z-derivatives.
+
+    Standalone routines compute the coefficients of expansion for density or potential,
+    the latter case - in three variants: from the provided potential, from a density
+    model via the solution of Poisson equation in cylindrical coordinates, or from
+    an array of point masses (again solving the Poisson equation); these two last
+    options are quite expensive computationally.
+
+    Once computed, the coefficients may be used to construct instances of interpolator
+    classes, and stored/loaded by `writePotential`/`readPotential` routines from
+    potential_factory.h
 **/
 #pragma once
 #include "potential_base.h"
 #include "particles_base.h"
 #include "math_spline.h"
 #include "smart.h"
-
-namespace math {
-    // smart pointer to a generic 2d interpolation class
-    typedef std::tr1::shared_ptr<const BaseInterpolator2d> PtrInterpolator2d;
-}
 
 namespace potential {
 
@@ -92,10 +109,19 @@ private:
 */
 class DensityAzimuthalHarmonic: public BaseDensity {
 public:
+    /** Construct the density interpolator from the input density profile.
+        This is a static member function returning a pointer to a newly created object.
+        In computing the angular expansion coefficients for a non-axisymmetric model,
+        it may internally use a higher-than-requested expansion order (= the number
+        of equally-spaced points in phi) to improve the accuracy of Fourier integration
+        over angle; on the other hand, only the requested number of terms are retained
+        in the interpolator.
+        The arguments have the same meaning as for `CylSpline::create`.
+    */
     static PtrDensity create(const BaseDensity& src, int mmax,
         unsigned int gridSizeR, double Rmin, double Rmax, 
         unsigned int gridSizez, double zmin, double zmax);
-    
+
     /** construct the object from the array of coefficients */
     DensityAzimuthalHarmonic(
         const std::vector<double> &gridR,
@@ -109,7 +135,7 @@ public:
         and the nodes of 2d grid used for interpolation */
     void getCoefs(std::vector<double> &gridR, std::vector<double> &gridz, 
         std::vector< math::Matrix<double> > &coefs) const;
-    
+
     /** return the value of m-th Fourier harmonic at the given point in R,z plane */
     double rho_m(int m, double R, double z) const;
 
@@ -127,8 +153,17 @@ private:
     virtual double densityCyl(const coord::PosCyl &pos) const;
 };
 
-/** Angular expansion of potential in azimuthal angle (phi)
+/** Generic potential approximation based on Fourier expansion in azimuthal angle (phi)
     with coefficients being 2d spline functions of R,z.
+    It is suitable for strongly flattened, possibly non-axisymmetric models with
+    non-singular density profiles at origin. The potential and its derivatives are accurately
+    interpolated within the grid definition region (0<=R<=Rmax, -zmax<=z<=zmax),
+    and extrapolated outside this region using asymptotic spherical-harmonic expansion,
+    which approximates the potential and forces rather well at all radii, but corresponds
+    to zero density outside the grid.
+    The cost of evaluating the potential is roughly the same as for the spherical-harmonic
+    potential approximation, although the cost of computing the coefficients (via non-member
+    functions `computePotentialCoefsCyl`) is higher.
 */
 class CylSplineExp: public BasePotentialCyl
 {
@@ -141,6 +176,12 @@ public:
         It exists in two variants: the first one takes a density model as input
         and solves Poisson equation to find the potential azimuthal harmonic coefficients;
         the second one takes a potential model and computes these coefs directly.
+        In both cases, if the input model is not axisymmetric, its angular Fourier expansion
+        is constructed up to a possibly higher-than-requested order, to improve the accuracy
+        of coefficient computation (recall that the number of points sampled in angular
+        direction equals the order of expansion plus one, and this is sufficient for
+        a lossless invertible transformation of a band-limited function only -- which is 
+        usually not the case).
         \param[in]  src        is the input density or potential model;
         \param[in]  mmax       is the order of expansion in azimuth (phi);
         \param[in]  gridSizeR  is the number of grid nodes in cylindrical radius (semi-logarithmic);
@@ -237,6 +278,9 @@ private:
     two one-dimensional arrays, gridR and gridz, and nphi distinct values of phi, 
     where nphi=mmax+1 if the density is reflection-symmetric in y, or nphi=2*mmax+1 otherwise.
     The total number of density evaluations is gridR.size() * gridz.size() * nphi.
+    The output array contains 2*mmax+1 elements, but the terms that are identically zero
+    under the given symmetry of the input density model are not computed and not stored
+    (i.e. contain empty matrices); the non-empty terms have dimension gridR.size() * gridz.size().
 */
 void computeDensityCoefsCyl(const BaseDensity &dens,
     const unsigned int mmax,
@@ -266,8 +310,8 @@ void computePotentialCoefsCyl(const BasePotential &pot,
     in azimuthal angle (phi) and using 2d numerical integration to compute
     the values and derivatives of each Fourier component of potential 
     at the nodes of 2d grid in R,z plane. This is a rather costly calculation.
-    The input and output array conventions match those of the constructor of `CylSplineExp`;
-    the output arrays will be resized as needed.
+    The input and output array conventions match those of the constructor
+    of `CylSplineExp`; the output arrays will be resized as needed.
 */
 void computePotentialCoefsCyl(const BaseDensity& dens, 
     const unsigned int mmax,
@@ -276,5 +320,33 @@ void computePotentialCoefsCyl(const BaseDensity& dens,
     std::vector< math::Matrix<double> > &Phi,
     std::vector< math::Matrix<double> > &dPhidR,
     std::vector< math::Matrix<double> > &dPhidz);
-    
+
+/** Compute the coefficients of azimuthal Fourier expansion of potential
+    from the N-body snapshot.
+    \tparam ParticleT  is any of the 6 principal particle types
+    (3 coordinate systems, with or without velocity data, which is not used anyway).
+    \param[in] sym  is the assumed symmetry of the input snapshot,
+    which defines the list of angular harmonics to compute and to ignore
+    (e.g. if it is set to coord::ST_TRIAXIAL, all negative or odd m terms are zeros).
+    \param[in] mmax  is the order of angular expansion (if the symmetry includes
+    coord::ST_ZROTATION flag, it doesn't make sense to have mmax>0).
+    \param[in] gridR is the grid in cylindrical radius, which must start at 0.
+    \param[in] gridz is the grid in vertical dimension - under coord::ST_ZREFLECTION
+    symmetry it must start at 0, otherwise must cover both positive and negative z.
+    \param[out] Phi, dPhidR, dPhidz  will contain the arrays of computed coefficients
+    for potential and its derivatives at the nodes of 2d grid for each angular harmonic,
+    with the same convention as used in the constructor of `CylSpline`;
+    will be resized as needed.
+*/
+template<typename ParticleT>
+void computePotentialCoefsCyl(
+    const particles::PointMassArray<ParticleT>& points,
+    coord::SymmetryType sym,
+    const unsigned int mmax,
+    const std::vector<double> &gridR,
+    const std::vector<double> &gridz,
+    std::vector< math::Matrix<double> > &Phi,
+    std::vector< math::Matrix<double> > &dPhidR,
+    std::vector< math::Matrix<double> > &dPhidz);
+
 }  // namespace

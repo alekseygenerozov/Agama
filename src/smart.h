@@ -88,11 +88,15 @@ namespace math{
 
 class IFunction;
 class IFunctionNdim;
+class BaseInterpolator2d;
 
 /// pointer to a function class
 typedef std::tr1::shared_ptr<const IFunction> PtrFunction;
 typedef std::tr1::shared_ptr<const IFunctionNdim> PtrFunctionNdim;
 
+/// pointer to a generic 2d interpolation class
+typedef std::tr1::shared_ptr<const BaseInterpolator2d> PtrInterpolator2d;
+    
 }  // namespace math
 
 

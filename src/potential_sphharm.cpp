@@ -1540,7 +1540,9 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gr
     innerSlope.assign(ind.size(), minDerivInner);
     outerSlope.assign(ind.size(), maxDerivOuter);
     spl.resize(ind.size());
-    std::vector<double> tmparr(gridSizeR);
+    std::vector<double> gridLogR(gridSizeR), tmparr(gridSizeR);
+    for(unsigned int k=0; k<gridSizeR; k++)
+        gridLogR[k] = log(gridRadii[k]);
 
     // set up 1d splines in radius for each non-trivial (l,m) coefficient
     for(int m=ind.mmin(); m<=ind.mmax; m++) {
@@ -1566,11 +1568,11 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gr
                 derivOuter = outerSlope[0];
             innerSlope[c] = derivInner;
             outerSlope[c] = derivOuter;
-                for(unsigned int k=0; k<gridSizeR; k++)
-                    tmparr[k] = coefs[k][c];
-            spl[c] = math::CubicSpline(gridRadii, tmparr, 
-                derivInner / gridRadii.front() * coefs.front()[c],
-                derivOuter / gridRadii.back()  * coefs.back() [c]);
+            for(unsigned int k=0; k<gridSizeR; k++)
+                tmparr[k] = coefs[k][c];
+            spl[c] = math::CubicSpline(gridLogR, tmparr, 
+                derivInner * coefs.front()[c],
+                derivOuter * coefs.back() [c]);
         }
     }
 }
@@ -1586,16 +1588,19 @@ double DensitySphericalHarmonic::densitySph(const coord::PosSph &pos) const
 {
     double coefs[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR];
     double tmparr[3*MAX_NCOEFS_ANGULAR];
-    double rmin=spl[0].xmin(), rmax=spl[0].xmax();
+    double logr = log(pos.r);
+    double logrmin = spl[0].xmin(), logrmax = spl[0].xmax();
     for(int m=ind.mmin(); m<=ind.mmax; m++)
         for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
             unsigned int c = ind.index(l, m);
-            if(pos.r<rmin || pos.r>rmax) {
-                double r0  = pos.r<rmin ? rmin : rmax;
-                double val = spl[c](r0);
-                coefs[c] = val==0 ? 0 : val * pow(pos.r/r0, pos.r<rmin ? innerSlope[c] : outerSlope[c]);
+            if(logr<logrmin) {
+                double val = spl[c](logrmin);
+                coefs[c] = val==0 ? 0 : val * exp( (logr-logrmin)*innerSlope[c]);
+            } else if(logr>logrmax) {
+                double val = spl[c](logrmax);
+                coefs[c] = val==0 ? 0 : val * exp( (logr-logrmax)*outerSlope[c]);
             } else
-                coefs[c] = spl[c](pos.r);
+                coefs[c] = spl[c](logr);
         }
     return math::sphHarmTransformInverse(ind, coefs, pos.theta, pos.phi, tmparr);
 }

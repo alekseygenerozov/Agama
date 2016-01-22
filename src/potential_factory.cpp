@@ -341,6 +341,7 @@ static PtrPotential readPotentialSphHarmExp(
             }
     }
     if(potentialType == PT_MULTIPOLE) {
+        ok &= std::getline(strm, buffer).good();  // "dPhi/dR", ignored
         ok &= std::getline(strm, buffer).good();  // header, ignored
         for(unsigned int n=0; ok && n<ncoefsRadial; n++) {
             std::getline(strm, buffer);
@@ -551,7 +552,7 @@ static void writePotentialMultipole(std::ostream& strm, const Multipole& potMul)
     std::vector<double> radii;
     std::vector< std::vector<double> > Phi, dPhi;
     potMul.getCoefs(radii, Phi, dPhi);
-    assert(radii[0] == 0 && Phi.size() > 0 && Phi.size() == radii.size() && dPhi.size() == Phi.size());
+    assert(Phi.size() > 0 && Phi.size() == radii.size() && dPhi.size() == Phi.size());
     int lmax = sqrt(Phi[0].size())-1;
     strm << Multipole::myName() << "\t#header\n" << 
         Phi.size() << "\t#n_radial\n" << 

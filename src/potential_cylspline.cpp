@@ -9,8 +9,6 @@
 #include <cmath>
 #include <cassert>
 #include <stdexcept>
-#include <fstream>
-#include <iomanip>
 
 namespace potential {
 
@@ -30,7 +28,7 @@ const unsigned int MMIN_AZIMUTHAL_FOURIER = 16;
 const unsigned int MMAX_AZIMUTHAL_FOURIER = 64;
 
 /// lower cutoff in radius for Legendre Q function
-const double MIN_R = 1e-12;
+const double MIN_R = 1e-10;
     
 /// max number of function evaluations in multidimensional integration
 const unsigned int MAX_NUM_EVAL = 10000;
@@ -89,7 +87,6 @@ void computeFourierCoefs(const BaseDensityOrPotential &src,
         for(unsigned int i=0; i<numHarmonicsComputed; i++)
             coefs[q]->at(indices[i]+mmax).resize(sizeR, sizez);
     }
-    bool badValueEncountered = false;
     std::string errorMsg;
 
 #ifdef _OPENMP
@@ -112,86 +109,39 @@ void computeFourierCoefs(const BaseDensityOrPotential &src,
                         iR==0 && m!=0 ? 0 :   // at R=0, all non-axisymmetric harmonics must vanish
                         coefs_m[useSine ? m+mmax : m] / (m==0 ? 2*M_PI : M_PI);
                 }
-                if(q==0 && !math::isFinite(coefs_m[0])) {
-                    errorMsg = "Invalid value "
-                        "at R=" + utils::convertToString(gridR[iR]) +
-                        ", z="  + utils::convertToString(gridz[iz]);
-                    badValueEncountered = true;
-                }
             }
         }
         catch(std::exception& e) {
             errorMsg = e.what();
-            badValueEncountered = true;
         }
     }
-    if(badValueEncountered)
+    if(!errorMsg.empty())
         throw std::runtime_error("Error in computeFourierCoefs: "+errorMsg);
 }
 
 // ------- Computation of potential from density ------- //
 // The routines below solve the Poisson equation by computing the Fourier harmonics
 // of potential via direct 2d integration over (R,z) plane. 
-// The integrand is represented as a N-dimensional function, templated on the type
-// of input density: if it is axisymmetric, then the value of density at phi=0 is taken,
+// If the input density is axisymmetric, then the value of density at phi=0 is taken,
 // otherwise the density must first be Fourier-transformed itself and represented
 // as an instance of DensityAzimuthalHarmonic class, which provides the member function
 // returning the value of m-th harmonic at the given (R,z).
-// Accordingly, we define two templated access functions returning rho_m(R,z) for these
-// two cases, and the integration routine is templated on the input density type as well.
 
-template<typename DensityType>
-double density_rho_m(const DensityType& dens, int m, double R, double z);
-
-template<>
 inline double density_rho_m(const BaseDensity& dens, int m, double R, double z) {
+    if(dens.name() == DensityAzimuthalHarmonic::myName())
+        return static_cast<const DensityAzimuthalHarmonic&>(dens).rho_m(m, R, z);
     return m==0 ? dens.density(coord::PosCyl(R, z, 0)) : 0;
 }
 
-template<>
-inline double density_rho_m(const DensityAzimuthalHarmonic& dens, int m, double R, double z) {
-    return dens.rho_m(m, R, z);
-}
-
-template<typename DensityType>
 class AzimuthalHarmonicIntegrand: public math::IFunctionNdim {
 public:
-    AzimuthalHarmonicIntegrand(const DensityType& _dens, int _m, double _R0, double _z0) :
+    AzimuthalHarmonicIntegrand(const BaseDensity& _dens, int _m, double _R0, double _z0) :
         dens(_dens), m(_m), R0(_R0), z0(_z0) {}
     // evaluate the function at a given (R,z) point (scaled)
     virtual void eval(const double pos[], double values[]) const
     {
         for(unsigned int c=0; c<numValues(); c++)
             values[c] = 0;
-#if 0
-        // 0. unscale input coordinates:
-        // pos[0] = tau/(tau+1), pos[1] = (1 + sigma/Pi)/2,
-        // where tau and sigma are the toroidal coordinates
-        const double tau   = pos[0] / (1-pos[0]);
-        const double sigma = M_PI * (2*pos[1]-1);
-        const double sinht = sinh(tau), cosht = sqrt(1 + pow_2(sinht));
-        const double denom = cosht - cos(sigma);
-        if(tau>15 || denom == 0)
-            return;  // for tau>15, sinh(tau)>1e6, 1-tanh(tau)<2e-13, small enough to be neglected
-        const double R     = R0 * sinht / denom;
-        const double z     = R0 * sin(sigma) / denom + z0;
-        // jacobian of scaled coord transformation
-        const double jac   = R * pow_2(2*M_PI * R0 / denom / (1-pos[0]) ); 
-
-        // 1. get the values of density at (R,z)
-        double rho = density_rho_m(dens, m, R, z);
-
-        // 2. multiply by  \int_0^\infty dk J_m(k R) J_m(k R0) exp(-k|z-z0|)
-        if(R > MIN_R && R0 > MIN_R) {  // normal case
-            double sq = 1 / (M_PI * sqrt(R*R0));
-            double u  = cosht/sinht;
-            double dQ;
-            double Q  = math::legendreQ(m-0.5, u, &dQ);
-            values[0] = -jac * sq * rho * Q;
-            values[1] = -jac * sq * rho * (dQ/R - (Q + u*dQ) / (2*R0));
-            values[2] = -jac * sq * rho * dQ * (z0-z) / (R*R0);
-        }
-#else
         // 0. unscale input coordinates
         const double s = pos[0];
         const double r = exp( 1/(1-s) - 1/s );
@@ -202,7 +152,7 @@ public:
         const double z = r*sin(th);
         const double jac = pow_2(M_PI*r) * R * (1/pow_2(1-s) + 1/pow_2(s));
         
-        // 1. get the values of density at (R1,z1) and (R1,-z1):
+        // 1. get the values of density at (R,z) and (R,-z):
         // here the density evaluation may be a computational bottleneck,
         // so in the typical case of z-reflection symmetry we save on using
         // the same value of density for both positive and negative z1.
@@ -236,19 +186,26 @@ public:
             values[0] = -jac * (rhoA * sA + rhoB * sB);
             values[2] =  jac * (rhoA * sA / tA * (z0-z) + rhoB * sB / tB * (z0+z) );
         }
+#ifdef HAVE_CUBA
+        // workaround for CUBA n-dimensional quadrature routine: it seems to be unable 
+        // to properly handle cases when one of components of the integrand is identically zero,
+        // that's why we output 1 instead, and zero it out later
+        if(R0==0)
+            values[1] = 1;
+        if((dens.symmetry() & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION && z0==0)
+            values[2] = 1;
 #endif
     }
     virtual unsigned int numVars() const { return 2; }
     virtual unsigned int numValues() const { return 3; }
 private:
-    const DensityType& dens;
+    const BaseDensity& dens;
     const int m;
     // the point at which the integral is computed, also defines the toroidal coordinate system
     const double R0, z0;
 };
 
-template<typename DensityType>
-void computePotentialCoefsImpl(const DensityType &dens, 
+void computePotentialCoefsImpl(const BaseDensity &dens, 
     const std::vector<int> &indices,
     const std::vector<double> &gridR,
     const std::vector<double> &gridz,
@@ -260,9 +217,7 @@ void computePotentialCoefsImpl(const DensityType &dens,
     int numPoints = sizeR * sizez;
     unsigned int numHarmonicsComputed = indices.size();
     unsigned int mmax = (Phi.size()-1)/2;
-    bool badValueEncountered = false;
     std::string errorMsg;
-    std::ofstream strm("CylSpline-new.dat");
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
@@ -270,25 +225,21 @@ void computePotentialCoefsImpl(const DensityType &dens,
         unsigned int iR = ind % sizeR;
         unsigned int iz = ind / sizeR;
         try{
-            double Rzmin[2]={0.,0.}, Rzmax[2]={1.,1.}; // integration box in scaled coords
+            // integration box in scaled coords - r range is slightly smaller than 0:1
+            // due to exponential scaling (rscaled=0.045 corresponds to r<1e-9)
+            double Rzmin[2]={0.045,0.}, Rzmax[2]={0.955,1.};
             double result[3], error[3];
             int numEval;
             for(unsigned int i=0; i<numHarmonicsComputed; i++) {
                 int m = indices[i];
-                AzimuthalHarmonicIntegrand<DensityType> fnc(dens, m, gridR[iR], gridz[iz]);
+                AzimuthalHarmonicIntegrand fnc(dens, m, gridR[iR], gridz[iz]);
                 math::integrateNdim(fnc, Rzmin, Rzmax, 
                     EPSREL_POTENTIAL_INT, MAX_NUM_EVAL,
                     result, error, &numEval);
-                strm << gridR[iR] << ' ' << gridz[iz] << ' ' << m << ' ' << numEval << ' ' << 
-                result[0] << ' ' << fabs(error[0]/result[0]) << ' ' << 
-                result[1] << ' ' << fabs(error[1]/result[1]) << ' ' <<
-                result[2] << ' ' << fabs(error[2]/result[2]) << '\n';
-                if(!math::isFinite(result[0])) {
-                    errorMsg = "Invalid potential value "
-                    "at R=" + utils::convertToString(gridR[iR]) +
-                    ", z="  + utils::convertToString(gridz[iz]);
-                    badValueEncountered = true;
-                }
+                if((dens.symmetry() & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION && gridz[iz]==0)
+                    result[2] = 0;
+                if(gridR[iR]==0)
+                    result[1] = 0;
                 Phi   [m+mmax](iR, iz) = result[0];
                 dPhidR[m+mmax](iR, iz) = result[1];
                 dPhidz[m+mmax](iR, iz) = result[2];
@@ -296,10 +247,9 @@ void computePotentialCoefsImpl(const DensityType &dens,
         }
         catch(std::exception& e) {
             errorMsg = e.what();
-            badValueEncountered = true;
         }
     }
-    if(badValueEncountered)
+    if(!errorMsg.empty())
         throw std::runtime_error("Error in CylSplineExp: "+errorMsg);
 }
 
@@ -365,15 +315,10 @@ void computePotentialCoefsCyl(const BaseDensity &dens,
     }
 
     // for an axisymmetric potential we don't use interpolation,
-    // as the Fourier expansion of density trivially has only one harmonic
-    if(isZRotSymmetric(dens)) {
+    // as the Fourier expansion of density trivially has only one harmonic;
+    // also, if the input density is already a Fourier expansion, use it directly.
+    if(isZRotSymmetric(dens) || dens.name() == DensityAzimuthalHarmonic::myName()) {
         computePotentialCoefsImpl(dens, indices, gridR, gridz, Phi, dPhidR, dPhidz);
-        return;
-    }
-    // if the input density is already a Fourier expansion, use it directly
-    if(dens.name() == DensityAzimuthalHarmonic::myName()) {
-        computePotentialCoefsImpl(dynamic_cast<const DensityAzimuthalHarmonic&>(dens),
-            indices, gridR, gridz, Phi, dPhidR, dPhidz);
         return;
     }
     // if the input density is not rotationally-symmetric, we need to create a temporary
@@ -388,8 +333,7 @@ void computePotentialCoefsCyl(const BaseDensity &dens,
     PtrDensity densInterp = DensityAzimuthalHarmonic::create(
         dens, mmax, log(Rmax/Rmin)/delta, Rmin, Rmax, log(zmax/zmin)/delta, zmin, zmax);
     // and use it for computing the potential
-    computePotentialCoefsImpl(dynamic_cast<const DensityAzimuthalHarmonic&>(*densInterp),
-        indices, gridR, gridz, Phi, dPhidR, dPhidz);
+    computePotentialCoefsImpl(*densInterp, indices, gridR, gridz, Phi, dPhidR, dPhidz);
 }
     
 // -------- public classes: DensityAzimuthalHarmonic --------- //
@@ -419,16 +363,16 @@ PtrDensity DensityAzimuthalHarmonic::create(const BaseDensity& src, int mmax,
 }
 
 DensityAzimuthalHarmonic::DensityAzimuthalHarmonic(
-    const std::vector<double>& gridR, const std::vector<double>& gridz_orig,
+    const std::vector<double>& gridR_orig, const std::vector<double>& gridz_orig,
     const std::vector< math::Matrix<double> > &coefs)
 {
-    unsigned int sizeR = gridR.size(), sizez_orig = gridz_orig.size(), sizez = sizez_orig;
+    unsigned int sizeR = gridR_orig.size(), sizez_orig = gridz_orig.size(), sizez = sizez_orig;
     if(sizeR<2 || sizez<2 || 
         coefs.size()%2 == 0 || coefs.size() > 2*MMAX_AZIMUTHAL_FOURIER+1)
         throw std::invalid_argument("DensityAzimuthalHarmonic: incorrect grid size");
     int mysym = coord::ST_AXISYMMETRIC;
     // grid in z may only cover half-space z>=0 if the density is z-reflection symmetric
-    std::vector<double> gridz;
+    std::vector<double> gridR=gridR_orig, gridz;
     if(gridz_orig[0] == 0) {
         gridz = math::mirrorGrid(gridz_orig);
         sizez = 2*sizez_orig-1;
@@ -436,6 +380,10 @@ DensityAzimuthalHarmonic::DensityAzimuthalHarmonic(
         gridz = gridz_orig;
         mysym &= ~coord::ST_ZREFLECTION;
     }
+    for(unsigned int iR=0; iR<sizeR; iR++)
+        gridR[iR] = log(1+gridR[iR]);
+    for(unsigned int iz=0; iz<sizez; iz++)
+        gridz[iz] = log(1+fabs(gridz[iz]))*math::sign(gridz[iz]);
 
     math::Matrix<double> val(sizeR, sizez);
     int mmax = (coefs.size()-1)/2;
@@ -473,17 +421,21 @@ DensityAzimuthalHarmonic::DensityAzimuthalHarmonic(
 double DensityAzimuthalHarmonic::rho_m(int m, double R, double z) const
 {
     int mmax = (spl.size()-1)/2;
+    double lR = log(1+R), lz = log(1+fabs(z))*math::sign(z);
     if(math::abs(m)>mmax || spl[m+mmax].isEmpty() ||
-        R<spl[m+mmax].xmin() || z<spl[m+mmax].ymin() || R>spl[m+mmax].xmax() || z>spl[m+mmax].ymax())
+        //R<spl[m+mmax].xmin() || z<spl[m+mmax].ymin() || R>spl[m+mmax].xmax() || z>spl[m+mmax].ymax())
+       lR<spl[mmax].xmin() || lz<spl[mmax].ymin() ||
+       lR>spl[mmax].xmax() || lz>spl[mmax].ymax() )
         return 0;
-    return spl[m+mmax].value(R, z);
+    return spl[m+mmax].value(lR, lz);
 }
 
 double DensityAzimuthalHarmonic::densityCyl(const coord::PosCyl &pos) const
 {
     int mmax = (spl.size()-1)/2;
-    if( pos.R<spl[mmax].xmin() || pos.z<spl[mmax].ymin() ||
-        pos.R>spl[mmax].xmax() || pos.z>spl[mmax].ymax() )
+    double lR = log(1+pos.R), lz = log(1+fabs(pos.z))*math::sign(pos.z);
+    if( lR<spl[mmax].xmin() || lz<spl[mmax].ymin() ||
+        lR>spl[mmax].xmax() || lz>spl[mmax].ymax() )
         return 0;
     double result = 0;
     double trig[2*MMAX_AZIMUTHAL_FOURIER];
@@ -494,7 +446,7 @@ double DensityAzimuthalHarmonic::densityCyl(const coord::PosCyl &pos) const
     for(int m=-mmax; m<=mmax; m++)
         if(!spl[m+mmax].isEmpty()) {
             double trig_m = m==0 ? 1 : m>0 ? trig[m-1] : trig[mmax-1-m];
-            result += spl[m+mmax].value(pos.R, pos.z) * trig_m;
+            result += spl[m+mmax].value(lR, lz) * trig_m;
         }
     return result;
 }
