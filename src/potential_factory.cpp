@@ -746,18 +746,18 @@ PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
     return createPotentialFromPoints(parseParams(params, converter), points);
 }
 // instantiations
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
-    const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosCar>& points);
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
-    const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosVelCar>& points);
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
-    const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosCyl>& points);
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
-    const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosVelCyl>& points);
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
-    const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosSph>& points);
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
-    const units::ExternalUnits& converter, const particles::PointMassArray<coord::PosVelSph>& points);
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
+    const units::ExternalUnits&, const particles::PointMassArray<coord::PosCar>&);
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
+    const units::ExternalUnits&, const particles::PointMassArray<coord::PosVelCar>&);
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
+    const units::ExternalUnits&, const particles::PointMassArray<coord::PosCyl>&);
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
+    const units::ExternalUnits&, const particles::PointMassArray<coord::PosVelCyl>&);
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
+    const units::ExternalUnits&, const particles::PointMassArray<coord::PosSph>&);
+template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
+    const units::ExternalUnits&, const particles::PointMassArray<coord::PosVelSph>&);
 
 namespace {
 

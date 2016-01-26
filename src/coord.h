@@ -87,11 +87,12 @@ enum SymmetryType{
     ST_XREFLECTION  = 1, ///< change of sign in x (flip about yz plane)
     ST_YREFLECTION  = 2, ///< change of sign in y
     ST_ZREFLECTION  = 4, ///< change of sign in z
-    ST_REFLECTION   = 8, ///< reflection about origin (change of sign of all coordinates simultaneously)
+    ST_REFLECTION   = 8, ///< mirror reflection about origin (change of sign of all coordinates simultaneously)
     ST_ZROTATION    =16, ///< rotation about z axis
     ST_ROTATION     =32, ///< rotation about arbitrary axis
     // composite symmetries:
-    /// mirror symmetry in xy-plane - change of sign in x and y simultaneously
+    /// mirror symmetry in xy-plane - change of sign in x and y simultaneously,
+    /// equivalent to the combination of z-reflection and mirror symmetry about origin
     ST_XYREFLECTION = ST_ZREFLECTION | ST_REFLECTION,
     /// triaxial - reflection about principal planes (change of sign of any coordinate):
     /// note that while the combination of reflection symmetries about all three principal planes
@@ -102,6 +103,53 @@ enum SymmetryType{
     ST_AXISYMMETRIC = ST_TRIAXIAL | ST_ZROTATION,    ///< axial symmetry combined with plane symmetry
     ST_SPHERICAL    = ST_AXISYMMETRIC | ST_ROTATION, ///< spherical symmetry
 };
+
+/** test for symmetry w.r.t.change of sign in x */
+inline bool isXReflSymmetric(const SymmetryType sym) {
+    return (sym & ST_XREFLECTION) == ST_XREFLECTION;
+}
+
+/** test for symmetry w.r.t.change of sign in y */
+inline bool isYReflSymmetric(const SymmetryType sym) {
+    return (sym & ST_YREFLECTION) == ST_YREFLECTION;
+}
+
+/** test for symmetry w.r.t.change of sign in z */
+inline bool isZReflSymmetric(const SymmetryType sym) {
+    return (sym & ST_ZREFLECTION) == ST_ZREFLECTION;
+}
+
+/** test for symmetry w.r.t.mirror reflection */
+inline bool isReflSymmetric(const SymmetryType sym) {
+    return (sym & ST_REFLECTION) == ST_REFLECTION;
+}
+
+/** test for rotational symmetry about z axis */
+inline bool isZRotSymmetric(const SymmetryType sym) {
+    return (sym & ST_ZROTATION) == ST_ZROTATION;
+}
+
+/** test for symmetry under xy-reflection */
+inline bool isXYReflSymmetric(const SymmetryType sym) {
+    return (sym & ST_XYREFLECTION) == ST_XYREFLECTION;
+}
+
+/** test for triaxial symmetry
+    (reflection about any of the three principal planes) */
+inline bool isTriaxial(const SymmetryType sym) {
+    return (sym & ST_TRIAXIAL) == ST_TRIAXIAL;
+}
+
+/** test for axisymmetry in the 'common definition'
+    (i.e., invariance under rotation about z axis and under change of sign in z) */
+inline bool isAxisymmetric(const SymmetryType sym) {
+    return (sym & ST_AXISYMMETRIC) == ST_AXISYMMETRIC;
+}
+
+/** test for spherical symmetry */
+inline bool isSpherical(const SymmetryType sym) {
+    return (sym & ST_SPHERICAL) == ST_SPHERICAL;
+}
 
 ///@}
 /// \name   Primitive data types: position in different coordinate systems

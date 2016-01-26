@@ -142,16 +142,13 @@ void trigMultiAngle(const double phi, const unsigned int m, const bool needSine,
 
 SphHarmIndices::SphHarmIndices(int _lmax, int _mmax, coord::SymmetryType _sym) :
     lmax(_lmax), mmax(_mmax),
-    step((_sym & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION ||
-         (_sym & coord::ST_REFLECTION ) == coord::ST_REFLECTION ? 2 : 1),
+    step(isZReflSymmetric(_sym) || isReflSymmetric(_sym) ? 2 : 1),
     sym(_sym)
 {
     if(lmax<0 || mmax<0 || mmax>lmax)
         throw std::invalid_argument("SphHarmIndices: incorrect indexing scheme requested");
     // consistency check: if three plane symmetries are present, mirror symmetry is implied
-    if((sym & (coord::ST_XREFLECTION | coord::ST_YREFLECTION | coord::ST_ZREFLECTION)) ==
-       (coord::ST_XREFLECTION | coord::ST_YREFLECTION | coord::ST_ZREFLECTION) &&
-       (sym & coord::ST_REFLECTION) != coord::ST_REFLECTION)
+    if(isXReflSymmetric(sym) && isYReflSymmetric(sym) && isZReflSymmetric(sym) && !isReflSymmetric(sym))
         throw std::invalid_argument("SphHarmIndices: invalid symmetry requested");
     if(mmax==0)
         sym = static_cast<coord::SymmetryType>
@@ -163,11 +160,11 @@ SphHarmIndices::SphHarmIndices(int _lmax, int _mmax, coord::SymmetryType _sym) :
     lmin_arr.resize(2*mmax+1);
     for(int m=-mmax; m<=mmax; m++) {
         int lminm = abs(m);   // by default start from the very first coefficient
-        if((sym & coord::ST_REFLECTION) == coord::ST_REFLECTION && m%2!=0)
+        if(isReflSymmetric(sym) && m%2!=0)
             lminm = abs(m)+1; // in this case start from the next even l, because step in l is 2
-        if( ((sym & coord::ST_YREFLECTION)  == coord::ST_YREFLECTION  &&  m<0) ||
-            ((sym & coord::ST_XREFLECTION)  == coord::ST_XREFLECTION  && (m<0 ^ m%2!=0) ) || 
-            ((sym & coord::ST_XYREFLECTION) == coord::ST_XYREFLECTION &&  m%2!=0) )
+        if( (isYReflSymmetric(sym)  &&  m<0) ||
+            (isXReflSymmetric(sym)  && (m<0 ^ m%2!=0) ) || 
+            (isXYReflSymmetric(sym) &&  m%2!=0) )
             lminm = lmax+1;  // don't consider this m at all
         lmin_arr[m+mmax] = lminm;
     }
@@ -223,14 +220,14 @@ std::vector<int> getIndicesAzimuthal(int mmax, coord::SymmetryType sym)
         return result;  // in this case all m!=0 indices are zero
     for(int m=1; m<=mmax; m++) {
         // odd-m indices are excluded under the combination of z-reflection and mirror symmetry 
-        if( (sym & coord::ST_XYREFLECTION) == coord::ST_XYREFLECTION && m%2 != 0)
+        if(isXYReflSymmetric(sym) && m%2 != 0)
             continue;
         bool addplusm = true, addminusm = true;
         // in case of y-reflection, only m>=0 indices are present
-        if((sym & coord::ST_YREFLECTION) == coord::ST_YREFLECTION)
+        if(isYReflSymmetric(sym))
             addminusm = false;
         // in case of x-reflection, negative-even and positive-odd indices are zero
-        if((sym & coord::ST_XREFLECTION) == coord::ST_XREFLECTION) {
+        if(isXReflSymmetric(sym)) {
             if(m%2==1)
                 addplusm = false;
             else

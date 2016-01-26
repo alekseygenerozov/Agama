@@ -322,47 +322,23 @@ inline double totalEnergy(const BasePotential& potential, const coord::PosVelSph
 {  return potential.value(p) + 0.5*(pow_2(p.vr)+pow_2(p.vtheta)+pow_2(p.vphi)); }
 
 
-/** check if the density model is spherically symmetric */
-inline bool isSpherical(const BaseDensity& dens) {
-    return (dens.symmetry() & coord::ST_SPHERICAL) == coord::ST_SPHERICAL;
-}
-
-/** check if the density model is axisymmetric in the 'common definition'
-    (i.e., invariant under rotation about z axis and under change of sign in z) */
-inline bool isAxisymmetric(const BaseDensity& dens) {
-    return (dens.symmetry() & coord::ST_AXISYMMETRIC) == coord::ST_AXISYMMETRIC;
-}
-
-/** check if the density model is rotationally symmetric about z axis */
-inline bool isZRotSymmetric(const BaseDensity& dens) {
-    return (dens.symmetry() & coord::ST_ZROTATION) == coord::ST_ZROTATION;
-}
-
-/** chech if the density model is symmetric w.r.t.change of sign in x */
+// duplication of the symmetry testing functionlets from coord:: namespace
 inline bool isXReflSymmetric(const BaseDensity& dens) {
-    return (dens.symmetry() & coord::ST_XREFLECTION) == coord::ST_XREFLECTION;
-}
-    
-/** chech if the density model is symmetric w.r.t.change of sign in y */
+    return isXReflSymmetric(dens.symmetry()); }
 inline bool isYReflSymmetric(const BaseDensity& dens) {
-    return (dens.symmetry() & coord::ST_YREFLECTION) == coord::ST_YREFLECTION;
-}
-
-/** chech if the density model is symmetric w.r.t.change of sign in z */
+    return isYReflSymmetric(dens.symmetry()); }
 inline bool isZReflSymmetric(const BaseDensity& dens) {
-    return (dens.symmetry() & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION;
-}
-
-/** chech if the density model is symmetric w.r.t.mirror reflection */
+    return isZReflSymmetric(dens.symmetry()); }
 inline bool isReflSymmetric(const BaseDensity& dens) {
-    return (dens.symmetry() & coord::ST_REFLECTION) == coord::ST_REFLECTION;
-}
-
-/** check if the density model is triaxial
-    (symmetric under reflection about any of the three principal planes) */
+    return isReflSymmetric(dens.symmetry()); }
+inline bool isZRotSymmetric(const BaseDensity& dens) {
+    return isZRotSymmetric(dens.symmetry()); }
 inline bool isTriaxial(const BaseDensity& dens) {
-    return (dens.symmetry() & coord::ST_TRIAXIAL) == coord::ST_TRIAXIAL;
-}
+    return isTriaxial(dens.symmetry()); }
+inline bool isAxisymmetric(const BaseDensity& dens) {
+    return isAxisymmetric(dens.symmetry()); }
+inline bool isSpherical(const BaseDensity& dens) {
+    return isSpherical(dens.symmetry()); }
 
 
 /** Find (spherical) radius corresponding to the given enclosed mass */

@@ -150,7 +150,7 @@ public:
     inline int lmin(int m) const { return lmin_arr[m+mmax]; }
 
     /// minimum m-index
-    inline int mmin() const { return (sym & coord::ST_YREFLECTION) == coord::ST_YREFLECTION ? 0 : -mmax; }
+    inline int mmin() const { return isYReflSymmetric(sym) ? 0 : -mmax; }
 
 private:
     coord::SymmetryType sym;   ///< symmetry properties of this index set
@@ -272,11 +272,8 @@ private:
     /// values of all associated Legendre functions of order <= lmax,mmax at nodes of theta-grid
     std::vector<double> legFnc;  
 
-    /// whether the values of function at z<0 need to be computed in addition to z>0
-    bool zsym() const { return (ind.symmetry() & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION; }
-
     /// number of sample points in theta, spanning either (0:pi/2] or (0:pi)
-    unsigned int thetasize() const { return zsym() ? ind.lmax/2+1 : ind.lmax+1; }
+    unsigned int thetasize() const { return isZReflSymmetric(ind.symmetry()) ? ind.lmax/2+1 : ind.lmax+1; }
 };
 
 /** Routine for performing inverse spherical-harmonic transformation.

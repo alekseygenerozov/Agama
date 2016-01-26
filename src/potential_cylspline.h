@@ -322,9 +322,10 @@ void computePotentialCoefsCyl(const BaseDensity& dens,
     std::vector< math::Matrix<double> > &dPhidz);
 
 /** Compute the coefficients of azimuthal Fourier expansion of potential
-    from the N-body snapshot.
+    from an N-body snapshot.
     \tparam ParticleT  is any of the 6 principal particle types
     (3 coordinate systems, with or without velocity data, which is not used anyway).
+    \param[in] points  is the array of point masses.
     \param[in] sym  is the assumed symmetry of the input snapshot,
     which defines the list of angular harmonics to compute and to ignore
     (e.g. if it is set to coord::ST_TRIAXIAL, all negative or odd m terms are zeros).

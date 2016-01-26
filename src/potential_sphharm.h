@@ -241,7 +241,8 @@ private:
     \throws std::invalid_argument if gridRadii are not correct.
 */
 void computeDensityCoefsSph(const BaseDensity& dens, 
-    const math::SphHarmIndices& ind, const std::vector<double>& gridRadii,
+    const math::SphHarmIndices& ind,
+    const std::vector<double>& gridRadii,
     std::vector< std::vector<double> > &coefs);
 
 /** Compute spherical-harmonic potential expansion coefficients,
@@ -259,15 +260,39 @@ void computeDensityCoefsSph(const BaseDensity& dens,
                 dPhi_{l,m}(r) = d(Phi_{l,m})/dr; will be resized as needed.
     \throws std::invalid_argument if gridRadii are not correct.
 */
-void computePotentialCoefsSph(const BaseDensity& dens, 
-    const math::SphHarmIndices& ind, const std::vector<double>& gridRadii,
-    std::vector< std::vector<double> > &Phi, std::vector< std::vector<double> > &dPhi);
+void computePotentialCoefsSph(const BaseDensity &dens, 
+    const math::SphHarmIndices &ind,
+    const std::vector<double> &gridRadii,
+    std::vector< std::vector<double> > &Phi,
+    std::vector< std::vector<double> > &dPhi);
 
 /** Same as above, but compute coefficients from the potential directly,
     without solving Poisson equation */
 void computePotentialCoefsSph(const BasePotential& pot,
-    const math::SphHarmIndices& ind, const std::vector<double> &gridRadii,
-    std::vector< std::vector<double> > &Phi, std::vector< std::vector<double> > &dPhi);
+    const math::SphHarmIndices& ind,
+    const std::vector<double> &gridRadii,
+    std::vector< std::vector<double> > &Phi,
+    std::vector< std::vector<double> > &dPhi);
+
+/** Compute the coefficients of spherical-harmonic potential expansion
+    from an N-body snapshot.
+    \tparam ParticleT  is any of the 6 principal particle types
+    (3 coordinate systems, with or without velocity data, which is not used anyway).
+    \param[in] points  is the array of point masses.
+    \param[in] ind   is the coefficient indexing scheme (defines the order of expansion
+    and its symmetries).
+    \param[in] gridRadii is the grid in spherical radius.
+    \param[out] Phi, dPhi  will contain the arrays of computed coefficients
+    for potential and its radial derivative, with the same convention as used
+    in the constructor of `Multipole`; will be resized as needed.
+*/
+template<typename ParticleT>
+void computePotentialCoefsSph(
+    const particles::PointMassArray<ParticleT> &points,
+    const math::SphHarmIndices &ind,
+    const std::vector<double> &gridRadii,
+    std::vector< std::vector<double> > &Phi,
+    std::vector< std::vector<double> > &dPhi);
 
 
 /** Spherical-harmonic expansion of density with coefficients being spline functions of radius */

@@ -88,7 +88,9 @@ bool testAverageError(const potential::BasePotential& p1, const potential::BaseP
     double gamma = getInnerDensitySlope(p2);
     std::string fileName = std::string("testerr_") + p1.name() + "_" + p2.name() + 
         "_gamma" + utils::convertToString(gamma);
-    std::ofstream strm(fileName.c_str());
+    std::ofstream strm;
+    if(output)
+        strm.open(fileName.c_str());
     // total density-weighted rms errors in potential, force and density, and total weight
     double totWeightedDifP=0, totWeightedDifF=0, totWeightedDifD=0, totWeight=0;
     const double dlogR=0.1;
@@ -138,7 +140,9 @@ bool testAverageError(const potential::BaseDensity& p1, const potential::BaseDen
     double gamma = getInnerDensitySlope(p2);
     std::string fileName = std::string("testerr_") + p1.name() + "_" + p2.name() + 
         "_gamma" + utils::convertToString(gamma);
-    std::ofstream strm(fileName.c_str());
+    std::ofstream strm;
+    if(output)
+        strm.open(fileName.c_str());
     double totWeightedDif=0, totWeight=0;  // total density-weighted rms error and total weight
     const double dlogR=0.1;
     const int nptbin=5000;
@@ -360,10 +364,9 @@ int main() {
     potential::PtrPotential test1c = potential::CylSplineExp::create(
         // this forces potential to be computed via integration of density over volume
         static_cast<const potential::BaseDensity&>(test1_PlumSph), 0, 20, 5e-2, 5e2, 20, 5e-2, 5e2);
-    //writePotential("CylSplinePlum", *test1c);
-    ok &= testAverageError(test1b, test1_PlumSph, 0.02);
-    ok &= testAverageError(test1s, test1_PlumSph, 0.002);
-    ok &= testAverageError(*test1c,test1_PlumSph, 0.02);
+    ok &= testAverageError( test1b, test1_PlumSph, 0.02);
+    ok &= testAverageError( test1s, test1_PlumSph, 0.002);
+    ok &= testAverageError(*test1c, test1_PlumSph, 0.02);
 
     // mildly triaxial, cored
     std::cout << "--- Dehnen gamma=0 ---\n";
@@ -381,11 +384,11 @@ int main() {
     potential::PtrPotential test2d = potential::CylSplineExp::create(  // directly from potential
         test2_Dehnen0Tri, 6, 20, 1e-3, 1e3, 20, 1e-3, 1e3);
     potential::PtrPotential test2c_clone = writeRead(*test2c);
-    ok &= testAverageError(test2b, test2_Dehnen0Tri, 0.5);
-    ok &= testAverageError(test2s, test2_Dehnen0Tri, 0.05);
-    ok &= testAverageError(*test2m,test2_Dehnen0Tri, 0.05);
-    ok &= testAverageError(*test2d,test2_Dehnen0Tri, 0.05);
-    ok &= testAverageError(*test2c,test2_Dehnen0Tri, 0.05);
+    ok &= testAverageError( test2b, test2_Dehnen0Tri, 0.5);
+    ok &= testAverageError( test2s, test2_Dehnen0Tri, 0.05);
+    ok &= testAverageError(*test2m, test2_Dehnen0Tri, 0.05);
+    ok &= testAverageError(*test2d, test2_Dehnen0Tri, 0.05);
+    ok &= testAverageError(*test2c, test2_Dehnen0Tri, 0.05);
     ok &= testAverageError(*test2c_clone, *test2c, 1e-4);
 
     // mildly triaxial, cuspy
@@ -395,18 +398,34 @@ int main() {
     potential::PtrPotential test3m = potential::Multipole::create(
         static_cast<const potential::BaseDensity&>(test3_Dehnen15Tri), 6, 6, 20, 1e-3, 1e3);
     potential::PtrPotential test3m_clone = writeRead(*test3m);
-    ok &= testAverageError(test3b, test3_Dehnen15Tri, 0.5);
-    ok &= testAverageError(test3s, test3_Dehnen15Tri, 0.05);
-    ok &= testAverageError(*test3m,test3_Dehnen15Tri, 0.05);
+    ok &= testAverageError( test3b, test3_Dehnen15Tri, 0.5);
+    ok &= testAverageError( test3s, test3_Dehnen15Tri, 0.05);
+    ok &= testAverageError(*test3m, test3_Dehnen15Tri, 0.05);
     ok &= testAverageError(*test3m_clone, *test3m, 1e-8);
 
     // mildly triaxial, created from N-body samples
     std::cout << "--- Dehnen gamma=1 from N-body samples ---\n";
+    std::vector<double> gridR = math::createNonuniformGrid(20, 0.005, 500, true);
+    std::vector<double> gridz = math::createNonuniformGrid(20, 0.005, 500, true);
+    std::vector<math::Matrix<double> > Phi, dPhidR, dPhidz;
+    potential::computePotentialCoefsCyl(test6_points, coord::ST_TRIAXIAL,
+        6, gridR, gridz, Phi, dPhidR, dPhidz);
+    potential::CylSplineExp test6c(gridR, gridz, Phi, dPhidR, dPhidz);
+    potential::CylSplineExp test6n(gridR, gridz, Phi);  // no derivs
     potential::PtrPotential test6b = createFromFile(test6_points, potential::BasisSetExp::myName());
     // could also use createFromFile(test6_points, "SplineExp");  below
     potential::SplineExp test6s(20, 6, test6_points, coord::ST_TRIAXIAL);
-    ok &= testAverageError(*test6b,test6_Dehnen1Tri, 0.5);
-    ok &= testAverageError(test6s, test6_Dehnen1Tri, 0.5);
+    std::vector<double> gridRadii = math::createExpGrid(20, 0.02, 1000);
+    std::vector<std::vector<double> > PhiM, dPhiM;
+    potential::computePotentialCoefsSph(test6_points,
+        math::SphHarmIndices(6, 6, coord::ST_TRIAXIAL), gridRadii, PhiM, dPhiM);
+    potential::Multipole test6m(gridRadii, PhiM, dPhiM);
+    ok &= testAverageError(*test6b, test6_Dehnen1Tri, 0.5);
+    ok &= testAverageError( test6s, test6_Dehnen1Tri, 0.5);
+    ok &= testAverageError( test6c, test6_Dehnen1Tri, 2.0);
+    ok &= testAverageError( test6n, test6_Dehnen1Tri, 1.0);
+    ok &= testAverageError( test6m, test6_Dehnen1Tri, 2.0);
+
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n\n";
     return 0;

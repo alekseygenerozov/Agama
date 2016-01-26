@@ -73,7 +73,7 @@ void computeFourierCoefs(const BaseDensityOrPotential &src,
         throw std::invalid_argument("computeFourierCoefs: incorrect grid size");
     if(mmax > MMAX_AZIMUTHAL_FOURIER)
         throw std::invalid_argument("computeFourierCoefs: mmax is too large");
-    if((src.symmetry() & coord::ST_ZREFLECTION) != coord::ST_ZREFLECTION && gridz[0]==0)
+    if(!isZReflSymmetric(src) && gridz[0]==0)
         throw std::invalid_argument("computeFourierCoefs: input density is not symmetric "
             "under z-reflection, the grid in z must cover both positive and negative z");
     int mmin = isYReflSymmetric(src) ? 0 : -1*mmax;
@@ -133,6 +133,39 @@ inline double density_rho_m(const BaseDensity& dens, int m, double R, double z) 
     return m==0 ? dens.density(coord::PosCyl(R, z, 0)) : 0;
 }
 
+// Routine that computes the contribution tothe  m-th harmonic potential at location (R0,z0)
+// from the point at (R,z) with given 'mass' (or, rather, mass times trig(m phi)
+// in the discrete case, or density times jacobian times trig(m phi) in the continuous case).
+// This routine is used both in AzimuthalHarmonicIntegrand to compute the potential from
+// a continuous density distribution, and in ComputePotentialCoefsFromPoints to obtain
+// the potential from a discrete point mass collection.
+inline void computePotentialHarmonicAtPoint(int m, double R, double z, double R0, double z0,
+    double mass, double values[])
+{
+    // the contribution to the potential is given by
+    // rho * \int_0^\infty dk J_m(k R) J_m(k R0) exp(-k|z-z0|)
+    double t = R*R + R0*R0 + pow_2(z0-z);
+    if(R > MIN_R && R0 > MIN_R) {  // normal case
+        double sq = 1 / (M_PI * sqrt(R*R0));
+        double u  = t / (2*R*R0);
+        if(u < 1+MIN_R)
+            return;  // close to singularity
+        double dQ;
+        double Q  = math::legendreQ(m-0.5, u, &dQ);
+        values[0]+= -sq * mass * Q;
+        values[1]+= -sq * mass * (dQ/R - (Q/2 + u*dQ)/R0);
+        values[2]+= -sq * mass * dQ * (z0-z) / (R*R0);
+    } else      // degenerate case
+    if(m==0) {  // here only m=0 harmonic survives
+        if(t < 1e-15)
+            return;    // close to singularity
+        double s  = 1/sqrt(t);
+        values[0]+= -mass * s;
+        values[2]+=  mass * s * (z0-z) / t;
+    }
+}
+
+// the N-dimensional integrand for computing the potential harmonics from density
 class AzimuthalHarmonicIntegrand: public math::IFunctionNdim {
 public:
     AzimuthalHarmonicIntegrand(const BaseDensity& _dens, int _m, double _R0, double _z0) :
@@ -142,7 +175,7 @@ public:
     {
         for(unsigned int c=0; c<numValues(); c++)
             values[c] = 0;
-        // 0. unscale input coordinates
+        // unscale input coordinates
         const double s = pos[0];
         const double r = exp( 1/(1-s) - 1/s );
         if(!math::withinReasonableRange(r))
@@ -152,47 +185,23 @@ public:
         const double z = r*sin(th);
         const double jac = pow_2(M_PI*r) * R * (1/pow_2(1-s) + 1/pow_2(s));
         
-        // 1. get the values of density at (R,z) and (R,-z):
+        // get the values of density at (R,z) and (R,-z):
         // here the density evaluation may be a computational bottleneck,
         // so in the typical case of z-reflection symmetry we save on using
         // the same value of density for both positive and negative z1.
-        double rhoA = density_rho_m(dens, m, R, z);
-        double rhoB = (dens.symmetry() & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION ?
-               rhoA : density_rho_m(dens, m, R,-z);
-        
-        // 2. multiply by  \int_0^\infty dk J_m(k R) J_m(k R1) exp(-k|z-z0|)
-        double tA = R*R + R0*R0 + pow_2(z0-z);
-        double tB = R*R + R0*R0 + pow_2(z0+z);
-        if(R > MIN_R && R0 > MIN_R) {  // normal case
-            double sq = 1 / (M_PI * sqrt(R*R0));
-            double uA = tA / (2*R*R0);
-            double uB = tB / (2*R*R0);
-            if(uA < 1+MIN_R || uB < 1+MIN_R)
-                return;  // close to singularity
-            double dQA, dQB;
-            double QA = math::legendreQ(m-0.5, uA, &dQA);
-            double QB = math::legendreQ(m-0.5, uB, &dQB);
-            values[0] = -jac * sq * (rhoA * QA + rhoB * QB);
-            values[1] = -jac * sq * (
-                rhoA * (dQA/R - (QA/2 + uA*dQA)/R0) + 
-                rhoB * (dQB/R - (QB/2 + uB*dQB)/R0) );
-            values[2] = -jac * sq * (rhoA * dQA * (z0-z) + rhoB * dQB * (z0+z) ) / (R*R0);
-        } else      // degenerate case
-        if(m==0) {  // here only m=0 harmonic survives
-            if(tA < 1e-15 || tB < 1e-15)
-                return;    // close to singularity
-            double sA = 1/sqrt(tA);
-            double sB = 1/sqrt(tB);
-            values[0] = -jac * (rhoA * sA + rhoB * sB);
-            values[2] =  jac * (rhoA * sA / tA * (z0-z) + rhoB * sB / tB * (z0+z) );
-        }
+        double rho = jac * density_rho_m(dens, m, R, z);
+        computePotentialHarmonicAtPoint(m, R, z, R0, z0, rho, values);
+        if(!isZReflSymmetric(dens))
+               rho = jac * density_rho_m(dens, m, R,-z);
+        computePotentialHarmonicAtPoint(m, R,-z, R0, z0, rho, values);
+
 #ifdef HAVE_CUBA
         // workaround for CUBA n-dimensional quadrature routine: it seems to be unable 
         // to properly handle cases when one of components of the integrand is identically zero,
         // that's why we output 1 instead, and zero it out later
         if(R0==0)
             values[1] = 1;
-        if((dens.symmetry() & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION && z0==0)
+        if(isZReflSymmetric(dens) && z0==0)
             values[2] = 1;
 #endif
     }
@@ -236,7 +245,7 @@ void computePotentialCoefsImpl(const BaseDensity &dens,
                 math::integrateNdim(fnc, Rzmin, Rzmax, 
                     EPSREL_POTENTIAL_INT, MAX_NUM_EVAL,
                     result, error, &numEval);
-                if((dens.symmetry() & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION && gridz[iz]==0)
+                if(isZReflSymmetric(dens) && gridz[iz]==0)
                     result[2] = 0;
                 if(gridR[iR]==0)
                     result[1] = 0;
@@ -253,10 +262,91 @@ void computePotentialCoefsImpl(const BaseDensity &dens,
         throw std::runtime_error("Error in CylSplineExp: "+errorMsg);
 }
 
+// transform an N-body snapshot to an array of Fourier harmonic coefficients
+template<typename ParticleT>
+void computeAzimuthalHarmonics(
+    const particles::PointMassArray<ParticleT>& points,
+    const std::vector<int>& indices,
+    std::vector<std::vector<double> >& harmonics,
+    std::vector<std::pair<double, double> > &Rz)
+{
+    assert(harmonics.size()>0 && indices.size()>0);
+    unsigned int nbody = points.size();
+    unsigned int nind  = indices.size();
+    int mmax = (harmonics.size()-1)/2;
+    bool needSine = false;
+    for(unsigned int i=0; i<nind; i++) {
+        needSine |= indices[i]<0;
+        harmonics[indices[i]+mmax].resize(nbody);
+    }
+    Rz.resize(nbody);
+    std::vector<double> tmpharm(2*mmax);
+    for(unsigned int b=0; b<nbody; b++) {
+        const coord::PosCyl pc = coord::toPosCyl(points.point(b));
+        Rz[b].first = pc.R;
+        Rz[b].second= pc.z;
+        math::trigMultiAngle(pc.phi, mmax, needSine, &tmpharm.front());
+        for(unsigned int i=0; i<nind; i++) {
+            int m = indices[i];
+            harmonics[m+mmax][b] = points.mass(b) *
+                (m==0 ? 1 : m>0 ? 2*tmpharm[m-1] : 2*tmpharm[mmax-m-1]);
+        }
+    }
+}
+
+void computePotentialCoefsFromPoints(
+    const std::vector<int>& indices,
+    const std::vector<std::vector<double> > &harmonics,
+    const std::vector<std::pair<double, double> > &Rz,
+    const std::vector<double> &gridR,
+    const std::vector<double> &gridz,
+    std::vector< math::Matrix<double> > &Phi,
+    std::vector< math::Matrix<double> > &dPhidR,
+    std::vector< math::Matrix<double> > &dPhidz)
+{
+    assert(harmonics.size()>0 && indices.size()>0);
+    unsigned int sizeR = gridR.size(), sizez = gridz.size();
+    int mmax = (harmonics.size()-1)/2;
+    bool zsym = gridz[0]==0;  // whether we assume z-reflection symmetry, deduced from the grid
+    Phi.resize(2*mmax+1);
+    dPhidR.resize(2*mmax+1);
+    dPhidz.resize(2*mmax+1);
+    for(unsigned int i=0; i<indices.size(); i++) {
+        Phi   [indices[i]+mmax].resize(sizeR, sizez);
+        dPhidR[indices[i]+mmax].resize(sizeR, sizez);
+        dPhidz[indices[i]+mmax].resize(sizeR, sizez);
+    }
+    int nbody = Rz.size();
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for(int b=0; b<nbody; b++) {
+        for(unsigned int iR=0; iR<sizeR; iR++)
+            for(unsigned int iz=0; iz<sizez; iz++) {
+                for(unsigned int i=0; i<indices.size(); i++) {
+                    int m = indices[i];
+                    double values[3] = {0,0,0};
+                    computePotentialHarmonicAtPoint(m, Rz[b].first, Rz[b].second,
+                        gridR[iR], gridz[iz], harmonics[m+mmax][b], values);
+                    if(zsym) {  // add symmetric contribution from -z
+                        computePotentialHarmonicAtPoint(m, Rz[b].first, -Rz[b].second,
+                            gridR[iR], gridz[iz], harmonics[m+mmax][b], values);
+                        for(int q=0; q<3; q++)  // average with the one from +z
+                            values[q] *= 0.5;
+                    }
+                    Phi   [m+mmax](iR,iz) += values[0];
+                    dPhidR[m+mmax](iR,iz) += values[1];
+                    dPhidz[m+mmax](iR,iz) += values[2];
+                }
+            }
+    }
+}
+
 }  // internal namespace
 
 // the driver functions that use the templated routines defined above
 
+// density coefs from density
 void computeDensityCoefsCyl(const BaseDensity& src,
     const unsigned int mmax,
     const std::vector<double> &gridR,
@@ -276,6 +366,7 @@ void computeDensityCoefsCyl(const BaseDensity& src,
         }
 }
 
+// potential coefs from potential
 void computePotentialCoefsCyl(const BasePotential &src,
     const unsigned int mmax,
     const std::vector<double> &gridR,
@@ -286,8 +377,21 @@ void computePotentialCoefsCyl(const BasePotential &src,
 {
     std::vector< math::Matrix<double> > *coefs[3] = {&Phi, &dPhidR, &dPhidz};
     computeFourierCoefs<BasePotential, 3>(src, mmax, gridR, gridz, coefs);
+    // assign potential derivatives at R=0 or z=0 to zero, depending on the symmetry
+    for(unsigned int iz=0; iz<gridz.size(); iz++) {
+        if(gridz[iz] == 0 && isZReflSymmetric(src)) {
+            for(unsigned int iR=0; iR<gridR.size(); iR++)
+                for(unsigned int mm=0; mm<dPhidz.size(); mm++)
+                    if(dPhidz[mm].numCols()>0)  // loop over all non-empty harmonics
+                        dPhidz[mm](iR, iz) = 0; // z-derivative is zero in the symmetry plane
+        }
+        for(unsigned int mm=0; mm<dPhidR.size(); mm++)
+            if(dPhidR[mm].numCols()>0)  // loop over all non-empty harmonics
+                dPhidR[mm](0, iz) = 0;  // R-derivative at R=0 should always be zero
+    }
 }
 
+// potential coefs from density
 void computePotentialCoefsCyl(const BaseDensity &dens,
     unsigned int mmax,
     const std::vector<double> &gridR,
@@ -298,7 +402,7 @@ void computePotentialCoefsCyl(const BaseDensity &dens,
 {
     unsigned int sizeR = gridR.size(), sizez = gridz.size();
     if(sizeR == 0 || sizez == 0 || mmax > CYLSPLINE_MAX_ANGULAR_HARMONIC)
-        throw std::invalid_argument("computePotentialCoefs: invalid grid parameters");
+        throw std::invalid_argument("computePotentialCoefsCyl: invalid grid parameters");
     if(isZRotSymmetric(dens))
         mmax = 0;
     // the number of output coefficients is always a full set even if some of them are empty
@@ -335,6 +439,55 @@ void computePotentialCoefsCyl(const BaseDensity &dens,
     // and use it for computing the potential
     computePotentialCoefsImpl(*densInterp, indices, gridR, gridz, Phi, dPhidR, dPhidz);
 }
+
+// potential coefs from N-body array
+template<typename ParticleT>
+void computePotentialCoefsCyl(
+    const particles::PointMassArray<ParticleT>& points,
+    coord::SymmetryType sym,
+    const unsigned int mmax,
+    const std::vector<double> &gridR,
+    const std::vector<double> &gridz,
+    std::vector< math::Matrix<double> > &Phi,
+    std::vector< math::Matrix<double> > &dPhidR,
+    std::vector< math::Matrix<double> > &dPhidz)
+{
+    if(gridR.size() < CYLSPLINE_MIN_GRID_SIZE || gridz.size() < CYLSPLINE_MIN_GRID_SIZE ||
+        mmax > CYLSPLINE_MAX_ANGULAR_HARMONIC ||
+        (isZReflSymmetric(sym) && gridz[0] != 0) )
+        throw std::invalid_argument("computePotentialCoefsCyl: invalid grid parameters");
+    std::vector<int> indices = math::getIndicesAzimuthal(mmax, sym);
+    std::vector<std::vector<double> > harmonics(2*mmax+1);
+    std::vector<std::pair<double, double> > Rz;
+    computeAzimuthalHarmonics(points, indices, harmonics, Rz);
+    computePotentialCoefsFromPoints(indices, harmonics, Rz, gridR, gridz, Phi, dPhidR, dPhidz);    
+}
+
+// template instantiations
+template void computePotentialCoefsCyl(const particles::PointMassArray<coord::PosCar>&,
+    coord::SymmetryType, const unsigned int, const std::vector<double>&, const std::vector<double>&,
+    std::vector< math::Matrix<double> >&, std::vector< math::Matrix<double> >&,
+    std::vector< math::Matrix<double> >&);
+template void computePotentialCoefsCyl(const particles::PointMassArray<coord::PosCyl>&,
+    coord::SymmetryType, const unsigned int, const std::vector<double>&, const std::vector<double>&,
+    std::vector< math::Matrix<double> >&, std::vector< math::Matrix<double> >&,
+    std::vector< math::Matrix<double> >&);
+template void computePotentialCoefsCyl(const particles::PointMassArray<coord::PosSph>&,
+    coord::SymmetryType, const unsigned int, const std::vector<double>&, const std::vector<double>&,
+    std::vector< math::Matrix<double> >&, std::vector< math::Matrix<double> >&,
+    std::vector< math::Matrix<double> >&);
+template void computePotentialCoefsCyl(const particles::PointMassArray<coord::PosVelCar>&,
+    coord::SymmetryType, const unsigned int, const std::vector<double>&, const std::vector<double>&,
+    std::vector< math::Matrix<double> >&, std::vector< math::Matrix<double> >&,
+    std::vector< math::Matrix<double> >&);
+template void computePotentialCoefsCyl(const particles::PointMassArray<coord::PosVelCyl>&,
+    coord::SymmetryType, const unsigned int, const std::vector<double>&, const std::vector<double>&,
+    std::vector< math::Matrix<double> >&, std::vector< math::Matrix<double> >&,
+    std::vector< math::Matrix<double> >&);
+template void computePotentialCoefsCyl(const particles::PointMassArray<coord::PosVelSph>&,
+    coord::SymmetryType, const unsigned int, const std::vector<double>&, const std::vector<double>&,
+    std::vector< math::Matrix<double> >&, std::vector< math::Matrix<double> >&,
+    std::vector< math::Matrix<double> >&);
     
 // -------- public classes: DensityAzimuthalHarmonic --------- //
 
@@ -346,7 +499,7 @@ PtrDensity DensityAzimuthalHarmonic::create(const BaseDensity& src, int mmax,
         throw std::invalid_argument("DensityAzimuthalHarmonic: invalid grid parameters");
     std::vector<double> gridR = math::createNonuniformGrid(gridSizeR, Rmin, Rmax, true);
     std::vector<double> gridz = math::createNonuniformGrid(gridSizez, zmin, zmax, true);
-    if((src.symmetry() & coord::ST_ZREFLECTION) != coord::ST_ZREFLECTION)
+    if(!isZReflSymmetric(src))
         gridz = math::mirrorGrid(gridz);
     std::vector< math::Matrix<double> > coefs;
     // to improve accuracy of Fourier coefficient computation, we may increase
@@ -439,8 +592,8 @@ double DensityAzimuthalHarmonic::densityCyl(const coord::PosCyl &pos) const
         return 0;
     double result = 0;
     double trig[2*MMAX_AZIMUTHAL_FOURIER];
-    if((sym & coord::ST_ZROTATION) != coord::ST_ZROTATION) {
-        bool needSine = (sym & coord::ST_YREFLECTION) != coord::ST_YREFLECTION;
+    if(!isZRotSymmetric(sym)) {
+        bool needSine = !isYReflSymmetric(sym);
         math::trigMultiAngle(pos.phi, mmax, needSine, trig);
     }
     for(int m=-mmax; m<=mmax; m++)
@@ -461,7 +614,7 @@ void DensityAzimuthalHarmonic::getCoefs(
     gridR = spl[mmax].xvalues();
     unsigned int sizeR = gridR.size();
     unsigned int sizez = spl[mmax].yvalues().size();
-    if((sym & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION) {
+    if(isZReflSymmetric(sym)) {
         // output only coefs for half-space z>=0
         sizez = (sizez+1) / 2;
         gridz.assign(spl[mmax].yvalues().begin() + sizez-1, spl[mmax].yvalues().end());
@@ -595,7 +748,7 @@ PtrPotential CylSplineExp::create(const BaseDensity& src, int mmax,
         throw std::invalid_argument("Error in CylSplineExp: invalid grid parameters");
     std::vector<double> gridR = math::createNonuniformGrid(gridSizeR, Rmin, Rmax, true);
     std::vector<double> gridz = math::createNonuniformGrid(gridSizez, zmin, zmax, true);
-    if((src.symmetry() & coord::ST_ZREFLECTION) != coord::ST_ZREFLECTION)
+    if(!isZReflSymmetric(src))
         gridz = math::mirrorGrid(gridz);
     std::vector< math::Matrix<double> > Phi, dPhidR, dPhidz;
     computePotentialCoefsCyl(src, mmax, gridR, gridz, Phi, dPhidR, dPhidz);
@@ -610,7 +763,7 @@ PtrPotential CylSplineExp::create(const BasePotential& src, int mmax,
         throw std::invalid_argument("Error in CylSplineExp: invalid grid parameters");
     std::vector<double> gridR = math::createNonuniformGrid(gridSizeR, Rmin, Rmax, true);
     std::vector<double> gridz = math::createNonuniformGrid(gridSizez, zmin, zmax, true);
-    if((src.symmetry() & coord::ST_ZREFLECTION) != coord::ST_ZREFLECTION)
+    if(!isZReflSymmetric(src))
         gridz = math::mirrorGrid(gridz);
     std::vector< math::Matrix<double> > Phi, dPhidR, dPhidz;
     std::vector< math::Matrix<double> > *coefs[3] = {&Phi, &dPhidR, &dPhidz};
@@ -744,8 +897,8 @@ void CylSplineExp::evalCyl(const coord::PosCyl &pos,
     bool needGrad = der !=NULL || der2!=NULL;
     bool needHess = der2!=NULL;
     double trig_arr[2*MMAX_AZIMUTHAL_FOURIER];
-    if((sym & coord::ST_ZROTATION) != coord::ST_ZROTATION) {
-        bool needSine = needGrad || ((sym & coord::ST_YREFLECTION) != coord::ST_YREFLECTION);
+    if(!isZRotSymmetric(sym)) {
+        bool needSine = needGrad || !isYReflSymmetric(sym);
         math::trigMultiAngle(pos.phi, mmax, needSine, trig_arr);
     }
     
@@ -846,7 +999,7 @@ void CylSplineExp::getCoefs(
     unsigned int sizeR = scaledR.size();
     unsigned int sizez = scaledz.size();
     unsigned int iz0   = 0;
-    if((sym & coord::ST_ZREFLECTION) == coord::ST_ZREFLECTION) {
+    if(isZReflSymmetric(sym)) {
         // output only coefs for half-space z>=0
         sizez = (sizez+1) / 2;
         iz0   = sizez-1;  // index of z=0 value in the internal scaled coordinate axis array
