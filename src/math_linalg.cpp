@@ -19,12 +19,12 @@ void eliminateNearZeros(std::vector<double>& vec, double threshold)
 void eliminateNearZeros(Matrix<double>& mat, double threshold)
 {
     double mag=0;
-    for(unsigned int i=0; i<mat.numCols(); i++)
-        for(unsigned int j=0; j<mat.numRows(); j++)
+    for(unsigned int i=0; i<mat.numRows(); i++)
+        for(unsigned int j=0; j<mat.numCols(); j++)
             mag = fmax(mag, fabs(mat(i,j)));
     mag *= threshold;
-    for(unsigned int i=0; i<mat.numCols(); i++)
-        for(unsigned int j=0; j<mat.numRows(); j++)
+    for(unsigned int i=0; i<mat.numRows(); i++)
+        for(unsigned int j=0; j<mat.numCols(); j++)
             if(fabs(mat(i,j)) <= mag)
                 mat(i,j)=0;
 }
@@ -39,8 +39,8 @@ bool allZeros(const std::vector<double>& vec)
 
 bool allZeros(const Matrix<double>& mat)
 {
-    for(unsigned int i=0; i<mat.numCols(); i++)
-        for(unsigned int j=0; j<mat.numRows(); j++)
+    for(unsigned int i=0; i<mat.numRows(); i++)
+        for(unsigned int j=0; j<mat.numCols(); j++)
             if(mat(i,j) != 0)
                 return false;
     return true;

@@ -191,10 +191,11 @@ public:
         \param[in]  zmin, zmax give the vertical grid extent (first non-zero positive node
                     and the outermost node; if the source model is not symmetric w.r.t.
                     z-reflection, a mirrored extension of the grid to negative z will be created).
+        \param[in]  useDerivs  specifies whether to compute potential derivatives from density.
     */
     static PtrPotential create(const BaseDensity& src, int mmax,
         unsigned int gridSizeR, double Rmin, double Rmax, 
-        unsigned int gridSizez, double zmin, double zmax);
+        unsigned int gridSizez, double zmin, double zmax, bool useDerivs=true);
 
     /** Same as above, but taking a potential model as an input. */
     static PtrPotential create(const BasePotential& src, int mmax,
@@ -222,8 +223,8 @@ public:
         with the same shape as Phi, and containing the same number of non-empty terms.
         \param[in]  dPhidz  is the array of vertical derivatives.
         If both dPhidR and dPhidz are empty arrays (not arrays with empty elements),
-        then the potential is constructed using only the values of Phi at grid nodes,
-        employing 2d cubic spline interpolation for each m term.
+        as specified by default, then the potential is constructed using only the values
+        of Phi at grid nodes, employing 2d cubic spline interpolation for each m term.
         If derivatives are provided, then the interpolation is based on quintic splines,
         improving the accuracy.
     */
@@ -302,8 +303,8 @@ void computePotentialCoefsCyl(const BasePotential &pot,
     std::vector< math::Matrix<double> > &dPhidR,
     std::vector< math::Matrix<double> > &dPhidz);
 
-/** Compute the coefficients of azimuthal Fourier expansion of potential
-    from the given density profile, used for creating a CylSpline object.
+/** Compute the coefficients of azimuthal Fourier expansion of potential and its
+    derivatives from the given density profile, used for creating a CylSpline object.
     Unlike the overloaded function that accepts `BasePotential` as input,
     this one takes `BaseDensity` and thus solves the Poisson equation
     in cylindrical coordinates, by creating a Fourier expansion of density
@@ -322,7 +323,17 @@ void computePotentialCoefsCyl(const BaseDensity& dens,
     std::vector< math::Matrix<double> > &dPhidz);
 
 /** Compute the coefficients of azimuthal Fourier expansion of potential
-    from an N-body snapshot.
+    from the given density profile, used for creating a CylSpline object.
+    An overloaded function that does not compute derivatives.
+*/
+void computePotentialCoefsCyl(const BaseDensity& dens, 
+    const unsigned int mmax,
+    const std::vector<double> &gridR,
+    const std::vector<double> &gridz,
+    std::vector< math::Matrix<double> > &Phi);
+
+/** Compute the coefficients of azimuthal Fourier expansion of potential and
+    its derivatives from an N-body snapshot.
     \tparam ParticleT  is any of the 6 principal particle types
     (3 coordinate systems, with or without velocity data, which is not used anyway).
     \param[in] points  is the array of point masses.
@@ -349,5 +360,17 @@ void computePotentialCoefsCyl(
     std::vector< math::Matrix<double> > &Phi,
     std::vector< math::Matrix<double> > &dPhidR,
     std::vector< math::Matrix<double> > &dPhidz);
+
+/** Compute the coefficients of azimuthal Fourier expansion of potential
+    from an N-body snapshot (same as above, but without derivatives).
+*/
+template<typename ParticleT>
+void computePotentialCoefsCyl(
+    const particles::PointMassArray<ParticleT>& points,
+    coord::SymmetryType sym,
+    const unsigned int mmax,
+    const std::vector<double> &gridR,
+    const std::vector<double> &gridz,
+    std::vector< math::Matrix<double> > &Phi);
 
 }  // namespace

@@ -50,13 +50,13 @@ potential::PtrPotential createFromFile(
     const particles::PointMassArrayCar& points, const std::string& potType)
 {
     const std::string fileName = "test.txt";
-    particles::writeSnapshot(fileName, units::ExternalUnits(), points, "Text");
+    writeSnapshot(fileName, units::ExternalUnits(), points, "Text");
     potential::PtrPotential newpot;
 
     // illustrates two possible ways of creating a potential from points
     if(potType == "BasisSetExp") {
         particles::PointMassArrayCar pts;
-        particles::readSnapshot(fileName, units::ExternalUnits(), pts);
+        readSnapshot(fileName, units::ExternalUnits(), pts);
         newpot = potential::PtrPotential(new potential::BasisSetExp(
             1.0, /*alpha*/
             20,  /*numCoefsRadial*/
@@ -97,6 +97,9 @@ bool testAverageError(const potential::BasePotential& p1, const potential::BaseP
     const int nptbin=1000;
     for(double logR=-4; logR<4; logR+=dlogR) {
         double weightedDifP=0, weightedDifF=0, weightedDifD=0, weight=0;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic,64) reduction(+:weight,weightedDifP,weightedDifF,weightedDifD)
+#endif
         for(int n=0; n<nptbin; n++) {
             coord::PosSph point( pow(10., logR+dlogR*n/nptbin),
                 acos(math::random()*2-1), math::random()*2*M_PI);
@@ -148,6 +151,9 @@ bool testAverageError(const potential::BaseDensity& p1, const potential::BaseDen
     const int nptbin=5000;
     for(double logR=-4; logR<4; logR+=dlogR) {
         double weightedDif=0, weight=0;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic,256) reduction(+:weight,weightedDif)
+#endif
         for(int n=0; n<nptbin; n++) {
             coord::PosSph point( pow(10., logR+dlogR*n/nptbin),
                 acos(math::random()*2-1), math::random()*2*M_PI);
@@ -407,10 +413,8 @@ int main() {
     std::cout << "--- Dehnen gamma=1 from N-body samples ---\n";
     std::vector<double> gridR = math::createNonuniformGrid(20, 0.005, 500, true);
     std::vector<double> gridz = math::createNonuniformGrid(20, 0.005, 500, true);
-    std::vector<math::Matrix<double> > Phi, dPhidR, dPhidz;
-    potential::computePotentialCoefsCyl(test6_points, coord::ST_TRIAXIAL,
-        6, gridR, gridz, Phi, dPhidR, dPhidz);
-    potential::CylSplineExp test6c(gridR, gridz, Phi, dPhidR, dPhidz);
+    std::vector<math::Matrix<double> > Phi;
+    potential::computePotentialCoefsCyl(test6_points, coord::ST_TRIAXIAL, 6, gridR, gridz, Phi);
     potential::CylSplineExp test6n(gridR, gridz, Phi);  // no derivs
     potential::PtrPotential test6b = createFromFile(test6_points, potential::BasisSetExp::myName());
     // could also use createFromFile(test6_points, "SplineExp");  below
@@ -422,7 +426,6 @@ int main() {
     potential::Multipole test6m(gridRadii, PhiM, dPhiM);
     ok &= testAverageError(*test6b, test6_Dehnen1Tri, 0.5);
     ok &= testAverageError( test6s, test6_Dehnen1Tri, 0.5);
-    ok &= testAverageError( test6c, test6_Dehnen1Tri, 2.0);
     ok &= testAverageError( test6n, test6_Dehnen1Tri, 1.0);
     ok &= testAverageError( test6m, test6_Dehnen1Tri, 2.0);
 

@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <cassert>
 #include <cmath>
+#include <iostream>
 
 namespace galaxymodel{
 
@@ -81,8 +82,12 @@ void ComponentWithSpheroidalDF::update(
         totalPotential, actionFinder, *distrFunc, relError, maxNumEval);
 
     // recompute the spherical-harmonic expansion for the density
-    density = potential::DensitySphericalHarmonic::create(
-        densityWrapper, numCoefsAngular, 0, numCoefsRadial, rmin, rmax);
+    std::vector<double> gridRadii = math::createExpGrid(numCoefsRadial, rmin, rmax);
+    std::vector<std::vector<double> > coefs;
+    computeDensityCoefsSph(densityWrapper,
+        math::SphHarmIndices(numCoefsAngular, 0, densityWrapper.symmetry()),
+        gridRadii, coefs);
+    density.reset(new potential::DensitySphericalHarmonic(gridRadii, coefs));
 }
 
 ComponentWithDisklikeDF::ComponentWithDisklikeDF(
@@ -127,11 +132,15 @@ void doIteration(SelfConsistentModel& model)
         // update the density of each component (this may be a no-op if the component is 'dead',
         // i.e. provides only a fixed density or potential, but does not possess a DF) -- 
         // the implementation is at the discretion of each component individually.
+        std::cout << "Computing density for component "<<index<<"..."<<std::flush;
         model.components[index]->update(*model.totalPotential, *model.actionFinder);
+        std::cout << "done"<<std::endl;
     }
 
     // now update the overall potential and reinit the action finder
+    std::cout << "Updating potential..."<<std::flush;
     updateTotalPotential(model);
+    std::cout << "done"<<std::endl;
 }
 
 void updateTotalPotential(SelfConsistentModel& model)
@@ -189,7 +198,7 @@ void updateTotalPotential(SelfConsistentModel& model)
     if(totalDensityDisk != NULL)
         compPot.push_back(potential::CylSplineExp::create(*totalDensityDisk, 0 /*mmax*/,
             model.sizeRadialCyl,   model.RminCyl, model.RmaxCyl,
-            model.sizeVerticalCyl, model.zminCyl, model.zmaxCyl));
+            model.sizeVerticalCyl, model.zminCyl, model.zmaxCyl, false));
 
     // now check if the total potential is elementary or composite
     if(compPot.size()==0)

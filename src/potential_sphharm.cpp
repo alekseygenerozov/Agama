@@ -1309,7 +1309,7 @@ void computePotentialCoefsFromPoints(
         // Finally, put together the interior and exterior coefs to compute 
         // the potential and its radial derivative for each spherical-harmonic term
         double mul = -1. / (2*l+1);
-        for(int i=0; i<gridSizeR; i++) {
+        for(unsigned int i=0; i<gridSizeR; i++) {
             double CiN, CiV, dCiN, dCiV;
             SintN.evalDeriv(log(gridRadii[i]), &CiN, &dCiN);
             SintV.evalDeriv(log(gridRadii[i]), &CiV, &dCiV);
@@ -2016,8 +2016,10 @@ void PowerLawMultipole::evalSph(const coord::PosSph &pos,
     // Phi_{l,m}(r) = U_{l,m} * (r/r0)^{s_{l,m}}            + W_{l,m} * (r/r0)^v   if s!=v,
     // Phi_{l,m}(r) = U_{l,m} * (r/r0)^{s_{l,m}} * ln(r/r0) + W_{l,m} * (r/r0)^v   if s==v.
     double dlogr = log(pos.r / r0);
+    // simplified treatment in strongly asymptotic regime - retain only l==0 term
+    int lmax = (inner && pos.r < r0*1e-10) || (!inner && pos.r > r0*1e10) ? 0 : ind.lmax;
     for(int m=ind.mmin(); m<=ind.mmax; m++)
-        for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
+        for(int l=ind.lmin(m); l<=lmax; l+=ind.step) {
             unsigned int c = ind.index(l, m);
             double s=S[c], u=U[c], w=W[c], v = inner ? l : -l-1;
             double rv  = v!=0 ? exp( dlogr * v ) : 1;                // (r/r0)^v
@@ -2031,6 +2033,19 @@ void PowerLawMultipole::evalSph(const coord::PosSph &pos,
             if(needHess)
                 d2Phi_lm[c] = urs*s*s + wrv*v*v + (s!=v ? 0 : 2*s*u*rs);
         }
+    if(lmax == 0) {  // fast track
+        if(potential)
+            *potential = Phi_lm[0];
+        if(grad) {
+            grad->dr = pos.r>0 ? dPhi_lm[0] / pos.r : S[0]>1 ? 0 : INFINITY;
+            grad->dtheta = grad->dphi = 0;
+        }
+        if(hess) {
+            hess->dr2 = (d2Phi_lm[0] - dPhi_lm[0]) / pow_2(pos.r);
+            hess->dtheta2 = hess->dphi2 = hess->drdtheta = hess->drdphi = hess->dthetadphi = 0;
+        }
+        return;
+    }
     sphHarmTransformPolar(pos.theta, ind, Phi_lm, dPhi_lm, d2Phi_lm, Phi_m, dPhi_m, d2Phi_m);
     fourierTransformAzimuth(pos.phi, ind, Phi_m, dPhi_m, d2Phi_m, potential, grad, hess);
     transformRadialDerivs(pos.r, grad, hess);

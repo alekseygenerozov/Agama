@@ -28,9 +28,11 @@ namespace math{
                 of F over the given region (this could be compared with the exact value, if known,
                 to estimate the bias/error in sampling scheme);
     \param[out] interror (optional) if not NULL, will store the error estimate of the integral;
+    \param[in]  enableMultiThreading allows the sampler to parallelize calls to the function.
  */
 void sampleNdim(const IFunctionNdim& F, const double xlower[], const double xupper[],
     const unsigned int numSamples,
-    Matrix<double>& samples, int* numTrialPoints=0, double* integral=0, double* interror=0);
+    Matrix<double>& samples, int* numTrialPoints=0, double* integral=0, double* interror=0,
+    bool enableMultiThreading=true);
 
 }  // namespace

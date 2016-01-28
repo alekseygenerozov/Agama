@@ -162,9 +162,9 @@ SphHarmIndices::SphHarmIndices(int _lmax, int _mmax, coord::SymmetryType _sym) :
         int lminm = abs(m);   // by default start from the very first coefficient
         if(isReflSymmetric(sym) && m%2!=0)
             lminm = abs(m)+1; // in this case start from the next even l, because step in l is 2
-        if( (isYReflSymmetric(sym)  &&  m<0) ||
-            (isXReflSymmetric(sym)  && (m<0 ^ m%2!=0) ) || 
-            (isXYReflSymmetric(sym) &&  m%2!=0) )
+        if( (isYReflSymmetric(sym)  && m<0) ||
+            (isXReflSymmetric(sym)  && ((m<0) ^ (m%2!=0)) ) || 
+            (isXYReflSymmetric(sym) && m%2!=0) )
             lminm = lmax+1;  // don't consider this m at all
         lmin_arr[m+mmax] = lminm;
     }

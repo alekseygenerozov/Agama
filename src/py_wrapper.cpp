@@ -33,10 +33,12 @@
 #include "df_factory.h"
 #include "galaxymodel.h"
 #include "orbit.h"
+#include "math_core.h"
+#include "math_sample.h"
 #include "math_spline.h"
 #include "utils_config.h"
 
-//#define DEBUGPRINT
+namespace{  // private namespace
 
 /// \name  ----- Some general definitions -----
 ///@{
@@ -1814,14 +1816,197 @@ static PyObject* integrate_orbit(PyObject* /*self*/, PyObject* args, PyObject* n
     }
 }
 ///@}
+/// \name  ----- Math routines -----
+///@{
+
+class FncWrapper: public math::IFunctionNdim {
+public:
+    FncWrapper(unsigned int _nvars, PyObject* _fnc): nvars(_nvars), fnc(_fnc) {}
+    virtual void eval(const double vars[], double values[]) const {
+        npy_intp dim   = nvars;
+        PyObject* arr  = PyArray_SimpleNewFromData(1, &dim, NPY_DOUBLE, const_cast<double*>(vars));
+        PyObject* args = Py_BuildValue("(O)", arr);
+        Py_DECREF(arr);
+        PyObject* result = PyObject_CallObject(fnc, args);
+        Py_DECREF(args);
+        values[0] = PyFloat_AsDouble(result);
+        Py_XDECREF(result);
+        if(PyErr_Occurred())
+            throw std::runtime_error("Exception occured inside integrand");
+    }
+    virtual unsigned int numVars()   const { return nvars; }
+    virtual unsigned int numValues() const { return 1; }
+private:
+    const unsigned int nvars;
+    PyObject* fnc;
+};
+
+static bool parseLowerUpperBounds(PyObject* lower_obj, PyObject* upper_obj,
+    std::vector<double> &xlow, std::vector<double> &xupp)
+{
+    if(!lower_obj) {   // this should always be provided - either # of dimensions, or lower boundary
+        PyErr_SetString(PyExc_ValueError,
+            "Either integration region or number of dimensions must be provided");
+        return false;
+    }
+    int ndim = -1;
+    if(PyInt_Check(lower_obj)) {
+        ndim = PyInt_AsLong(lower_obj);
+        if(ndim<1) {
+            PyErr_SetString(PyExc_ValueError, "Number of dimensions is invalid");
+            return false;
+        }
+        xlow.assign(ndim, 0.);  // default integration region
+        xupp.assign(ndim, 1.);
+        return true;
+    }
+    // if the first parameter is not the number of dimensions, then it must be the lower boundary,
+    // and the second one must be the upper boundary
+    if(!upper_obj)
+        return false;
+    PyArrayObject *lower_arr = (PyArrayObject*) PyArray_FROM_OTF(lower_obj, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
+    if(lower_arr == NULL || PyArray_NDIM(lower_arr) != 1) {
+        Py_XDECREF(lower_arr);
+        PyErr_SetString(PyExc_ValueError,
+            "Argument 'lower' does not contain a valid array");
+        return false;
+    }
+    ndim = PyArray_DIM(lower_arr, 0);
+    PyArrayObject *upper_arr = (PyArrayObject*) PyArray_FROM_OTF(upper_obj, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
+    if(upper_arr == NULL || PyArray_NDIM(upper_arr) != 1 || PyArray_DIM(upper_arr, 0) != ndim) {
+        Py_XDECREF(upper_arr);
+        PyErr_Format(PyExc_ValueError,
+            "Argument 'upper' does not contain a valid array of length %i", ndim);
+        return false;
+    }
+    xlow.resize(ndim);
+    xupp.resize(ndim);
+    for(int d=0; d<ndim; d++) {
+        xlow[d] = static_cast<double*>(PyArray_DATA(lower_arr))[d];
+        xupp[d] = static_cast<double*>(PyArray_DATA(upper_arr))[d];
+    }
+    Py_DECREF(lower_arr);
+    Py_DECREF(upper_arr);
+    return true;
+}
+
+/// description of integration function
+static const char* docstringIntegrateNdim =
+    "Integrate an N-dimensional function\n"
+    "Arguments:\n"
+    "    fnc - a callable object that must accept a single argument (array of coordinates) "
+    "and return a single numeric value;\n"
+    "    lower, upper - two arrays of the same length (equal to the number of dimensions) "
+    "that specify the lower and upper boundaries of integration hypercube; "
+    "alternatively, a single value - the number of dimensions - may be passed instead of 'lower', "
+    "in which case the default interval [0:1] is used for each dimension;\n"
+    "    toler - relative error tolerance (default is 1e-4);\n"
+    "    maxeval - maximum number of function evaluations (will not exceed it even if "
+    "the required tolerance cannot be reached, default is 1e5).\n"
+    "Returns: a tuple consisting of integral value, error estimate, "
+    "and the actual number of function evaluations performed.\n"
+    "Example:\n"
+    "    integrateNdim(fnc, [0,-1,0], [3.14,1,100])   "
+    "# three-dimensional integral over the region [0:pi] x [-1:1] x [0:100]\n"
+    "    integrateNdim(fnc, 2)   # two-dimensional integral over default region [0:1] x [0:1]\n"
+    "    integrateNdim(fnc, 4, toler=1e-3, maxeval=1e6)   "
+    "# non-default values for tolerance and number of evaluations must be passed as named arguments\n";
+
+/// N-dimensional integration
+static PyObject* integrateNdim(PyObject* /*self*/, PyObject* args, PyObject* namedArgs)
+{
+    static const char* keywords[] = {"fnc", "lower", "upper", "toler", "maxeval", NULL};
+    double eps=1e-4;
+    int maxNumEval=100000, numEval=-1;
+    PyObject *callback=NULL, *lower_obj=NULL, *upper_obj=NULL;
+    if(!PyArg_ParseTupleAndKeywords(args, namedArgs, "O|OOdi", const_cast<char**>(keywords),
+        &callback, &lower_obj, &upper_obj, &eps, &maxNumEval) ||
+        !PyCallable_Check(callback) || eps<=0 || maxNumEval<=0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Incorrect arguments for integrateNdim");
+        return NULL;
+    }
+    std::vector<double> xlow, xupp;
+    if(!parseLowerUpperBounds(lower_obj, upper_obj, xlow, xupp))
+        return NULL;
+    double result, error;
+    try{
+        FncWrapper fnc(xlow.size(), callback);
+        math::integrateNdim(fnc, &xlow.front(), &xupp.front(), eps, maxNumEval, &result, &error, &numEval);
+    }
+    catch(std::exception& e) {
+        if(!PyErr_Occurred())    // set our own error string if it hadn't been set by Python
+            PyErr_SetString(PyExc_ValueError, e.what());
+        return NULL;
+    }
+    return Py_BuildValue("ddi", result, error, numEval);
+}
+
+/// description of sampling function
+static const char* docstringSampleNdim =
+    "Sample from a non-negative N-dimensional function.\n"
+    "Draw a requested number of points from the hypercube in such a way that "
+    "the density of points at any location is proportional to the value of function.\n"
+    "Arguments:\n"
+    "    fnc - a callable object that must accept a single argument (array of coordinates) "
+    "and return a single non-negative numeric value (interpreted as probability density);\n"
+    "    nsamples - the required number of samples drawn from this function;\n"
+    "    lower, upper - two arrays of the same length (equal to the number of dimensions) "
+    "that specify the lower and upper boundaries of the region (hypercube) to be sampled; "
+    "alternatively, a single value - the number of dimensions - may be passed instead of 'lower', "
+    "in which case the default interval [0:1] is used for each dimension;\n"
+    "Returns: a tuple consisting of the array of samples with shape (nsamples,ndim), "
+    "the integral of the function over the given region estimated in a Monte Carlo way from the samples, "
+    "error estimate of the integral, and the actual number of function evaluations performed "
+    "(which is typically a factor of few larger than the number of output samples).\n"
+    "Example:\n"
+    "    samples,integr,error,_ = sampleNdim(fnc, 10000, [0,-1,0], [10,1,3.14])\n";
+
+/// N-dimensional sampling
+static PyObject* sampleNdim(PyObject* /*self*/, PyObject* args, PyObject* namedArgs)
+{
+    static const char* keywords[] = {"fnc", "nsamples", "lower", "upper", NULL};
+    int numSamples=-1, numEval=-1;
+    PyObject *callback=NULL, *lower_obj=NULL, *upper_obj=NULL;
+    if(!PyArg_ParseTupleAndKeywords(args, namedArgs, "Oi|OO", const_cast<char**>(keywords),
+        &callback, &numSamples, &lower_obj, &upper_obj) ||
+        !PyCallable_Check(callback) || numSamples<=0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Incorrect arguments for sampleNdim");
+        return NULL;
+    }
+    std::vector<double> xlow, xupp;
+    if(!parseLowerUpperBounds(lower_obj, upper_obj, xlow, xupp))
+        return NULL;
+    double result, error;
+    math::Matrix<double> samples;
+    try{
+        FncWrapper fnc(xlow.size(), callback);
+        math::sampleNdim(fnc, &xlow[0], &xupp[0], numSamples, samples, &numEval, &result, &error, false);
+        npy_intp dim[] = {numSamples, xlow.size()};
+        PyObject* arr  = PyArray_SimpleNewFromData(2, dim, NPY_DOUBLE, const_cast<double*>(samples.getData()));
+        return Py_BuildValue("Oddi", arr, result, error, numEval);
+    }
+    catch(std::exception& e) {
+        if(!PyErr_Occurred())    // set our own error string if it hadn't been set by Python
+            PyErr_SetString(PyExc_ValueError, e.what());
+        return NULL;
+    }
+}
+
+///@}
 
 static PyMethodDef module_methods[] = {
     {"set_units", (PyCFunction)set_units, METH_VARARGS | METH_KEYWORDS, docstringSetUnits},
     {"reset_units", reset_units, METH_NOARGS, docstringResetUnits},
     {"orbit", (PyCFunction)integrate_orbit, METH_VARARGS | METH_KEYWORDS, docstringOrbit},
     {"actions", (PyCFunction)find_actions, METH_VARARGS | METH_KEYWORDS, docstringActions},
+    {"integrateNdim", (PyCFunction)integrateNdim, METH_VARARGS | METH_KEYWORDS, docstringIntegrateNdim},
+    {"sampleNdim", (PyCFunction)sampleNdim, METH_VARARGS | METH_KEYWORDS, docstringSampleNdim},
     {NULL}
 };
+
+} // end internal namespace
 
 PyMODINIT_FUNC
 initagama(void)

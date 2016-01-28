@@ -91,7 +91,8 @@ namespace {  // internal namespace for Sampler class
 class Sampler{
 public:
     /** Construct an N-dimensional sampler object */
-    Sampler(const IFunctionNdim& fnc, const double xlower[], const double xupper[]);
+    Sampler(const IFunctionNdim& fnc, const double xlower[], const double xupper[],
+        bool enableMultiThreading);
 
     /** Perform a number of samples from the distribution function with the current binning scheme,
         and computes the estimate of integral EI (stored internally) */
@@ -163,6 +164,9 @@ private:
     /// estimate of the error in the integral                            [ EE ]
     double integError;
 
+    /// flag that allows to parallelize calls to the sampled function
+    bool enableMultiThreading;
+
     /** randomly sample an N-dimensional point, such that it has equal probability 
         of falling into each cell, and its location within the given cell
         has uniform probability distribution.
@@ -209,8 +213,9 @@ static const unsigned int MIN_SAMPLES_PER_CELL = 5;
 /// maximum number of bins in each dimension (MUST be a power of two)
 static const unsigned int MAX_BINS_PER_DIM = 16;
 
-Sampler::Sampler(const IFunctionNdim& _fnc, const double xlower[], const double xupper[]) :
-    fnc(_fnc), Ndim(fnc.numVars())
+Sampler::Sampler(const IFunctionNdim& _fnc, const double xlower[], const double xupper[],
+    bool _enableMultiThreading) :
+    fnc(_fnc), Ndim(fnc.numVars()), enableMultiThreading(_enableMultiThreading)
 {
     volume      = 1.0;
     numCells    = 1;
@@ -281,6 +286,18 @@ void Sampler::evalFncLoop(unsigned int first, unsigned int count)
     // loop over assigned points and compute the values of function (in parallel)
     bool badValueOccured = false;
     std::string errorMsg;
+    if(!enableMultiThreading) {
+        for(unsigned int i=0; i<count; i++) {
+            double val;
+            fnc.eval(&(sampleCoords(i+first, 0)), &val);
+            if(val<0 || !isFinite(val))
+                throw std::runtime_error("Error in sampleNdim: "
+                    "function value is negative or not finite");
+            weightedFncValues[i+first] *= val;
+        }
+        numCallsFnc += count;
+        return;
+    }
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic,256)
 #endif
@@ -596,9 +613,10 @@ void Sampler::drawSamples(const unsigned int numOutputSamples, Matrix<double>& o
 
 void sampleNdim(const IFunctionNdim& fnc, const double xlower[], const double xupper[], 
     const unsigned int numSamples,
-    Matrix<double>& samples, int* numTrialPoints, double* integral, double* interror)
+    Matrix<double>& samples, int* numTrialPoints, double* integral, double* interror,
+    bool enableMultiThreading)
 {
-    Sampler sampler(fnc, xlower, xupper);
+    Sampler sampler(fnc, xlower, xupper, enableMultiThreading);
 
     // first warmup run (actually, two) to collect statistics and adjust bins
     const unsigned int numWarmupSamples = std::max<unsigned int>(numSamples*0.2, 10000);
