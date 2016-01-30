@@ -706,23 +706,23 @@ static PtrPotential determineAsympt(
     bool zsym = gridz[0]==0;
     unsigned int sizeR = gridR.size();
     unsigned int sizez = gridz.size();
-    std::vector<coord::PosSph> points;     // coordinates of boundary points
+    std::vector<coord::PosCyl> points;     // coordinates of boundary points
     std::vector<unsigned int> indR, indz;  // indices of these points in the Phi array
 
     // assemble the boundary points and their indices
     for(unsigned int iR=0; iR<sizeR-1; iR++) {
         // first run along R at the max-z and min-z edges
         unsigned int iz=sizez-1;
-        points. push_back(coord::toPosSph(coord::PosCyl(gridR[iR], gridz[iz], 0)));
+        points.push_back(coord::PosCyl(gridR[iR], gridz[iz], 0));
         indR.push_back(iR);
         indz.push_back(iz);
         if(zsym) {  // min-z edge is the negative of max-z edge
-            points. push_back(coord::toPosSph(coord::PosCyl(gridR[iR], -gridz[iz], 0)));
+            points.push_back(coord::PosCyl(gridR[iR], -gridz[iz], 0));
             indR.push_back(iR);
             indz.push_back(iz);
         } else {  // min-z edge must be at the beginning of the array
             iz = 0;
-            points. push_back(coord::toPosSph(coord::PosCyl(gridR[iR], gridz[iz], 0)));
+            points.push_back(coord::PosCyl(gridR[iR], gridz[iz], 0));
             indR.push_back(iR);
             indz.push_back(iz);
         }
@@ -730,11 +730,11 @@ static PtrPotential determineAsympt(
     for(unsigned int iz=0; iz<sizez; iz++) {
         // next run along z at max-R edge
         unsigned int iR=sizeR-1;
-        points. push_back(coord::toPosSph(coord::PosCyl(gridR[iR], gridz[iz], 0)));
+        points.push_back(coord::PosCyl(gridR[iR], gridz[iz], 0));
         indR.push_back(iR);
         indz.push_back(iz);
         if(zsym && iz>0) {
-            points. push_back(coord::toPosSph(coord::PosCyl(gridR[iR], -gridz[iz], 0)));
+            points.push_back(coord::PosCyl(gridR[iR], -gridz[iz], 0));
             indR.push_back(iR);
             indz.push_back(iz);
         }
@@ -763,10 +763,12 @@ static PtrPotential determineAsympt(
             // S_l       = the amplitude of l-th coefficient to be determined.
             for(unsigned int p=0; p<npoints; p++) {
                 rhs[p] = Phi[m+mmax](indR[p], indz[p]);
-                math::sphHarmArray(lmax_fit, absm, points[p].theta, &Plm.front());
+                double r = hypot(points[p].R, points[p].z);
+                double tau = points[p].z / (points[p].R + r);
+                math::sphHarmArray(lmax_fit, absm, tau, &Plm.front());
                 for(int l=absm; l<=lmax_fit; l++)
                     matr(p, l-absm) =
-                        Plm[l-absm] * math::powInt(points[p].r/r0, -l-1) *
+                        Plm[l-absm] * math::powInt(r/r0, -l-1) *
                         (m==0 ? 2*M_SQRTPI : 2*M_SQRTPI*M_SQRT2);
             }
             math::linearMultiFit(matr, rhs, NULL, sol);
@@ -780,7 +782,7 @@ static PtrPotential determineAsympt(
         // something went wrong - at least return a correct value for the l=0 term
         math::Averager avg;
         for(unsigned int p=0; p<npoints; p++)
-            avg.add(Phi[mmax](indR[p], indz[p]) * points[p].r / r0);
+            avg.add(Phi[mmax](indR[p], indz[p]) * hypot(points[p].R, points[p].z) / r0);
         W.assign(ncoefs, 0);
         W[0] = avg.mean();
     }

@@ -51,7 +51,7 @@ static inline void legendrePmm(int m, double costheta, double sintheta,
     *value   =     coef * sinm2 * pow_2(sintheta);
 }
 
-void sphHarmArray(const unsigned int lmax, const unsigned int m, const double theta,
+void sphHarmArray(const unsigned int lmax, const unsigned int m, const double tau,
     double* resultArray, double* derivArray, double* deriv2Array)
 {
     if(m>lmax || resultArray==NULL || (deriv2Array!=NULL && derivArray==NULL))
@@ -64,54 +64,56 @@ void sphHarmArray(const unsigned int lmax, const unsigned int m, const double th
             deriv2Array[0] = 0;
         return;
     }
-    double x = cos(theta), y = abs(x)<1-1e-6 ? sqrt(1-x*x) : sin(theta);
+    const double ct = 2 * tau / (1 + tau*tau);        // cos(theta)
+    const double st = (1 - tau*tau) / (1 + tau*tau);  // sin(theta)
     double prefact; // will be initialized by legendrePmm
-    legendrePmm(m, x, y, prefact, resultArray, derivArray, deriv2Array);
+    legendrePmm(m, ct, st, prefact, resultArray, derivArray, deriv2Array);
     if(lmax == m)
         return;
 
-    const double EPS = 1e-8;  // threshold in y for applying asymptotic expressions for derivatives
     // values of two previous un-normalized polynomials needed in the recurrent relation
-    double Plm1 = resultArray[0] / prefact, Plm = x * (2*m+1) * Plm1, Plm2 = 0;
+    double Plm1 = resultArray[0] / prefact, Plm = ct * (2*m+1) * Plm1, Plm2 = 0;
     // values of 2nd derivatives of un-normalized polynomials needed for the special case
-    // m==1 and y<<1, since we need another recurrent relation for computing 2nd derivative -
+    // m==1 and st<<1, since we need another recurrent relation for computing 2nd derivative -
     // the usual formula suffers from cancellation
-    double d2Plm1 = y, d2Plm2 = 0, d2Plm = 12 * x * y;
+    double d2Plm1 = st, d2Plm2 = 0, d2Plm = 12 * ct * st;
+    // threshold in sin(theta) for applying asymptotic expressions for derivatives
+    const double EPS = 1e-8;
 
     for(int l=m+1; l<=(int)lmax; l++) {
         unsigned int ind = l-m;  // index in the output array
         if(l>(int)m+1)  // skip first iteration which was assigned above
-            Plm = (x * (2*l-1) * Plm1 - (l+m-1) * Plm2) / (l-m);  // use recurrence for the rest
+            Plm = (ct * (2*l-1) * Plm1 - (l+m-1) * Plm2) / (l-m);  // use recurrence for the rest
         prefact *= sqrt( (2*l+1.) / (2*l-1.) * (l-m) / (l+m) );
         resultArray[ind] = Plm * prefact;
         if(derivArray) {
             double dPlm = 0;
-            if(y >= EPS || (m>2 && y>0))
-                dPlm = (l * x * Plm - (l+m) * Plm1) / y;
+            if(st >= EPS || (m>2 && st>0))
+                dPlm = (l * ct * Plm - (l+m) * Plm1) / st;
             else if(m==0)
-                dPlm = -l*(l+1)/2 * y * (x>0 || l%2==1 ? 1 : -1);
+                dPlm = -l*(l+1)/2 * st * (ct>0 || l%2==1 ? 1 : -1);
             else if(m==1)
-                dPlm = -l*(l+1)/2 * (x>0 || l%2==0 ? 1 : -1);
+                dPlm = -l*(l+1)/2 * (ct>0 || l%2==0 ? 1 : -1);
             else if(m==2)
-                dPlm = l*(l+1)*(l+2)*(l-1)/4 * y * (x>0 || l%2==1 ? 1 : -1);
+                dPlm = l*(l+1)*(l+2)*(l-1)/4 * st * (ct>0 || l%2==1 ? 1 : -1);
             derivArray[ind] = prefact * dPlm;
         }
         if(deriv2Array!=NULL) {
-            if(y >= EPS || (m>2 && y>0))
-                deriv2Array[ind] = x * derivArray[ind] / (-y) - (l*(l+1)-pow_2(m/y)) * resultArray[ind];
+            if(st >= EPS || (m>2 && st>0))
+                deriv2Array[ind] = ct * derivArray[ind] / (-st) - (l*(l+1)-pow_2(m/st)) * resultArray[ind];
             else if(m==0)
-                deriv2Array[ind] = -l*(l+1)/2 * prefact * (x>0 || l%2==0 ? 1 : -1);
+                deriv2Array[ind] = -l*(l+1)/2 * prefact * (ct>0 || l%2==0 ? 1 : -1);
             else if(m==1) {
                 if(l>(int)m+1) {
-                    double twodPlm1 = -l*(l-1) * (x>0 || l%2==1 ? 1 : -1);
-                    d2Plm = ( (2*l-1) * (x * (d2Plm1 - Plm1) - y * twodPlm1) - l * d2Plm2) / (l-1);
+                    double twodPlm1 = -l*(l-1) * (ct>0 || l%2==1 ? 1 : -1);
+                    d2Plm = ( (2*l-1) * (ct * (d2Plm1 - Plm1) - st * twodPlm1) - l * d2Plm2) / (l-1);
                 }
                 deriv2Array[ind] = prefact * d2Plm;
                 d2Plm2 = d2Plm1;
                 d2Plm1 = d2Plm;
             }
             else if(m==2)
-                deriv2Array[ind] = l*(l+1)*(l+2)*(l-1)/4 * prefact * (x>0 || l%2==0 ? 1 : -1);
+                deriv2Array[ind] = l*(l+1)*(l+2)*(l-1)/4 * prefact * (ct>0 || l%2==0 ? 1 : -1);
             else
                 deriv2Array[ind] = 0;
         }
@@ -302,18 +304,19 @@ SphHarmTransformForward::SphHarmTransformForward(const SphHarmIndices& _ind):
     int nlegfn = (ind.lmax+1) * (ind.mmax+1);  // # of Legendre functions for each theta-node
     
     legFnc.resize(ntheta * nlegfn);
-    thnodes.resize(ngrid);
+    costhnodes.resize(ngrid);
     // obtain nodes and weights of Gauss-Legendre quadrature of degree lmax+1 on [-1:1] for cos(theta)
     std::vector<double> nodes(ngrid), weights(ngrid);
     prepareIntegrationTableGL(-1, 1, ngrid, &nodes.front(), &weights.front());
     // compute the values of associated Legendre functions at nodes of theta-grid
     for(int j=0; j<ngrid; j++) {  // loop over nodes of theta-grid
-        thnodes[j] = acos(nodes[ngrid-1-j]);
+        costhnodes[j] = nodes[ngrid-1-j];
         if(j>=ntheta)  // don't consider nodes with theta>pi/2, 
             continue;  // as the values of Plm for them are known from symmetry properties
         // loop over m and compute all functions of order up to lmax for each m
         for(int m=0; m<=ind.mmax; m++) {
-            sphHarmArray(ind.lmax, m, thnodes[j], &legFnc[indLeg(ind, j, m, m)]);
+            double tau = costhnodes[j] / (sqrt(1 - pow_2(costhnodes[j])) + 1);
+            sphHarmArray(ind.lmax, m, tau, &legFnc[indLeg(ind, j, m, m)]);
             // multiply the values of all Legendre functions at theta[i]
             // by the weight of this node in GL quadrature and by additional prefactor
             for(int l=m; l<=ind.lmax; l++)
@@ -356,7 +359,7 @@ void SphHarmTransformForward::transform(const double values[], double coefs[]) c
 }
 
 double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
-    const double theta, const double phi, double* tmptrig)
+    const double tau, const double phi, double* tmptrig)
 {
     const bool useSine = ind.mmin()<0;
     if(ind.mmax>0)
@@ -371,7 +374,7 @@ double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
         double trig = m==0 ?       2*M_SQRTPI : // extra numerical factors from the definition of sph.harm.
             m>0 ? tmptrig[m-1]   * 2*M_SQRTPI * M_SQRT2 :
             tmptrig[ind.mmax-m-1]* 2*M_SQRTPI * M_SQRT2;
-        sphHarmArray(ind.lmax, absm, theta, tmpleg);
+        sphHarmArray(ind.lmax, absm, tau, tmpleg);
         for(int l=lmin; l<=ind.lmax; l+=ind.step) {
             double leg = tmpleg[l-absm];
             result += coefs[ind.index(l, m)] * leg * trig;

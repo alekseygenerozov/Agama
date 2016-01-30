@@ -118,8 +118,9 @@ void BasePotentialSphericalHarmonic::evalSph(const coord::PosSph &pos,
     double legendre_array[MAX_NCOEFS_ANGULAR];
     double legendre_deriv_array[MAX_NCOEFS_ANGULAR];
     double legendre_deriv2_array[MAX_NCOEFS_ANGULAR];
+    double tau = cos(pos.theta) / (1 + sin(pos.theta));
     for(int m=0; m<=mmax*lmax; m+=mstep) {
-        math::sphHarmArray(lmax, m, pos.theta, legendre_array, 
+        math::sphHarmArray(lmax, m, tau, legendre_array, 
             grad!=NULL||hess!=NULL ? legendre_deriv_array : NULL, 
             hess!=NULL ? legendre_deriv2_array : NULL);
         double cosmphi = (m==0 ? 1 : cos(m*pos.phi)*M_SQRT2) * (2*M_SQRTPI);   // factor \sqrt{4\pi} from the definition of spherical function Y_l^m absorbed into this term
@@ -301,8 +302,9 @@ void BasisSetExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::Po
         double massi = points.mass(i);
         double ralpha=pow(point.r, 1/Alpha);
         double xi=(ralpha-1)/(ralpha+1);
+        double tau = cos(point.theta) / (1 + sin(point.theta));
         for(int m=0; m<=lmax; m+=mstep)
-            math::sphHarmArray(lmax, m, point.theta, legendre_array[m]);
+            math::sphHarmArray(lmax, m, tau, legendre_array[m]);
         for(int l=0; l<=lmax; l+=lstep) {
             double w=(2*l+1)*Alpha+0.5;
             double phil=pow(point.r, l) * pow(1+ralpha, -(2*l+1)*Alpha);
@@ -540,8 +542,9 @@ void SplineExp::computeCoefsFromPoints(const particles::PointMassArray<coord::Po
 
     // initialize SH expansion coefs at each point's location
     for(size_t i=0; i<npoints; i++) {
+        double tau = cos(points.point(i).theta) / (1 + sin(points.point(i).theta));
         for(int m=0; m<=lmax; m+=mstep)
-            math::sphHarmArray(lmax, m, points.point(i).theta, legendre_array[m]);
+            math::sphHarmArray(lmax, m, tau, legendre_array[m]);
         for(int l=0; l<=lmax; l+=lstep)
             for(int m=l*mmin; m<=l*mmax; m+=mstep) {
                 int coefind = l*(l+1)+m;
@@ -1107,20 +1110,21 @@ static math::SphHarmIndices getIndicesFromCoefs(
 
 template<class BaseDensityOrPotential>
 void storeValue(const BaseDensityOrPotential& src,
-    const coord::PosSph& pos, double values[], int arraySize);
+    const coord::PosCyl& pos, double values[], int arraySize);
 
 template<>
 inline void storeValue(const BaseDensity& src,
-    const coord::PosSph& pos, double values[], int) {
+    const coord::PosCyl& pos, double values[], int) {
     *values = src.density(pos);
 }
 
 template<>
 inline void storeValue(const BasePotential& src,
-    const coord::PosSph& pos, double values[], int arraySize) {
-    coord::GradSph grad;
+    const coord::PosCyl& pos, double values[], int arraySize) {
+    coord::GradCyl grad;
     src.eval(pos, values, &grad);
-    values[arraySize] = grad.dr;
+    double r = hypot(pos.R, pos.z);
+    values[arraySize] = grad.dR * pos.R/r + grad.dz * pos.z/r;
 }
 
 template<class BaseDensityOrPotential, int NQuantities>
@@ -1143,12 +1147,13 @@ void computeSphHarmCoefs(const BaseDensityOrPotential& src,
 #pragma omp parallel for schedule(dynamic)
 #endif
     for(int n=0; n<numSamplesTotal; n++) {
-        int indR     = n / numSamplesAngles;  // index in radial grid
-        int indA     = n % numSamplesAngles;  // combined index in angular direction (theta,phi)
-        double rad   = radii[indR];
-        double theta = trans.theta(indA);
-        double phi   = trans.phi(indA);
-        storeValue(src, coord::PosSph(rad, theta, phi),
+        int indR    = n / numSamplesAngles;  // index in radial grid
+        int indA    = n % numSamplesAngles;  // combined index in angular direction (theta,phi)
+        double rad  = radii[indR];
+        double z    = rad * trans.costheta(indA);
+        double R    = sqrt(rad*rad - z*z);
+        double phi  = trans.phi(indA);
+        storeValue(src, coord::PosCyl(R, z, phi),
             &values[indR * numSamplesAngles + indA], numSamplesTotal);
     }
 
@@ -1198,16 +1203,18 @@ void computeSphericalHarmonics(
     // compute Y_lm for each point
     for(unsigned int i=0; i<nbody; i++) {
         unsigned int k = sortOrder[i].second;
-        const coord::PosSph pos = toPosSph(points.point(k));
+        const coord::PosCyl pos = toPosCyl(points.point(k));
+        double r   = hypot(pos.R, pos.z);
+        double tau = pos.z / (r + pos.R);
         const double mass = points.mass(k);
         if(mass==0)
             continue;
-        if(pos.r==0)
+        if(r==0)
             throw std::runtime_error("computeSphericalHarmonics: no massive particles at r=0 allowed");
-        pointRadii.push_back(pos.r);
+        pointRadii.push_back(r);
         math::trigMultiAngle(pos.phi, ind.mmax, needSine, &tmpTrig.front());
         for(int m=0; m<=ind.mmax; m++) {
-            math::sphHarmArray(ind.lmax, m, pos.theta, &tmpLeg.front());
+            math::sphHarmArray(ind.lmax, m, tau, &tmpLeg.front());
             for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step)
                 coefs[ind.index(l, m)].push_back(mass * tmpLeg[l-m] * 2*M_SQRTPI *
                     (m==0 ? 1 : M_SQRT2 * tmpTrig[m-1]));
@@ -1439,7 +1446,8 @@ void computePotentialCoefsSph(const BaseDensity& dens,
 
             // collect the values of density at all points of angular grid at the given radius
             for(unsigned int i=0; i<densValues.size(); i++)
-                densValues[i] = dens.density(coord::PosSph(r, trans.theta(i), trans.phi(i)));
+                densValues[i] = dens.density(coord::PosCyl(
+                    r * sqrt(1-pow_2(trans.costheta(i))), r * trans.costheta(i), trans.phi(i)));
 
             // compute density SH coefs
             trans.transform(&densValues.front(), &tmpCoefs.front());
@@ -1609,6 +1617,8 @@ static void computeExtrapolationCoefs(double Phi0, double Phi1, double Phi2,
     }
 }
 
+/** construct asymptotic power-law potential for extrapolation to small or large radii
+    from the given spherical-harmonic coefs at three consecutive radii */
 static PtrPotential initAsympt(const double radii[3],
     const std::vector<double> Phi[3],
     const std::vector<double> dPhi[3], bool inner)
@@ -1635,55 +1645,21 @@ static PtrPotential initAsympt(const double radii[3],
 }
 
 
-/// transform SH coefs to the Fourier components in the meridional plane
-static void sphHarmTransformPolar(const double theta,
-    const math::SphHarmIndices& ind,
-    const double C_lm[], const double dC_lm[], const double d2C_lm[],
-    double* C_m, coord::GradSph* dC_m, coord::HessSph* d2C_m)
+/** transform Fourier components C_m(r, theta) and their derivs to the actual potential.
+    C_m is an array of size nq*nm, where nm is the number of azimuthal harmonics 
+    (either mmax+1, or 2*mmax+1, depending on the symmetry encoded in ind),
+    and nq is the number of quantities to convert: either 1 (only the potential harmonics),
+    3 (potential and its two derivs w.r.t. r and theta), or 6 (plus three second derivs w.r.t.
+    r^2, r theta, and theta^2), all stored contiguously in the C_m array:
+    first come the nm potential harmonics, then nm harmonics for dPhi/dr, and so on.
+    How many quantities are processed is determined by grad and hess being NULL or non-NULL.
+*/
+static void fourierTransformAzimuth(const math::SphHarmIndices& ind, const double phi,
+    const double C_m[], double *val, coord::GradSph *grad, coord::HessSph *hess)
 {
-    double P_lm[MAX_NCOEFS_ANGULAR];
-    double dP_lm_arr [MAX_NCOEFS_ANGULAR];
-    double d2P_lm_arr[MAX_NCOEFS_ANGULAR];
-    double* dP_lm = dC_m!=NULL || d2C_m!=NULL ? dP_lm_arr : NULL;
-    double* d2P_lm = d2C_m!=NULL ? d2P_lm_arr : NULL;
-    for(int m=ind.mmin(); m<=ind.mmax; m++) {
-        int lmin = ind.lmin(m);
-        if(lmin > ind.lmax)
-            continue;
-        int absm = math::abs(m);
-        unsigned int mm = m+ind.mmax;
-        double mul = m==0 ? 2*M_SQRTPI : 2*M_SQRTPI*M_SQRT2;  // extra factor sqrt{2} for m!=0 trig fncs
-        if(C_m)
-            C_m[mm] = 0;
-        if(dC_m)
-            dC_m[mm].dr = dC_m[mm].dtheta = 0;
-        if(d2C_m)
-            d2C_m[mm].dr2 = d2C_m[mm].dtheta2 = d2C_m[mm].drdtheta = 0;
-        math::sphHarmArray(ind.lmax, absm, theta, P_lm, dP_lm, d2P_lm);
-        for(int l=lmin; l<=ind.lmax; l+=ind.step) {
-            unsigned int c = ind.index(l, m), p = l-absm;
-            if(C_m)
-                C_m[mm] += P_lm[p] * C_lm[c] * mul;
-            if(dC_m) {
-                dC_m[mm].dr     +=  P_lm[p] * dC_lm[c] * mul;
-                dC_m[mm].dtheta += dP_lm[p] *  C_lm[c] * mul;
-            }
-            if(d2C_m) {
-                d2C_m[mm].dr2     +=   P_lm[p] * d2C_lm[c] * mul;
-                d2C_m[mm].dtheta2 += d2P_lm[p] *   C_lm[c] * mul;
-                d2C_m[mm].drdtheta+=  dP_lm[p] *  dC_lm[c] * mul;
-            }
-        }
-    }
-}
-
-/// transform Fourier components C_m(r, theta) and their derivs to the actual potential
-static void fourierTransformAzimuth(const double phi,
-    const math::SphHarmIndices& ind,
-    const double C_m[], const coord::GradSph dC_m[], const coord::HessSph d2C_m[],
-    double* val, coord::GradSph* grad, coord::HessSph* hess)
-{
-    const bool useSine = ind.mmin()<0 || grad!=NULL || hess!=NULL;
+    const int numQuantities = hess!=NULL ? 6 : grad!=NULL ? 3 : 1;  // number of quantities in C_m
+    const bool useSine = ind.mmin()<0 || numQuantities>1;
+    const int nm = ind.mmax - ind.mmin() + 1;  // number of azimuthal harmonics in C_m array
     double trig_m[2*MAX_NCOEFS_ANGULAR];
     if(ind.mmax>0)
         math::trigMultiAngle(phi, ind.mmax, useSine, trig_m);
@@ -1694,41 +1670,102 @@ static void fourierTransformAzimuth(const double phi,
     if(hess)
         hess->dr2 = hess->dtheta2 = hess->dphi2 =
         hess->drdtheta = hess->drdphi = hess->dthetadphi = 0;
-    for(int m=ind.mmin(); m<=ind.mmax; m++) {
+    for(int mm=0; mm<nm; mm++) {
+        int m = mm + ind.mmin();
         if(ind.lmin(m)>ind.lmax)
             continue;  // empty harmonic
-        unsigned int mm = m+ind.mmax;  // index of element in C_m array
         double trig  = m==0 ? 1. : m>0 ? trig_m[m-1] : trig_m[ind.mmax-m-1];  // cos or sin
         double dtrig = m==0 ? 0. : m>0 ? -m*trig_m[ind.mmax+m-1] : -m*trig_m[-m-1];
         double d2trig = -m*m*trig;
         if(val)
             *val += C_m[mm] * trig;
         if(grad) {
-            grad->dr     += dC_m[mm].dr     *  trig;
-            grad->dtheta += dC_m[mm].dtheta *  trig;
-            grad->dphi   +=  C_m[mm]        * dtrig;
+            grad->dr     += C_m[mm+nm  ] *  trig;
+            grad->dtheta += C_m[mm+nm*2] *  trig;
+            grad->dphi   += C_m[mm]      * dtrig;
         }
         if(hess) {
-            hess->dr2       += d2C_m[mm].dr2      *   trig;
-            hess->dtheta2   += d2C_m[mm].dtheta2  *   trig;
-            hess->drdtheta  += d2C_m[mm].drdtheta *   trig;
-            hess->drdphi    +=  dC_m[mm].dr       *  dtrig;
-            hess->dthetadphi+=  dC_m[mm].dtheta   *  dtrig;
-            hess->dphi2     +=   C_m[mm]          * d2trig;
+            hess->dr2       += C_m[mm+nm*3] *   trig;
+            hess->drdtheta  += C_m[mm+nm*4] *   trig;
+            hess->dtheta2   += C_m[mm+nm*5] *   trig;
+            hess->drdphi    += C_m[mm+nm  ] *  dtrig;
+            hess->dthetadphi+= C_m[mm+nm*2] *  dtrig;
+            hess->dphi2     += C_m[mm]      * d2trig;
         }
     }
 }
 
-// transform potential derivatives from ln(r) to r
-static inline void transformRadialDerivs(double r, coord::GradSph* grad, coord::HessSph* hess)
+/** transform sph.-harm. coefs of potential (C_lm) and its first (dC_lm) and second (d2C_lm)
+    derivatives w.r.t. arbitrary function of radius to the value, gradient and hessian of 
+    potential in spherical coordinates (w.r.t. the same function of radius).
+*/
+static void sphHarmTransformInverseDeriv(
+    const math::SphHarmIndices& ind, const coord::PosCyl& pos,
+    const double C_lm[], const double dC_lm[], const double d2C_lm[],
+    double *val, coord::GradSph *grad, coord::HessSph *hess)
 {
-    if(hess) {
-        hess->dr2 = (hess->dr2 - grad->dr) / pow_2(r);
-        hess->drdtheta /= r;
-        hess->drdphi   /= r;
+    const int numQuantities = hess!=NULL ? 6 : grad!=NULL ? 3 : 1;  // number of quantities in C_m
+    const int nm = ind.mmax - ind.mmin() + 1;  // number of azimuthal harmonics in C_m array
+    const double tau = pos.z / (hypot(pos.R, pos.z) + pos.R);
+    // temporary storage for coefficients
+    double    C_m[(MAX_NCOEFS_ANGULAR*2-1) * 6];
+    double    P_lm[MAX_NCOEFS_ANGULAR];
+    double   dP_lm_arr[MAX_NCOEFS_ANGULAR];
+    double  d2P_lm_arr[MAX_NCOEFS_ANGULAR];
+    double*  dP_lm = numQuantities>=3 ?  dP_lm_arr : NULL;
+    double* d2P_lm = numQuantities==6 ? d2P_lm_arr : NULL;
+    for(int mm=0; mm<nm; mm++) {
+        int m = mm + ind.mmin();
+        int lmin = ind.lmin(m);
+        if(lmin > ind.lmax)
+            continue;
+        double mul = m==0 ? 2*M_SQRTPI : 2*M_SQRTPI*M_SQRT2;  // extra factor sqrt{2} for m!=0 trig fncs
+        for(int q=0; q<numQuantities; q++)
+            C_m[mm + q*nm] = 0;
+        int absm = abs(m);
+        math::sphHarmArray(ind.lmax, absm, tau, P_lm, dP_lm, d2P_lm);
+        for(int l=lmin; l<=ind.lmax; l+=ind.step) {
+            unsigned int c = ind.index(l, m), p = l-absm;
+            C_m[mm] += P_lm[p] * C_lm[c] * mul;
+            if(numQuantities>=3) {
+                C_m[mm + nm  ] +=  P_lm[p] * dC_lm[c] * mul;  // dPhi_m/dr
+                C_m[mm + nm*2] += dP_lm[p] *  C_lm[c] * mul;  // dPhi_m/dtheta
+            }
+            if(numQuantities==6) {
+                C_m[mm + nm*3] +=   P_lm[p] * d2C_lm[c] * mul; // d2Phi_m/dr2
+                C_m[mm + nm*4] +=  dP_lm[p] *  dC_lm[c] * mul; // d2Phi_m/drdtheta
+                C_m[mm + nm*5] += d2P_lm[p] *   C_lm[c] * mul; // d2Phi_m/dtheta2
+            }
+        }
     }
-    if(grad)
-        grad->dr /= r;
+    fourierTransformAzimuth(ind, pos.phi, C_m, val, grad, hess);
+}
+
+// transform potential derivatives from {ln(r), theta} to {R, z}
+static inline void transformDerivsSphToCyl(const coord::PosCyl& pos,
+    const coord::GradSph &gradSph, const coord::HessSph &hessSph,
+    coord::GradCyl *gradCyl, coord::HessCyl *hessCyl)
+{
+    // abuse the coordinate transformation framework (Sph -> Cyl), where actually
+    // in the source grad/hess we have derivs w.r.t. ln(r) instead of r
+    const double r2inv = 1 / (pow_2(pos.R) + pow_2(pos.z));
+    coord::PosDerivT<coord::Cyl, coord::Sph> der;
+    der.drdR = pos.R * r2inv;
+    der.drdz = pos.z * r2inv;
+    der.dthetadR =  der.drdz;
+    der.dthetadz = -der.drdR;
+    if(gradCyl)
+        *gradCyl = toGrad(gradSph, der);
+    if(hessCyl) {
+        coord::PosDeriv2T<coord::Cyl, coord::Sph> der2;
+        der2.d2rdR2      = pow_2(der.drdz) - pow_2(der.drdR);
+        der2.d2rdRdz     = -2 * der.drdR * der.drdz;
+        der2.d2rdz2      = -der2.d2rdR2;
+        der2.d2thetadR2  =  der2.d2rdRdz;
+        der2.d2thetadRdz = -der2.d2rdR2;
+        der2.d2thetadz2  = -der2.d2rdRdz;
+        *hessCyl = toHess(gradSph, hessSph, der, der2);
+    }
 }
 
 }  // end internal namespace
@@ -1827,11 +1864,11 @@ void DensitySphericalHarmonic::getCoefs(
     computeDensityCoefsSph(*this, ind, radii, coefs);
 }
 
-double DensitySphericalHarmonic::densitySph(const coord::PosSph &pos) const
+double DensitySphericalHarmonic::densityCyl(const coord::PosCyl &pos) const
 {
     double coefs[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR];
     double tmparr[3*MAX_NCOEFS_ANGULAR];
-    double logr = log(pos.r);
+    double logr = log( pow_2(pos.R) + pow_2(pos.z) ) * 0.5;
     double logrmin = spl[0].xmin(), logrmax = spl[0].xmax();
     for(int m=ind.mmin(); m<=ind.mmax; m++)
         for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
@@ -1845,13 +1882,14 @@ double DensitySphericalHarmonic::densitySph(const coord::PosSph &pos) const
             } else
                 coefs[c] = spl[c](logr);
         }
-    return math::sphHarmTransformInverse(ind, coefs, pos.theta, pos.phi, tmparr);
+    double tau = pos.z / (hypot(pos.R, pos.z) + pos.R);
+    return math::sphHarmTransformInverse(ind, coefs, tau, pos.phi, tmparr);
 }
 
 
 //----- declarations of two multipole potential interpolators -----//
 
-class MultipoleInterp1d: public BasePotentialSph {
+class MultipoleInterp1d: public BasePotentialCyl {
 public:
     /** construct interpolating splines from the values and derivatives of harmonic coefficients */
     MultipoleInterp1d(
@@ -1866,11 +1904,11 @@ private:
     /// interpolation splines in log(r) for each {l,m} sph.-harm. component of potential
     std::vector<math::QuinticSpline> spl;
     
-    virtual void evalSph(const coord::PosSph &pos,
-        double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const;
+    virtual void evalCyl(const coord::PosCyl &pos,
+        double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
 };
 
-class MultipoleInterp2d: public BasePotentialSph {
+class MultipoleInterp2d: public BasePotentialCyl {
 public:
     /** construct interpolating splines from the values and derivatives of harmonic coefficients */
     MultipoleInterp2d(
@@ -1885,8 +1923,8 @@ private:
     /// 2d interpolation splines in meridional plane for each azimuthal harmonic (m) component
     std::vector<math::QuinticSpline2d> spl;
 
-    virtual void evalSph(const coord::PosSph &pos,
-        double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const;
+    virtual void evalCyl(const coord::PosCyl &pos,
+        double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
 };
 
 //------ the wrapper class for multipole potential ------//
@@ -1961,12 +1999,13 @@ void Multipole::getCoefs(
     computePotentialCoefsSph(*impl, ind, radii, Phi, dPhi);
 }
 
-void Multipole::evalSph(const coord::PosSph &pos,
-    double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const
+void Multipole::evalCyl(const coord::PosCyl &pos,
+    double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const
 {
-    if(pos.r < gridRadii[1])
+    double rsq = pow_2(pos.R) + pow_2(pos.z);
+    if(rsq < pow_2(gridRadii[1]))
         asymptInner->eval(pos, potential, deriv, deriv2);
-    else if(pos.r > gridRadii[gridRadii.size()-3])
+    else if(rsq > pow_2(gridRadii[gridRadii.size()-3]))
         asymptOuter->eval(pos, potential, deriv, deriv2);
     else
         impl->eval(pos, potential, deriv, deriv2);
@@ -1974,32 +2013,13 @@ void Multipole::evalSph(const coord::PosSph &pos,
 
 // ------- Implementations of multipole potential interpolators ------- //
 
-// TODO: redesign this common block without the use of preprocessor.
-// declare temporary arrays for storing coefficients and use only the needed ones
-#define EVALSPH_HEADER \
-    double   Phi_lm_arr[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR]; \
-    double  dPhi_lm_arr[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR]; \
-    double d2Phi_lm_arr[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR]; \
-    double           Phi_m_arr[2*MAX_NCOEFS_ANGULAR-1]; \
-    coord::GradSph  dPhi_m_arr[2*MAX_NCOEFS_ANGULAR-1]; \
-    coord::HessSph d2Phi_m_arr[2*MAX_NCOEFS_ANGULAR-1]; \
-    bool needPhi  = true; \
-    bool needGrad = grad!=NULL || hess!=NULL; \
-    bool needHess = hess!=NULL; \
-    double *  Phi_lm = needPhi  ?   Phi_lm_arr : NULL; \
-    double * dPhi_lm = needGrad ?  dPhi_lm_arr : NULL; \
-    double *d2Phi_lm = needHess ? d2Phi_lm_arr : NULL; \
-    double *  Phi_m  = needPhi  ?   Phi_m_arr  : NULL; \
-    coord::GradSph *dPhi_m  = needGrad ? dPhi_m_arr  : NULL; \
-    coord::HessSph *d2Phi_m = needHess ? d2Phi_m_arr : NULL;
-
 // ------- PowerLawPotential ------- //
 
 PowerLawMultipole::PowerLawMultipole(double _r0, bool _inner,
     const std::vector<double>& _S,
     const std::vector<double>& _U,
     const std::vector<double>& _W) :
-    ind(math::getIndicesFromCoefs(_U)), r0(_r0), inner(_inner), S(_S), U(_U), W(_W) 
+    ind(math::getIndicesFromCoefs(_U)), r0sq(_r0*_r0), inner(_inner), S(_S), U(_U), W(_W) 
 {
     // safeguard against errors in slope determination - 
     // ensure that all harmonics with l>0 do not asymptotically overtake the principal one (l=0)
@@ -2008,16 +2028,22 @@ PowerLawMultipole::PowerLawMultipole(double _r0, bool _inner,
             S[c] = S[0];
 }
     
-void PowerLawMultipole::evalSph(const coord::PosSph &pos,
-    double* potential, coord::GradSph* grad, coord::HessSph* hess) const
+void PowerLawMultipole::evalCyl(const coord::PosCyl &pos,
+    double* potential, coord::GradCyl* grad, coord::HessCyl* hess) const
 {
-    EVALSPH_HEADER
+    bool needGrad = grad!=NULL || hess!=NULL;
+    bool needHess = hess!=NULL;
+    double   Phi_lm[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR];
+    double  dPhi_lm[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR];
+    double d2Phi_lm[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR];
+    double rsq   = pow_2(pos.R) + pow_2(pos.z);
+    double dlogr = log(rsq / r0sq) * 0.5;
+    // simplified treatment in strongly asymptotic regime - retain only l==0 term
+    int lmax = (inner && rsq < r0sq*1e-16) || (!inner && rsq > r0sq*1e16) ? 0 : ind.lmax;
+
     // define {v=l, r0=rmin} for the inner or {v=-l-1, r0=rmax} for the outer extrapolation;
     // Phi_{l,m}(r) = U_{l,m} * (r/r0)^{s_{l,m}}            + W_{l,m} * (r/r0)^v   if s!=v,
     // Phi_{l,m}(r) = U_{l,m} * (r/r0)^{s_{l,m}} * ln(r/r0) + W_{l,m} * (r/r0)^v   if s==v.
-    double dlogr = log(pos.r / r0);
-    // simplified treatment in strongly asymptotic regime - retain only l==0 term
-    int lmax = (inner && pos.r < r0*1e-10) || (!inner && pos.r > r0*1e10) ? 0 : ind.lmax;
     for(int m=ind.mmin(); m<=ind.mmax; m++)
         for(int l=ind.lmin(m); l<=lmax; l+=ind.step) {
             unsigned int c = ind.index(l, m);
@@ -2026,8 +2052,7 @@ void PowerLawMultipole::evalSph(const coord::PosSph &pos,
             double rs  = s!=v ? (s!=0 ? exp( dlogr * s ) : 1) : rv;  // (r/r0)^s
             double urs = u * rs * (s!=v || u==0 ? 1 : dlogr);  // if s==v, multiply by ln(r/r0)
             double wrv = w * rv;
-            if(needPhi)
-                Phi_lm[c] = urs + wrv;
+            Phi_lm[c] = urs + wrv;
             if(needGrad)
                 dPhi_lm[c] = urs*s + wrv*v + (s!=v ? 0 : u*rs);
             if(needHess)
@@ -2036,19 +2061,27 @@ void PowerLawMultipole::evalSph(const coord::PosSph &pos,
     if(lmax == 0) {  // fast track
         if(potential)
             *potential = Phi_lm[0];
+        double rsqinv = 1/rsq, Rr2 = pos.R * rsqinv, zr2 = pos.z * rsqinv;
         if(grad) {
-            grad->dr = pos.r>0 ? dPhi_lm[0] / pos.r : S[0]>1 ? 0 : INFINITY;
-            grad->dtheta = grad->dphi = 0;
+            grad->dR = rsq>0 ? dPhi_lm[0] * Rr2 : S[0]>1 ? 0 : INFINITY;
+            grad->dz = rsq>0 ? dPhi_lm[0] * zr2 : S[0]>1 ? 0 : INFINITY; 
+            grad->dphi = 0;
         }
         if(hess) {
-            hess->dr2 = (d2Phi_lm[0] - dPhi_lm[0]) / pow_2(pos.r);
-            hess->dtheta2 = hess->dphi2 = hess->drdtheta = hess->drdphi = hess->dthetadphi = 0;
+            double d2 = d2Phi_lm[0] - 2 * dPhi_lm[0];
+            hess->dR2 = d2 * pow_2(Rr2) + dPhi_lm[0] * rsqinv;
+            hess->dz2 = d2 * pow_2(zr2) + dPhi_lm[0] * rsqinv;
+            hess->dRdz= d2 * Rr2 * zr2;
+            hess->dRdphi = hess->dzdphi = hess->dphi2 = 0;
         }
         return;
     }
-    sphHarmTransformPolar(pos.theta, ind, Phi_lm, dPhi_lm, d2Phi_lm, Phi_m, dPhi_m, d2Phi_m);
-    fourierTransformAzimuth(pos.phi, ind, Phi_m, dPhi_m, d2Phi_m, potential, grad, hess);
-    transformRadialDerivs(pos.r, grad, hess);
+    coord::GradSph gradSph;
+    coord::HessSph hessSph;
+    sphHarmTransformInverseDeriv(ind, pos, Phi_lm, dPhi_lm, d2Phi_lm, potential,
+        needGrad ? &gradSph : NULL, needHess ? &hessSph : NULL);
+    if(needGrad)
+        transformDerivsSphToCyl(pos, gradSph, hessSph, grad, hess);
 }
 
 // ------- Multipole potential with 1d interpolating splines for each SH harmonic ------- //
@@ -2082,23 +2115,29 @@ MultipoleInterp1d::MultipoleInterp1d(
         }
 }
     
-void MultipoleInterp1d::evalSph(const coord::PosSph &pos,
-    double* potential, coord::GradSph* grad, coord::HessSph* hess) const
+void MultipoleInterp1d::evalCyl(const coord::PosCyl &pos,
+    double* potential, coord::GradCyl* grad, coord::HessCyl* hess) const
 {
-    EVALSPH_HEADER
+    bool needGrad = grad!=NULL || hess!=NULL;
+    bool needHess = hess!=NULL;
+    double   Phi_lm[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR];
+    double  dPhi_lm[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR];
+    double d2Phi_lm[MAX_NCOEFS_ANGULAR*MAX_NCOEFS_ANGULAR];
+    double logr = log(pow_2(pos.R) + pow_2(pos.z)) * 0.5;
     // compute spherical-harmonic coefs
-    double logr = log(pos.r);
     for(int m=ind.mmin(); m<=ind.mmax; m++)
         for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
             unsigned int c = ind.index(l, m);
-            spl[c].evalDeriv(logr,
-                needPhi ?   &Phi_lm[c] : NULL,
+            spl[c].evalDeriv(logr, &Phi_lm[c],
                 needGrad?  &dPhi_lm[c] : NULL,
                 needHess? &d2Phi_lm[c] : NULL);
         }
-    sphHarmTransformPolar(pos.theta, ind, Phi_lm, dPhi_lm, d2Phi_lm, Phi_m, dPhi_m, d2Phi_m);
-    fourierTransformAzimuth(pos.phi, ind, Phi_m, dPhi_m, d2Phi_m, potential, grad, hess);
-    transformRadialDerivs(pos.r, grad, hess);
+    coord::GradSph gradSph;
+    coord::HessSph hessSph;
+    sphHarmTransformInverseDeriv(ind, pos, Phi_lm, dPhi_lm, d2Phi_lm, potential,
+        needGrad ? &gradSph : NULL, needHess ? &hessSph : NULL);
+    if(needGrad)
+        transformDerivsSphToCyl(pos, gradSph, hessSph, grad, hess);
 }
 
 // ------- Multipole potential with 2d interpolating splines for each azimuthal harmonic ------- //
@@ -2117,14 +2156,14 @@ void MultipoleInterp1d::evalSph(const coord::PosSph &pos,
 static std::vector<double> createGridInTheta(unsigned int lmax)
 {
     unsigned int numPointsGL = lmax+1;
-    std::vector<double> theta(numPointsGL+2), dummy(numPointsGL);
-    math::prepareIntegrationTableGL(-1, 1, numPointsGL, &theta[1], &dummy.front());
-    // convert GL nodes (cos theta) to theta
+    std::vector<double> tau(numPointsGL+2), dummy(numPointsGL);
+    math::prepareIntegrationTableGL(-1, 1, numPointsGL, &tau[1], &dummy.front());
+    // convert GL nodes (cos theta) to tau = cos(theta)/(sin(theta)+1)
     for(unsigned int iGL=1; iGL<=numPointsGL; iGL++)
-        theta[iGL] = acos(theta[iGL]);
+        tau[iGL] /= 1 + sqrt(1-pow_2(tau[iGL]));
     // add points at the ends of original interval (GL nodes are all interior)
-    theta.back() = 0.;
-    theta.front()= M_PI;
+    tau.back() = 1;
+    tau.front()= -1;
     // split each interval between two successive GL nodes (or the ends of original interval)
     // into this many grid points (accuracy of Legendre function approximation is better than 1e-6)
     unsigned int oversampleFactor = 3;
@@ -2133,9 +2172,10 @@ static std::vector<double> createGridInTheta(unsigned int lmax)
     std::vector<double> gridT(gridSizeT);
     for(unsigned int iGL=0; iGL<=numPointsGL; iGL++)
         for(unsigned int iover=0; iover<oversampleFactor; iover++) {
-            gridT[gridT.size() - 1 - (iGL * oversampleFactor + iover)] =
-                (theta[iGL] * (oversampleFactor-iover) + theta[iGL+1] * iover) / oversampleFactor;
+            gridT[/*gridT.size() - 1 -*/ (iGL * oversampleFactor + iover)] =
+                (tau[iGL] * (oversampleFactor-iover) + tau[iGL+1] * iover) / oversampleFactor;
         }
+    gridT.back() = 1;
     return gridT;
 }
 
@@ -2149,7 +2189,7 @@ MultipoleInterp2d::MultipoleInterp2d(
     assert(gridSizeR > 2 && gridSizeR == Phi.size() && gridSizeR == dPhi.size() &&
         Phi[0].size() == ind.size() && ind.lmax >= 0 && ind.mmax <= ind.lmax);
     
-    // set up a 2D grid in ln(r) & theta:
+    // set up a 2D grid in ln(r) and tau = cos(theta)/(sin(theta)+1):
     std::vector<double> gridR(gridSizeR);
     for(unsigned int k=0; k<gridSizeR; k++)
         gridR[k] = log(radii[k]);
@@ -2170,7 +2210,7 @@ MultipoleInterp2d::MultipoleInterp2d(
             continue;
         int absm = math::abs(m);
         double mul = m==0 ? 2*M_SQRTPI : 2*M_SQRTPI*M_SQRT2;
-        // assign Phi_m, dPhi_m/d(ln r) & dPhi_m/d(cos(theta)) at each node of 2d grid (r_k, theta_j)
+        // assign Phi_m, dPhi_m/d(ln r) & dPhi_m/d(tau) at each node of 2d grid (r_k, tau_j)
         for(unsigned int j=0; j<gridSizeT; j++) {
             math::sphHarmArray(ind.lmax, absm, gridT[j], &Plm.front(), &dPlm.front());
             for(unsigned int k=0; k<gridSizeR; k++) {            
@@ -2183,42 +2223,78 @@ MultipoleInterp2d::MultipoleInterp2d(
                 }
                 Phi_val(k, j) = val * mul;
                 Phi_dR (k, j) = dR  * mul * radii[k];  // transform to d Phi / d ln(r)
-                Phi_dT (k, j) = dT  * mul;
+                Phi_dT (k, j) = dT  * mul * -2 / (pow_2(gridT[j]) + 1);  // transform to d Phi / d tau
             }
         }
-        // establish 2D quintic spline for Phi_m(ln(r), theta)
+        // establish 2D quintic spline for Phi_m(ln(r), tau)
         spl[m+ind.mmax] = math::QuinticSpline2d(gridR, gridT, Phi_val, Phi_dR, Phi_dT);
     }
 }
 
-void MultipoleInterp2d::evalSph(const coord::PosSph &pos,
-    double* potential, coord::GradSph* grad, coord::HessSph* hess) const
+void MultipoleInterp2d::evalCyl(const coord::PosCyl &pos,
+    double* potential, coord::GradCyl* grad, coord::HessCyl* hess) const
 {
-    // temporary arrays for storing coefficients
-    double Phi_m          [2*MAX_NCOEFS_ANGULAR-1];
-    coord::GradSph dPhi_m [2*MAX_NCOEFS_ANGULAR-1];
-    coord::HessSph d2Phi_m[2*MAX_NCOEFS_ANGULAR-1];
-    
+    const double
+    r         = hypot(pos.R, pos.z),
+    logr      = log(r),
+    rplusRinv = 1. / (r + pos.R),
+    tau       = pos.z * rplusRinv;
+
+    // number of azimuthal harmonics to compute
+    const int nm = ind.mmax - ind.mmin() + 1;
+
+    // temporary array for storing coefficients: Phi, two first and three second derivs for each m
+    double C_m[(2*MAX_NCOEFS_ANGULAR-1) * 6];
+
+    // first and second derivs of potential in scaled coordinates,
+    // where 'r' stands for ln(r) and 'theta' - for tau
+    coord::GradSph trGrad;
+    coord::HessSph trHess;
+
     // only compute those quantities that will be needed in output
-    bool needPhi  = true;
-    bool needGrad = grad!=NULL || hess!=NULL;
-    bool needHess = hess!=NULL;
-    
+    const int numQuantities = hess!=NULL ? 6 : grad!=NULL ? 3 : 1;
+
     // compute azimuthal harmonics
-    for(int m=ind.mmin(); m<=ind.mmax; m++) {
+    for(int mm=0; mm<nm; mm++) {
+        int m = mm + ind.mmin();
         if(ind.lmin(m) > ind.lmax)
             continue;
-        unsigned int mm = m+ind.mmax;
-        spl[mm].evalDeriv(log(pos.r), pos.theta, 
-            needPhi  ?   &Phi_m[mm]          : NULL, 
-            needGrad ?  &dPhi_m[mm].dr       : NULL,
-            needGrad ?  &dPhi_m[mm].dtheta   : NULL,
-            needHess ? &d2Phi_m[mm].dr2      : NULL,
-            needHess ? &d2Phi_m[mm].drdtheta : NULL,
-            needHess ? &d2Phi_m[mm].dtheta2  : NULL);
+        spl[m+ind.mmax].evalDeriv(logr, tau, &C_m[mm],
+            numQuantities>=3 ? &C_m[mm+nm  ] : NULL,
+            numQuantities>=3 ? &C_m[mm+nm*2] : NULL,
+            numQuantities==6 ? &C_m[mm+nm*3] : NULL,
+            numQuantities==6 ? &C_m[mm+nm*4] : NULL,
+            numQuantities==6 ? &C_m[mm+nm*5] : NULL);
     }
-    fourierTransformAzimuth(pos.phi, ind, Phi_m, dPhi_m, d2Phi_m, potential, grad, hess);
-    transformRadialDerivs(pos.r, grad, hess);
+
+    // Fourier synthesis from azimuthal harmonics to actual quantities, still in scaled coords
+    fourierTransformAzimuth(ind, pos.phi, C_m, potential,
+        numQuantities>=3 ? &trGrad : NULL, numQuantities==6 ? &trHess : NULL);
+    if(numQuantities==1)
+        return;   // nothing else needed
+
+    // abuse the coordinate transformation framework (Sph -> Cyl), where actually
+    // our source Sph coords are not (r, theta, phi), but (ln r, tau, phi)
+    const double
+    rinv    = 1/r,
+    r2inv   = pow_2(rinv);
+    coord::PosDerivT<coord::Cyl, coord::Sph> der;
+    der.drdR = pos.R * r2inv;
+    der.drdz = pos.z * r2inv;
+    der.dthetadR = -tau * rinv;
+    der.dthetadz = rinv - rplusRinv;
+    if(grad)
+        *grad = toGrad(trGrad, der);
+    if(hess) {
+        coord::PosDeriv2T<coord::Cyl, coord::Sph> der2;
+        der2.d2rdR2  = pow_2(der.drdz) - pow_2(der.drdR);
+        der2.d2rdRdz = -2 * der.drdR * der.drdz;
+        der2.d2rdz2  = -der2.d2rdR2;
+        der2.d2thetadR2  = pos.z * r2inv * rinv;
+        der2.d2thetadRdz = pow_2(der.dthetadR) - pow_2(der.drdR) * r * rplusRinv;
+        der2.d2thetadz2  = -der2.d2thetadR2 - der.dthetadR * rplusRinv;
+        *hess = toHess(trGrad, trHess, der, der2);
+    }
 }
 
 }; // namespace

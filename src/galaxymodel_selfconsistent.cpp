@@ -154,17 +154,10 @@ void updateTotalPotential(SelfConsistentModel& model)
     for(unsigned int i=0; i<model.components.size(); i++) {
         PtrDensity d = model.components[i]->getDensity();
         if(d) {
-            /*if(d->name() == DiskDensity::myName()) {
-                // special treatment for DiskDensity type:
-                // instead of attributing it to the CylSpline potential, 
-                // we split off the DiskAnsatz potential and put the residual density
-                // to the list of spheroidal components
-            } else*/ {
-                if(model.components[i]->isDensityDisklike)
-                    compDensDisk.push_back(d);
-                else
-                    compDensSph.push_back(d);
-            }
+            if(model.components[i]->isDensityDisklike)
+                compDensDisk.push_back(d);
+            else
+                compDensSph.push_back(d);
         }
         PtrPotential p = model.components[i]->getPotential();
         if(p)

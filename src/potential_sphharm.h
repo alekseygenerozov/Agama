@@ -324,12 +324,12 @@ private:
     std::vector<double> innerSlope, outerSlope;
 
     virtual double densityCar(const coord::PosCar &pos) const {
-        return densitySph(toPosSph(pos)); }
+        return densityCyl(toPosCyl(pos)); }
 
-    virtual double densityCyl(const coord::PosCyl &pos) const {
-        return densitySph(toPosSph(pos)); }
+    virtual double densitySph(const coord::PosSph &pos) const {
+        return densityCyl(toPosCyl(pos)); }
 
-    virtual double densitySph(const coord::PosSph &pos) const;  // this is the implementation
+    virtual double densityCyl(const coord::PosCyl &pos) const;  // this is the implementation
 
 };  // class DensitySphericalHarmonic
 
@@ -346,7 +346,7 @@ private:
     to the Laplace equation, i.e. with zero density. The other term U r^s corresponds
     to a power-law density profile of the given harmonic component (rho ~ r^{s-2}). 
 */
-class PowerLawMultipole: public BasePotentialSph {
+class PowerLawMultipole: public BasePotentialCyl {
 public:
     /** Create the potential from the three arrays: amplitudes of harmonic coefficients (U, W)
         and the power-law slope of the coefficient U with nonzero Laplacian (S),
@@ -360,15 +360,15 @@ public:
     static const char* myName() { return "PowerLaw"; };
 private:
     const math::SphHarmIndices ind; ///< indexing scheme for sph.-harm.coefficients
-    double r0;                      ///< reference radius 
+    double r0sq;                    ///< reference radius, squared
     bool inner;                     ///< whether this is an inward or outward extrapolation
     std::vector<double> S, U, W;    ///< sph.-harm.coefficients for extrapolation
-    virtual void evalSph(const coord::PosSph &pos,
-        double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const;
+    virtual void evalCyl(const coord::PosCyl &pos,
+        double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
 };
 
 /// Multipole expansion for potentials
-class Multipole: public BasePotentialSph{
+class Multipole: public BasePotentialCyl{
 public:
     /** create the potential from the analytic density or potential model.
         This is not a constructor but a static member function returning a shared pointer
@@ -428,8 +428,8 @@ private:
     /// asymptotic behaviour at small and large radii described by `PowerLawMultipole`
     PtrPotential asymptInner, asymptOuter;
 
-    virtual void evalSph(const coord::PosSph &pos,
-        double* potential, coord::GradSph* deriv, coord::HessSph* deriv2) const;
+    virtual void evalCyl(const coord::PosCyl &pos,
+        double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
 };
     
 }  // namespace

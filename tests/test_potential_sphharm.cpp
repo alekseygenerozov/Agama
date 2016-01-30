@@ -17,7 +17,7 @@
 #include <ctime>
 //#include "math_specfunc.h"
 
-const bool output = false;
+const bool output = true;
 
 /// write potential coefs into file, load them back and create a new potential from these coefs
 potential::PtrPotential writeRead(const potential::BasePotential& pot)
@@ -232,7 +232,7 @@ bool checkSH(const math::SphHarmIndices& ind)
     // array of original function values
     std::vector<double> d(tr.size());
     for(unsigned int i=0; i<d.size(); i++)
-        d[i] = myfnc<l,m>(tr.theta(i), tr.phi(i));
+        d[i] = myfnc<l,m>(acos(tr.costheta(i)), tr.phi(i));
     // array of SH coefficients
     std::vector<double> c(ind.size());
     tr.transform(&d.front(), &c.front());
@@ -246,7 +246,8 @@ bool checkSH(const math::SphHarmIndices& ind)
     // array of function values after inverse transform
     std::vector<double> b(tr.size());
     for(unsigned int i=0; i<d.size(); i++) {
-        b[i] = math::sphHarmTransformInverse(ind, &c.front(), tr.theta(i), tr.phi(i), tmp);
+        double tau = tr.costheta(i) / (sqrt(1-pow_2(tr.costheta(i))) + 1);
+        b[i] = math::sphHarmTransformInverse(ind, &c.front(), tau, tr.phi(i), tmp);
         if(fabs(d[i]-b[i]) > 1e-14)
             return false;
     }

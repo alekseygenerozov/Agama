@@ -1856,14 +1856,17 @@ static bool parseLowerUpperBounds(PyObject* lower_obj, PyObject* upper_obj,
             PyErr_SetString(PyExc_ValueError, "Number of dimensions is invalid");
             return false;
         }
+        if(upper_obj) {
+            PyErr_Format(PyExc_ValueError,
+                "May not provide 'upper' argument if 'lower' specifies the number of dimensions (%i)", ndim);
+            return false;
+        }
         xlow.assign(ndim, 0.);  // default integration region
         xupp.assign(ndim, 1.);
         return true;
     }
     // if the first parameter is not the number of dimensions, then it must be the lower boundary,
     // and the second one must be the upper boundary
-    if(!upper_obj)
-        return false;
     PyArrayObject *lower_arr = (PyArrayObject*) PyArray_FROM_OTF(lower_obj, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
     if(lower_arr == NULL || PyArray_NDIM(lower_arr) != 1) {
         Py_XDECREF(lower_arr);
@@ -1872,6 +1875,10 @@ static bool parseLowerUpperBounds(PyObject* lower_obj, PyObject* upper_obj,
         return false;
     }
     ndim = PyArray_DIM(lower_arr, 0);
+    if(!upper_obj) {
+        PyErr_SetString(PyExc_ValueError, "Must provide both 'lower' and 'upper' arguments if both are arrays");
+        return false;
+    }
     PyArrayObject *upper_arr = (PyArrayObject*) PyArray_FROM_OTF(upper_obj, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
     if(upper_arr == NULL || PyArray_NDIM(upper_arr) != 1 || PyArray_DIM(upper_arr, 0) != ndim) {
         Py_XDECREF(upper_arr);

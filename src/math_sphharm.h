@@ -27,16 +27,27 @@ double legendrePoly(const int l, const int m, const double x);
     \f$  Y_l^m(\theta, \phi) = W_l^m(\theta) \{\sin,\cos\}(m\phi) ,
          W_l^m = \sqrt{\frac{ (2l+1) (l-m)! }{ 4\pi (l+m)! }} P_l^m(\cos(\theta))  \f$,
     where P are un-normalized associated Legendre functions.
-    The output arrays contain values of W, dW/dtheta, d^2W/dtheta^2  for l=m,m+1,...,lmax;
-    if either derivArray or deriv2Array = NULL, the corresponding thing is not computed
-    (note that if deriv2Array is not NULL, derivArray must not be NULL too).
-    This routine differs from `legendrePoly` in the following:
-    (1) it takes theta rather than cos(theta) as argument;
-    (2) returns normalized functions directly suitable for Y_l^m;
-    (3) returns first and second derivatives w.r.t. theta, not cos(theta);
-    (4) accurately handles values of theta close to 0 or pi.
+    \param[in]  lmax - the maximum degree l of computed polynomials.
+    \param[in]  m    - the order m: 0 <= m <= lmax.
+    \param[in]  tau  - the argument of the function: tau = cos(theta) / (sin(theta) + 1),
+    where theta is the usual polar angle. The rationale for choosing this combination,
+    which is simply tan( (pi/2 - theta) / 2), is twofold: on the one hand, using cos(theta)
+    as the argument leads to loss of precision when |cos|->1, which happens already for
+    theta as large as 1e-8; on the other hand, using theta as argument would incur additional
+    expense to compute both sin and cos theta. By contrast, they are simply computed from tau
+    as sin(theta) = (1 - tau^2) / (1 + tau^2), cos(theta) = 2*tau / (1 + tau^2),  and
+    at the same time |d tau / d theta| is always between 1/2 and 1, without loss of precision.
+    \param[out] resultArray - the computed array of W_l^m,  which must be pre-allocated
+    to contain lmax-m+1 elements, stored as  l=m, m+1, ..., lmax;
+    \param[out] derivArray - the computed array of derivatives dW_l^m / d theta
+    (not cos theta, nor tau); if NULL, they are not computed, otherwise must be pre-allocated
+    with the same size as resultArray. 
+    \param[out] deriv2Array - the computed array of second derivatives d2W_l^m / d theta^2;
+    if NULL, they are not computed, and if not NULL, derivArray must be not NULL too.
+    The derivatives for |tau| -> 1 (i.e. theta->0 or theta->pi) are computed accurately
+    using asymptotic expressions.
 */
-void sphHarmArray(const unsigned int lmax, const unsigned int m, const double theta,
+void sphHarmArray(const unsigned int lmax, const unsigned int m, const double tau,
     double* resultArray, double* derivArray=0, double* deriv2Array=0);
 
 /** Compute the values of cosines and optionally sines of an arithmetic progression of angles:
@@ -244,10 +255,10 @@ public:
     /// return the required size of input array for the forward transformation
     inline unsigned int size() const { return thetasize() * fourier.size(); }
 
-    /// return the theta coordinate (0:pi) of i-th element of input array, 0 <= i < size()
-    inline double theta(unsigned int i) const { return thnodes[i / fourier.size()]; }
+    /// return the cos(theta) coordinate (-1:1) of i-th element of input array, 0 <= i < size()
+    inline double costheta(unsigned int i) const { return costhnodes[i / fourier.size()]; }
     
-    /// return the theta coordinate [0:2pi) of i-th element of input array, 0 <= i < size()
+    /// return the phi coordinate [0:2pi) of i-th element of input array, 0 <= i < size()
     inline double phi(unsigned int i) const { return fourier.phi(i % fourier.size()); }
 
     /** perform the transformation of input array (values) into the array of coefficients.
@@ -267,7 +278,7 @@ private:
     const FourierTransformForward fourier;
 
     /// coordinates of the grid nodes in theta on (0:pi/2]
-    std::vector<double> thnodes;
+    std::vector<double> costhnodes;
 
     /// values of all associated Legendre functions of order <= lmax,mmax at nodes of theta-grid
     std::vector<double> legFnc;  
@@ -282,12 +293,12 @@ private:
     In doing so, it requires temporary storage that must be provided by the calling code.
     \param[in]  ind   - coefficient indexing scheme, defining lmax, mmax and skipped coefs;
     \param[in]  coefs - the array of coefficients;
-    \param[in]  theta - the polar angle;
+    \param[in]  tau   - cos(theta) / (1 + sin(theta)), where theta is the polar angle;
     \param[in]  phi   - the azimuthal angle;
     \param[in,out] tmp  is a temporary storage with size (at least) ind.lmax+2*ind.mmax+1;
     \returns    the value of function at (theta,phi)
 */
 double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
-    const double theta, const double phi, double* tmp);
+    const double tau, const double phi, double* tmp);
 
 }  // namespace math
