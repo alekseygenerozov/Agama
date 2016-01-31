@@ -49,7 +49,7 @@ public:
     virtual double value(double ifd) const {
         actions::ActionStat acts;
         for(size_t i=0; i<traj.size(); i++)
-            acts.add(actions::axisymFudgeActions(potential, coord::toPosVelCyl(traj[i]), ifd));
+            acts.add(actions::actionsAxisymFudge(potential, coord::toPosVelCyl(traj[i]), ifd));
         numActionEval += traj.size();
         acts.finish();
         avg = acts.avg;

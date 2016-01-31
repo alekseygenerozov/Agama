@@ -66,6 +66,57 @@ class test6: public math::IFunctionNoDeriv{
     }
 };
 
+// test function for multidimensional minimization
+static const double  // rotation
+    A00 = 0.8786288646, A01 = -0.439043856, A02 = 0.1877546558,
+    A10 = 0.4474142786, A11 = 0.8943234085, A12 = -0.002470791,
+    A20 = -0.166828598, A21 = 0.0861750222, A22 = 0.9822128505,
+    c0 = -0.5, c1 = -1., c2 = 2,    // center
+    s0 = 2.0,  s1 = 0.5, s2 = 0.1;  // scale
+class test7Ndim: public math::IFunctionNdimDeriv{
+public:
+    // 3-dimensional paraboloid centered at c[], scaled with s[] and rotated with orthogonal matrix A[][]
+    virtual void evalDeriv(const double x[], double val[], double der[]) const{
+        double x0 = (x[0]-c0)*s0, x1 = (x[1]-c1)*s1, x2 = (x[2]-c2)*s2;
+        double v0 = x0*A00 + x1*A01 + x2*A02;
+        double v1 = x0*A10 + x1*A11 + x2*A12;
+        double v2 = x0*A20 + x1*A21 + x2*A22;
+        double v  = x0*v0  + x1*v1  + x2*v2;
+        if(val)
+            val[0] = 1. - 1. / (1 + v*v);
+        if(der) {
+            double m = 2 * v / pow_2(1 + v*v);
+            der[0] = m * (v0 + A00*x0 + A10*x1 + A20*x2) * s0;
+            der[1] = m * (v1 + A01*x0 + A11*x1 + A21*x2) * s1;
+            der[2] = m * (v2 + A02*x0 + A12*x1 + A22*x2) * s2;
+        }
+        numEval++;
+    }
+    virtual unsigned int numVars() const { return 3; }
+    virtual unsigned int numValues() const { return 1; }
+};
+
+// test function for sampleNdim
+static const double Rout = 3, Rin = 1;  // outer and inner radii of the torus
+class test8Ndim: public math::IFunctionNdim{
+public:
+    // 3-dimensional torus rotated with orthogonal matrix A[][]
+    virtual void eval(const double x[], double val[]) const{
+        double x0 = x[0]*A00+x[1]*A01+x[2]*A02;
+        double x1 = x[0]*A10+x[1]*A11+x[2]*A12;
+        double x2 = x[0]*A20+x[1]*A21+x[2]*A22;
+        val[0] = pow_2(sqrt(x0*x0+x1*x1)-Rout)+x2*x2 <= Rin*Rin ? 1.0+x0*0.2 : 0.0;
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
+        ++numEval;
+    }
+    virtual unsigned int numVars() const { return 3; }
+    virtual unsigned int numValues() const { return 1; }
+};
+
+
+// test functions for estimating the accuracy of Gauss-Legendre integration
 class test_GL_powerlaw: public math::IFunctionNoDeriv{
 public:
     test_GL_powerlaw(double _p): p(_p) {};
@@ -88,45 +139,75 @@ public:
 };
 
 
-static const double  // rotation
-    A00 = 0.8786288646, A01 = -0.439043856, A02 = 0.1877546558,
-    A10 = 0.4474142786, A11 = 0.8943234085, A12 = -0.002470791,
-    A20 = -0.166828598, A21 = 0.0861750222, A22 = 0.9822128505,
-    c0 = -0.5, c1 = -1., c2 = 2,    // center
-    s0 = 2.0,  s1 = 0.5, s2 = 0.1;  // scale
-class test7Ndim: public math::IFunctionNdim{
+// test of least-square fitting
+class test9LM: public math::IFunctionNdimDeriv {
 public:
-    // 3-dimensional paraboloid centered at c[], scaled with s[] and rotated with orthogonal matrix A[][]
-    virtual void eval(const double x[], double val[]) const{
-        double x0 = (x[0]-c0)*s0, x1 = (x[1]-c1)*s1, x2 = (x[2]-c2)*s2;
-        double v0 = x0*A00+x1*A01+x2*A02;
-        double v1 = x0*A10+x1*A11+x2*A12;
-        double v2 = x0*A20+x1*A21+x2*A22;
-        double v  = x0*v0 +x1*v1 +x2*v2;
-        val[0] = 1-1./(1+v*v);
+    test9LM() {  // init data points
+        for(int i=0; i<numDataPoints; i++) {
+            double x = i*1.0/numDataPoints;
+            dataX[i] = x;
+            dataY[i] = cos(1.5*x*M_PI) + 0.2*sin(x*5*M_PI) + // some deterministic noise
+            0.1*cos(x*21.4231) + 0.07*sin(x*67.56473) + 0.03*sqrt(fabs(tan(x*38.8322)));
+        }
+    }
+    virtual void evalDeriv(const double vars[], double values[], double *derivs=0) const
+    {   // fit function a*sin(b*x+c) to data points
+        double a = vars[0], b = vars[1], c = vars[2];
+        for(int i=0; i<numDataPoints; i++) {
+            double sinx = sin(b * dataX[i] + c);
+            if(values)
+                values[i] = a * sinx - dataY[i];
+            if(derivs) {
+                double cosx = cos(b * dataX[i] + c);
+                derivs[i*3  ] = sinx;
+                derivs[i*3+1] = a * cosx * dataX[i];
+                derivs[i*3+2] = a * cosx;
+            }
+        }
         numEval++;
     }
+    void dump(const double vars[], const char* fileName) const
+    {
+        std::ofstream strm(fileName);
+        double a = vars[0], b = vars[1], c = vars[2];
+        for(int i=0; i<numDataPoints; i++)
+            strm << dataX[i] << '\t' << dataY[i] << '\t' << a*sin(b * dataX[i] + c) << '\n';
+    }
     virtual unsigned int numVars() const { return 3; }
-    virtual unsigned int numValues() const { return 1; }
+    virtual unsigned int numValues() const { return numDataPoints; }
+private:
+    static const int numDataPoints = 100;
+    double dataX[numDataPoints], dataY[numDataPoints];
 };
 
-static const double Rout = 3, Rin = 1;  // outer and inner radii of the torus
-class test8Ndim: public math::IFunctionNdim{
+// represent the least-square fitting problem as a general minimization problem
+class test9min: public math::IFunctionNdimDeriv {
 public:
-    // 3-dimensional torus rotated with orthogonal matrix A[][]
-    virtual void eval(const double x[], double val[]) const{
-        double x0 = x[0]*A00+x[1]*A01+x[2]*A02;
-        double x1 = x[0]*A10+x[1]*A11+x[2]*A12;
-        double x2 = x[0]*A20+x[1]*A21+x[2]*A22;
-        val[0] = pow_2(sqrt(x0*x0+x1*x1)-Rout)+x2*x2 <= Rin*Rin ? 1.0+x0*0.2 : 0.0;
-#ifdef _OPENMP
-#pragma omp atomic
-#endif
-        ++numEval;
+    test9min(const math::IFunctionNdimDeriv& _F) : F(_F) {}
+    virtual void evalDeriv(const double vars[], double values[], double *derivs=0) const
+    {
+        std::vector<double> val(F.numValues());
+        std::vector<double> jac(F.numValues()*F.numVars());
+        F.evalDeriv(vars, &val[0], &jac[0]);
+        if(values)
+            *values = 0;
+        if(derivs)
+            for(unsigned int i=0; i<F.numVars(); i++)
+                derivs[i] = 0;
+        for(unsigned int k=0; k<F.numValues(); k++) {
+            if(values)
+                *values += 0.5 * pow_2(val[k]);
+            if(derivs)
+                for(unsigned int i=0; i<F.numVars(); i++)
+                    derivs[i] += val[k] * jac[k*F.numVars()+i];
+        }
     }
     virtual unsigned int numVars() const { return 3; }
     virtual unsigned int numValues() const { return 1; }
+private:
+    const math::IFunctionNdimDeriv& F;
 };
+
 
 int main()
 {
@@ -242,6 +323,16 @@ int main()
     ok &= fabs(yresult[0]-c0) * fabs(yresult[1]-c1) * fabs(yresult[2]-c2) < 1e-10;
 
     numEval=0;
+    numIter = findMinNdimDeriv(test7Ndim(), yinit, ystep[0], 1e-10, 1000, yresult);
+    test7Ndim().eval(yresult, &result);
+    std::cout << "Min. same func. with derivatives: minimum at x=("<<
+        yresult[0]<<","<<yresult[1]<<","<<yresult[2]<<")"
+        " is "<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
+    // the test function is quartic, not quadratic, near minimum,
+    // which is tough for derivative-based minimizers - hence a looser tolerance
+    ok &= fabs(yresult[0]-c0) * fabs(yresult[1]-c1) * fabs(yresult[2]-c2) < 1e-8;
+
+    numEval=0;
     double ymin[] = {-4,-4,-2};
     double ymax[] = {+4,+4,+2};
     test8Ndim fnc8;
@@ -262,7 +353,7 @@ int main()
             fout << points(i,0) << "\t" << points(i,1) << "\t" << points(i,2) << "\n";
     }
 
-#if 1
+#if 0
     // test the accuracy of fixed-order (n) Gauss-Legendre quadrature in integrating a power-law function in radius
     for(double p=-40; p<=40; p+=1.77) {
         test_GL_powerlaw tpl(p);
@@ -291,7 +382,38 @@ int main()
     }
 #endif
 
+    // nonlinear least-square fitting using Levenberg-Marquardt
+    numEval=0;
+    test9LM fncLM;
+    test9min fncMin(fncLM);
+    yinit[0] = yinit[1] = yinit[2] = 0.5;
+    numIter = nonlinearMultiFit(fncLM, yinit, 1e-4, 100, yresult);
+    fncMin.eval(yresult, &result);
+    std::cout << "Nonlinear least-square fit: parameters x=("<<
+        yresult[0]<<","<<yresult[1]<<","<<yresult[2]<<")"
+        ", sum square dif="<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
+    //fncLM.dump(yresult, "fit.log");
+    ok &= fabs(result) < 1.5;  // well it's not a particularly good fit by design
+
+    // same problem using a generic minimizer with derivatives
+    numEval = 0;
+    numIter = findMinNdimDeriv(fncMin, yinit, ystep[0], 1e-4, 100, yresult);
+    fncMin.eval(yresult, &result);
+    std::cout << "Same with deriv. minimizer: parameters x=("<<
+        yresult[0]<<","<<yresult[1]<<","<<yresult[2]<<")"
+        ", sum square dif="<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
+    ok &= fabs(result) < 1.5;
+
+    // same problem using a generic minimizer without derivatives
+    numEval = 0;
+    numIter = findMinNdim(fncMin, yinit, ystep, 1e-4, 100, yresult);
+    fncMin.eval(yresult, &result);
+    std::cout << "Same minimizer w/o derivs : parameters x=("<<
+        yresult[0]<<","<<yresult[1]<<","<<yresult[2]<<")"
+        ", sum square dif="<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
+    ok &= fabs(result) < 1.5;
+
     if(ok)
-        std::cout << "ALL TESTS PASSED\n";
+        std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;
 }

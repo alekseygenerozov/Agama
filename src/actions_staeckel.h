@@ -29,10 +29,10 @@ namespace actions {
 /** Find exact actions in the Staeckel potential of oblate Perfect Ellipsoid.
     \param[in]  potential is the input Staeckel potential;
     \param[in]  point     is the position/velocity point;
-    \return     actions for the given point;
-    \throw      std::invalid_argument exception if energy is positive, or some other error occurs.
+    \return     actions for the given point, or Jr=Jz=NAN if the energy is positive;
+    \throw      std::invalid_argument exception if some error occurs.
 */    
-Actions axisymStaeckelActions(
+Actions actionsAxisymStaeckel(
     const potential::OblatePerfectEllipsoid& potential, 
     const coord::PosVelCyl& point);
 
@@ -40,10 +40,10 @@ Actions axisymStaeckelActions(
     \param[in]  potential is the input Staeckel potential;
     \param[in]  point     is the position/velocity point;
     \param[out] freq      if not NULL, store the frequencies of motion in this variable;
-    \return     actions and angles for the given point;
-    \throw      std::invalid_argument exception if energy is positive, or some other error occurs.
+    \return     actions and angles for the given point, or Jr=Jz=NAN if the energy is positive;
+    \throw      std::invalid_argument exception if some error occurs.
 */
-ActionAngles axisymStaeckelActionAngles(
+ActionAngles actionAnglesAxisymStaeckel(
     const potential::OblatePerfectEllipsoid& potential, 
     const coord::PosVelCyl& point,
     Frequencies* freq=0);
@@ -54,11 +54,11 @@ ActionAngles axisymStaeckelActionAngles(
     \param[in]  interfocalDistance is the geometric parameter of best-fit coordinate system:
     the accuracy of the method depends on this parameter, which should be estimated by one of 
     the methods from actions_interfocal_distance_finder.h;
-    \return     actions for the given point;
-    \throw      std::invalid_argument exception if the potential is not axisymmetric, 
-    or the energy is positive, or some other error occurs.
+    \return     actions for the given point, or Jr=Jz=NAN if the energy is positive;
+    \throw      std::invalid_argument exception if the potential is not axisymmetric 
+    or some other error occurs.
 */
-Actions axisymFudgeActions(
+Actions actionsAxisymFudge(
     const potential::BasePotential& potential, 
     const coord::PosVelCyl& point,
     double interfocalDistance);
@@ -69,11 +69,11 @@ Actions axisymFudgeActions(
     \param[in]  point     is the position/velocity point;
     \param[in]  interfocalDistance is the geometric parameter of best-fit coordinate system;
     \param[out] freq      if not NULL, store the frequencies of motion in this variable;
-    \return     actions and angles for the given point;
-    \throw      std::invalid_argument exception if the potential is not axisymmetric, 
-    or the energy is positive, or some other error occurs.
+    \return     actions and angles for the given point, or Jr=Jz=NAN if the energy is positive;
+    \throw      std::invalid_argument exception if the potential is not axisymmetric
+    or some other error occurs.
 */
-ActionAngles axisymFudgeActionAngles(
+ActionAngles actionAnglesAxisymFudge(
     const potential::BasePotential& potential, 
     const coord::PosVelCyl& point, 
     double interfocalDistance, 
@@ -83,20 +83,17 @@ ActionAngles axisymFudgeActionAngles(
 /// \name  ------- Class interface to action/angle finders  -------
 ///@{
 
-/** Action/angle finder for an Oblate Perfect Ellipsoid potential.
-    The reference to the potential is stored in this object, is used
-    in computing the actions, and must be valid throughout its lifetime.
-*/
+/** Action/angle finder for an Oblate Perfect Ellipsoid potential. */
 class ActionFinderAxisymStaeckel: public BaseActionFinder {
 public:
     explicit ActionFinderAxisymStaeckel(const potential::PtrOblatePerfectEllipsoid& potential) :
         pot(potential) {};
 
     virtual Actions actions(const coord::PosVelCyl& point) const {
-        return axisymStaeckelActions(*pot, point); }
+        return actionsAxisymStaeckel(*pot, point); }
 
     virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const {
-        return axisymStaeckelActionAngles(*pot, point, freq); }
+        return actionAnglesAxisymStaeckel(*pot, point, freq); }
 
 private:
     const potential::PtrOblatePerfectEllipsoid pot;  ///< the potential in which actions are computed
@@ -107,8 +104,6 @@ private:
     the standalone routines, because it estimates the interfocal distance using a pre-computed 
     interpolation grid, rather than doing it individually for each point. This results in 
     a considerable speedup in action computation, for a negligible overhead during initialization.
-    The reference to the potential provided to the constructor is stored internally in this object,
-    thus it must exist during its lifetime and will be used when the actions need to be computed.
 */
 class ActionFinderAxisymFudge: public BaseActionFinder {
 public:
@@ -116,11 +111,11 @@ public:
         pot(potential), finder(*potential) {};
 
     virtual Actions actions(const coord::PosVelCyl& point) const {
-        return axisymFudgeActions(*pot, point, 
+        return actionsAxisymFudge(*pot, point, 
             finder.value(totalEnergy(*pot, point), point.R*point.vphi)); }
 
     virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const {
-        return axisymFudgeActionAngles(*pot, point,
+        return actionAnglesAxisymFudge(*pot, point,
             finder.value(totalEnergy(*pot, point), point.R*point.vphi), freq); }
 
 private:

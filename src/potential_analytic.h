@@ -27,6 +27,22 @@ private:
         double* potential, double* deriv, double* deriv2) const;
 };
 
+/** Spherical Isochrone potential:
+    \f$  \Phi(r) = - M / (b + \sqrt{r^2 + b^2})  \f$. */
+class Isochrone: public BasePotentialSphericallySymmetric{
+public:
+    Isochrone(double _mass, double _scaleRadius) :
+        BasePotentialSphericallySymmetric(), mass(_mass), scaleRadius(_scaleRadius) {}
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { return "Isochrone"; }
+    virtual double totalMass() const { return mass; }
+    virtual void evalDeriv(double r,
+        double* potential, double* deriv, double* deriv2) const;
+private:
+    const double mass;         ///< total mass  (M)
+    const double scaleRadius;  ///< scale radius of the Isochrone model  (b)
+};
+
 /** Spherical Navarro-Frenk-White potential:
     \f$  \Phi(r) = - M \ln{1 + (r/r_s)} / r  \f$  (note that total mass is infinite and not M). */
 class NFW: public BasePotentialSphericallySymmetric{

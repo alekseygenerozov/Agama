@@ -7,21 +7,25 @@
 
 namespace actions{
 
-Actions sphericalActions(const potential::BasePotential& potential,
+Actions actionsSpherical(const potential::BasePotential& potential,
     const coord::PosVelCyl& point)
 {
     if(!isSpherical(potential))
         throw std::invalid_argument("This routine only can deal with actions in a spherical potential");
     Actions acts;
+    double Etot = totalEnergy(potential, point);
     double Ltot = Ltotal(point);
     acts.Jphi = Lz(point);
     acts.Jz = Ltot - fabs(acts.Jphi);
-    double R1, R2;
-    findPlanarOrbitExtent(potential, totalEnergy(potential, point), Ltot, R1, R2, &acts.Jr);
+    if(Etot<0) {
+        double R1, R2;
+        findPlanarOrbitExtent(potential, Etot, Ltot, R1, R2, &acts.Jr);
+    } else
+        acts.Jr = NAN;
     return acts;
 }
 
-ActionAngles sphericalActionAngles(const potential::BasePotential& potential,
+ActionAngles actionAnglesSpherical(const potential::BasePotential& potential,
     const coord::PosVelCyl& point, Frequencies* Freq)
 {
     throw std::runtime_error("Angle determination not implemented");
@@ -93,9 +97,7 @@ Actions ActionFinderSpherical::actions(const coord::PosVelCyl& point) const
     double Lc = std::max<double>(L, interpLcirc(E));
     acts.Jphi = Lz(point);
     acts.Jz   = L - fabs(acts.Jphi);
-    acts.Jr   = Lc>0 ? interpJr.value(E, L/Lc) * (Lc-L) : 0;
-    /*if(!math::isFinite(acts.Jr))
-        throw std::runtime_error("ActionFinderSpherical: bad value encountered for Jr");*/
+    acts.Jr   = Lc>0 ? interpJr.value(E, L/Lc) * (Lc-L) : 0;  // NAN if out of range
     return acts;
 }
 

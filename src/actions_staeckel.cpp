@@ -6,6 +6,8 @@
 
 namespace actions{
 
+namespace {  // internal routines
+
 /** Accuracy of integrals for computing actions and angles
     is determined by the number of points in fixed-order Gauss-Legendre scheme */
 const unsigned int INTEGR_ORDER = 10;  // good enough
@@ -585,9 +587,10 @@ ActionAngles computeActionAngles(
     return ActionAngles(acts, angs);
 }
 
+}  // internal namespace
 // -------- THE DRIVER ROUTINES --------
 
-Actions axisymStaeckelActions(const potential::OblatePerfectEllipsoid& potential, 
+Actions actionsAxisymStaeckel(const potential::OblatePerfectEllipsoid& potential, 
     const coord::PosVelCyl& point)
 {
     const AxisymFunctionStaeckel fnc = findIntegralsOfMotionOblatePerfectEllipsoid(potential, point);
@@ -597,7 +600,7 @@ Actions axisymStaeckelActions(const potential::OblatePerfectEllipsoid& potential
     return computeActions(fnc, lim);
 }
 
-ActionAngles axisymStaeckelActionAngles(const potential::OblatePerfectEllipsoid& potential, 
+ActionAngles actionAnglesAxisymStaeckel(const potential::OblatePerfectEllipsoid& potential, 
     const coord::PosVelCyl& point, Frequencies* freq)
 {
     const AxisymFunctionStaeckel fnc = findIntegralsOfMotionOblatePerfectEllipsoid(potential, point);
@@ -607,7 +610,7 @@ ActionAngles axisymStaeckelActionAngles(const potential::OblatePerfectEllipsoid&
     return computeActionAngles(fnc, lim, freq);
 }
 
-Actions axisymFudgeActions(const potential::BasePotential& potential, 
+Actions actionsAxisymFudge(const potential::BasePotential& potential, 
     const coord::PosVelCyl& point, double interfocalDistance)
 {
     if(!isAxisymmetric(potential))
@@ -620,7 +623,7 @@ Actions axisymFudgeActions(const potential::BasePotential& potential,
     return computeActions(fnc, lim);
 }
 
-ActionAngles axisymFudgeActionAngles(const potential::BasePotential& potential, 
+ActionAngles actionAnglesAxisymFudge(const potential::BasePotential& potential, 
     const coord::PosVelCyl& point, double interfocalDistance, Frequencies* freq)
 {
     if(!isAxisymmetric(potential))

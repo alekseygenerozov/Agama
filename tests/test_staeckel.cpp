@@ -20,6 +20,7 @@
 #include "actions_staeckel.h"
 #include "orbit.h"
 #include "math_core.h"
+#include "debug_utils.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -30,28 +31,6 @@ const double eps=1e-7;               // accuracy of comparison
 const double axis_a=1.6, axis_c=1.0; // axes of perfect ellipsoid
 const bool output=false;             // whether to create text files with orbits
 
-// helper class to compute scatter in actions
-class actionstat{
-public:
-    actions::Actions avg, disp;
-    int N;
-    actionstat() { avg.Jr=avg.Jz=avg.Jphi=0; disp=avg; N=0; }
-    void add(const actions::Actions act) {
-        avg.Jr  +=act.Jr;   disp.Jr  +=pow_2(act.Jr);
-        avg.Jz  +=act.Jz;   disp.Jz  +=pow_2(act.Jz);
-        avg.Jphi+=act.Jphi; disp.Jphi+=pow_2(act.Jphi);
-        N++;
-    }
-    void finish() {
-        avg.Jr/=N;
-        avg.Jz/=N;
-        avg.Jphi/=N;
-        disp.Jr  =sqrt(std::max<double>(0, disp.Jr/N  -pow_2(avg.Jr)));
-        disp.Jz  =sqrt(std::max<double>(0, disp.Jz/N  -pow_2(avg.Jz)));
-        disp.Jphi=sqrt(std::max<double>(0, disp.Jphi/N-pow_2(avg.Jphi)));
-    }
-};
-
 template<typename coordSysT>
 bool test_oblate_staeckel(const potential::OblatePerfectEllipsoid& potential,
     const coord::PosVelT<coordSysT>& initial_conditions,
@@ -59,7 +38,7 @@ bool test_oblate_staeckel(const potential::OblatePerfectEllipsoid& potential,
 {
     std::vector<coord::PosVelT<coordSysT> > traj;
     orbit::integrate(potential, initial_conditions, total_time, timestep, traj, integr_eps);
-    actionstat stats, statf;
+    actions::ActionStat stats, statf;
     actions::Angles angf;
     bool ex_afs=false, ex_aff=false;
     std::ofstream strm;
@@ -75,14 +54,14 @@ bool test_oblate_staeckel(const potential::OblatePerfectEllipsoid& potential,
     for(size_t i=0; i<traj.size(); i++) {
         const coord::PosVelCyl p = coord::toPosVelCyl(traj[i]);
         try {
-            stats.add(actions::axisymStaeckelActions(potential, p));
+            stats.add(actions::actionsAxisymStaeckel(potential, p));
         }
         catch(std::exception &e) {
             if(!ex_afs) std::cout << "Exception in Staeckel at i="<<i<<": "<<e.what()<<"\n";
             ex_afs=true;
         }
         try {
-            actions::ActionAngles a=actions::axisymFudgeActionAngles(potential, p, ifd);
+            actions::ActionAngles a=actions::actionAnglesAxisymFudge(potential, p, ifd);
             statf.add(a);
             if(1 || i==0) angf=a;  // 1 to disable unwrapping
             else {
@@ -151,6 +130,6 @@ int main() {
     allok &= test_three_cs(potential, coord::PosVelCar(1, 0.3, 0. , 0.1, 0.4, 0.    ), "exactly in-plane orbit (Jz=0)");
     allok &= test_three_cs(potential, coord::PosVelCar(1, 0. , 0. , 0. ,.296, 0.    ), "almost circular in-plane orbit (Jz=0,Jr~0)");
     if(allok)
-        std::cout << "ALL TESTS PASSED\n";
+        std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;
 }

@@ -23,15 +23,15 @@ inline double pow_3(double x) { return x*x*x; }
 #endif
 
 #ifndef M_PI
-#define M_PI       3.14159265358979323846264338328
+#define M_PI     3.14159265358979323846264338328
 #endif
 
 #ifndef M_SQRTPI
-#define M_SQRTPI   1.77245385090551602729816748334
+#define M_SQRTPI 1.77245385090551602729816748334
 #endif
 
 #ifndef M_SQRT2
-#define M_SQRT2    1.41421356237309504880168872421
+#define M_SQRT2  1.41421356237309504880168872421
 #endif
 
 #define TWO_PI_CUBE 248.050213442398561403810520537
@@ -134,6 +134,31 @@ public:
 
     /// return the number of elements in the output array of values (M)
     virtual unsigned int numValues() const = 0;
+};
+
+/** Prototype of a function of N>=1 variables that computes a vector of M>=1 values,
+    and derivatives of these values w.r.t.the input variables (aka jacobian). */
+class IFunctionNdimDeriv: public IFunctionNdim {
+public:
+    IFunctionNdimDeriv() {};
+    virtual ~IFunctionNdimDeriv() {};
+
+    /** evaluate the function and the derivatives.
+        \param[in]  vars   is the N-dimensional point at which the function should be computed.
+        \param[out] values is the M-dimensional array (possibly M=1) that will contain
+                    the vector of function values.
+        \param[out] derivs is the M-by-N matrix (M rows, N columns) of partial derivatives 
+                    of the vector-valued function by the input variables;
+                    if a NULL pointer is passed, this does not need to be computed,
+                    otherwise it must point to an existing array of sufficient length;
+                    the indexing scheme is derivs[m*N+n] = df_m/dx_n.
+    */
+    virtual void evalDeriv(const double vars[], double values[], double *derivs=0) const = 0;
+
+    /** reimplement the evaluate function without derivatives */
+    virtual void eval(const double vars[], double values[]) const {
+        evalDeriv(vars, values);
+    }
 };
 
 }  // namespace math

@@ -1,11 +1,13 @@
 #include "math_fit.h"
 #include <gsl/gsl_fit.h>
 #include <gsl/gsl_multifit.h>
+#include <gsl/gsl_multifit_nlin.h>
 #include <gsl/gsl_multimin.h>
 #include <stdexcept>
 
 namespace math{
 
+namespace {
 // ---- wrappers for GSL vector and matrix views (access the data arrays without copying) ----- //
 struct Vec {
     explicit Vec(std::vector<double>& vec) :
@@ -39,8 +41,55 @@ private:
     gsl_matrix_const_view m;
 };
 
-// ----- linear regression ------- //
+// ----- wrappers for multidimensional minimization routines ----- //
+static double functionWrapperNdim(const gsl_vector* x, void* param) {
+    double val;
+    static_cast<IFunctionNdim*>(param)->eval(x->data, &val);
+    return val;
+}
 
+static void functionWrapperNdimDer(const gsl_vector* x, void* param, gsl_vector* df) {
+    static_cast<IFunctionNdimDeriv*>(param)->evalDeriv(x->data, NULL, df->data);
+}
+
+static void functionWrapperNdimFncDer(const gsl_vector* x, void* param, double* f, gsl_vector* df) {
+    static_cast<IFunctionNdimDeriv*>(param)->evalDeriv(x->data, f, df->data);
+}
+
+// ----- wrappers for multidimensional nonlinear fitting ----- //
+static int functionWrapperNdimMval(const gsl_vector* x, void* param, gsl_vector* f) {
+    try{
+        static_cast<IFunctionNdimDeriv*>(param)->eval(x->data, f->data);
+        return GSL_SUCCESS;
+    }
+    catch(std::exception&){
+        return GSL_FAILURE;
+    }
+}
+
+static int functionWrapperNdimMvalDer(const gsl_vector* x, void* param, gsl_matrix* df) {
+    try{
+        static_cast<IFunctionNdimDeriv*>(param)->evalDeriv(x->data, NULL, df->data);
+        return GSL_SUCCESS;
+    }
+    catch(std::exception&){
+        return GSL_FAILURE;
+    }
+}
+
+static int functionWrapperNdimMvalFncDer(const gsl_vector* x, void* param, gsl_vector* f, gsl_matrix* df) {
+    try{
+        static_cast<IFunctionNdimDeriv*>(param)->evalDeriv(x->data, f->data, df->data);
+        return GSL_SUCCESS;
+    }
+    catch(std::exception&){
+        return GSL_FAILURE;
+    }
+}
+
+}  // internal namespace
+
+// ----- linear least-square fit ------- //
 double linearFitZero(const std::vector<double>& x, const std::vector<double>& y,
     const std::vector<double>* w, double* rms)
 {
@@ -72,6 +121,7 @@ void linearFit(const std::vector<double>& x, const std::vector<double>& y,
         *rms = sqrt(sumsq/y.size());
 }
 
+// ----- multi-parameter linear least-square fit ----- //
 void linearMultiFit(const Matrix<double>& coefs, const std::vector<double>& rhs, 
     const std::vector<double>* w, std::vector<double>& result, double* rms)
 {
@@ -94,27 +144,57 @@ void linearMultiFit(const Matrix<double>& coefs, const std::vector<double>& rhs,
     if(w==NULL)
         gsl_multifit_linear(MatC(coefs), VecC(rhs), Vec(result), covarMatrix, &sumsq, fitWorkspace);
     else
-        gsl_multifit_wlinear(MatC(coefs), VecC(*w), VecC(rhs), Vec(result), covarMatrix, &sumsq, fitWorkspace);
+        gsl_multifit_wlinear(MatC(coefs), VecC(*w), VecC(rhs), Vec(result),
+            covarMatrix, &sumsq, fitWorkspace);
     gsl_multifit_linear_free(fitWorkspace);
     gsl_matrix_free(covarMatrix);
     if(rms!=NULL)
         *rms = sqrt(sumsq/rhs.size());
 }
 
-// ----- multidimensional minimization ------ //
-
-static double functionWrapperNdim(const gsl_vector* x, void* param)
+// ----- nonlinear least-square fit ----- //
+int nonlinearMultiFit(const IFunctionNdimDeriv& F, const double xinit[],
+    const double relToler, const int maxNumIter, double result[])
 {
-    double val;
-    static_cast<IFunctionNdim*>(param)->eval(x->data, &val);
-    return val;
+    const unsigned int Nparam = F.numVars();   // number of parameters to vary
+    const unsigned int Ndata  = F.numValues(); // number of data points to fit
+    if(Ndata < Nparam)
+        throw std::invalid_argument(
+            "nonlinearMultiFit: number of data points is less than the number of parameters to fit");
+    gsl_multifit_function_fdf fnc;
+    fnc.p = Nparam;
+    fnc.n = Ndata;
+    fnc.f = functionWrapperNdimMval;
+    fnc.df = functionWrapperNdimMvalDer;
+    fnc.fdf = functionWrapperNdimMvalFncDer;
+    fnc.params = const_cast<IFunctionNdimDeriv*>(&F);
+    gsl_vector_const_view v_xinit = gsl_vector_const_view_array(xinit, Nparam);
+    gsl_multifit_fdfsolver* solver = gsl_multifit_fdfsolver_alloc(
+        gsl_multifit_fdfsolver_lmsder, Ndata, Nparam);
+    int numIter = 0;
+    if(gsl_multifit_fdfsolver_set(solver, &fnc, &v_xinit.vector) == GSL_SUCCESS)
+    {   // iterate
+        do {
+            numIter++;
+            if(gsl_multifit_fdfsolver_iterate(solver) != GSL_SUCCESS)
+                break;
+        } while(numIter<maxNumIter && 
+            gsl_multifit_test_delta(solver->dx, solver->x, 0, relToler) == GSL_CONTINUE);
+    }
+    // store the found location of minimum
+    for(unsigned int i=0; i<Nparam; i++)
+        result[i] = solver->x->data[i];
+    gsl_multifit_fdfsolver_free(solver);
+    return numIter;
 }
+
+// ----- multidimensional minimization ------ //
 
 int findMinNdim(const IFunctionNdim& F, const double xinit[], const double xstep[],
     const double absToler, const int maxNumIter, double result[])
 {
     if(F.numValues() != 1)
-        throw std::invalid_argument("N-dimensional minimization: function must provide a single output value");
+        throw std::invalid_argument("findMinNdim: function must provide a single output value");
     const unsigned int Ndim = F.numVars();
     // instance of minimizer algorithm
     gsl_multimin_fminimizer* mizer = gsl_multimin_fminimizer_alloc(
@@ -126,8 +206,7 @@ int findMinNdim(const IFunctionNdim& F, const double xinit[], const double xstep
     int numIter = 0;
     gsl_vector_const_view v_xinit = gsl_vector_const_view_array(xinit, Ndim);
     gsl_vector_const_view v_xstep = gsl_vector_const_view_array(xstep, Ndim);
-    if(gsl_multimin_fminimizer_set(mizer, &fnc,
-        &v_xinit.vector, &v_xstep.vector ) == GSL_SUCCESS)
+    if(gsl_multimin_fminimizer_set(mizer, &fnc, &v_xinit.vector, &v_xstep.vector ) == GSL_SUCCESS)
     {   // iterate
         double sizePrev = gsl_multimin_fminimizer_size(mizer);
         int numIterStall = 0;
@@ -152,6 +231,39 @@ int findMinNdim(const IFunctionNdim& F, const double xinit[], const double xstep
     for(unsigned int i=0; i<Ndim; i++)
         result[i] = mizer->x->data[i];
     gsl_multimin_fminimizer_free(mizer);
+    return numIter;
+}
+
+int findMinNdimDeriv(const IFunctionNdimDeriv& F, const double xinit[], const double xstep,
+    const double absToler, const int maxNumIter, double result[])
+{
+    if(F.numValues() != 1)
+        throw std::invalid_argument("findMinNdimDeriv: function must provide a single output value");
+    const unsigned int Ndim = F.numVars();
+    // instance of minimizer algorithm
+    gsl_multimin_fdfminimizer* mizer = gsl_multimin_fdfminimizer_alloc(
+        gsl_multimin_fdfminimizer_vector_bfgs2, Ndim);
+    gsl_multimin_function_fdf fnc;
+    fnc.n = Ndim;
+    fnc.f = functionWrapperNdim;
+    fnc.df = functionWrapperNdimDer;
+    fnc.fdf = functionWrapperNdimFncDer;
+    fnc.params = const_cast<IFunctionNdimDeriv*>(&F);
+    int numIter = 0;
+    gsl_vector_const_view v_xinit = gsl_vector_const_view_array(xinit, Ndim);
+    if(gsl_multimin_fdfminimizer_set(mizer, &fnc, &v_xinit.vector, xstep, 0.1) == GSL_SUCCESS)
+    {   // iterate
+        do {
+            numIter++;
+            if(gsl_multimin_fdfminimizer_iterate(mizer) != GSL_SUCCESS)
+                break;
+        } while(numIter<maxNumIter && 
+            gsl_multimin_test_gradient(mizer->gradient, absToler) == GSL_CONTINUE);
+    }
+    // store the found location of minimum
+    for(unsigned int i=0; i<Ndim; i++)
+        result[i] = mizer->x->data[i];
+    gsl_multimin_fdfminimizer_free(mizer);
     return numIter;
 }
 

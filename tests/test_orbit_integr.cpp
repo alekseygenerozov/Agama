@@ -1,3 +1,10 @@
+/** \file    test_orbit_integr.cpp
+    \date    2015
+    \author  EV
+
+    Test orbit integration in various potentials and coordinate systems.
+    Note: not all tests pass at the moment.
+*/
 #include "orbit.h"
 #include "potential_analytic.h"
 #include "potential_factory.h"
@@ -114,6 +121,7 @@ const double posvel_sph[numtestpoints][6] = {   // order: R, theta, phi
 int main() {
     std::vector<potential::PtrPotential> pots;
     pots.push_back(potential::PtrPotential(new potential::Plummer(10.,5.)));
+    pots.push_back(potential::PtrPotential(new potential::Isochrone(6.,3.)));
     pots.push_back(potential::PtrPotential(new potential::NFW(10.,10.)));
     pots.push_back(potential::PtrPotential(new potential::MiyamotoNagai(5.,2.,0.2)));
     pots.push_back(potential::PtrPotential(new potential::Logarithmic(1.,0.01,.8,.5)));
@@ -135,6 +143,6 @@ int main() {
         }
     }
     if(allok)
-        std::cout << "ALL TESTS PASSED\n";
+        std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;
 }

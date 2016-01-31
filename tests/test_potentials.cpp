@@ -37,6 +37,7 @@ bool testPotentialAtPoint(const potential::BasePotential& potential,
 {
     bool ok=true;
     double E = potential::totalEnergy(potential, point);
+    double mul = potential.name() == potential::Isochrone::myName() ? 8. : 1.;  // loose tolerance for Isochrone
     if(isAxisymmetric(potential)) {
         try{
             double Rc  = R_circ(potential, E);
@@ -44,7 +45,7 @@ bool testPotentialAtPoint(const potential::BasePotential& potential,
             double E1  = potential.value(coord::PosCyl(Rc, 0, 0)) + 0.5*vc*vc;
             double Lc1 = L_circ(potential, E);
             double Rc1 = R_from_Lz(potential, Lc1);
-            ok &= math::fcmp(Rc, Rc1, 2e-10)==0 && math::fcmp(E, E1, 1e-11)==0;
+            ok &= math::fcmp(Rc, Rc1, 2e-10*mul)==0 && math::fcmp(E, E1, 1e-11*mul)==0;
             if(!ok)
                 std::cout << potential.name()<<"  "<<coordSysT::name()<<"  " << point << "\033[1;31m ** \033[0m"
                 "E="<<E<<", Rc(E)="<<Rc<<", E(Rc)="<<E1<<", Lc(E)="<<Lc1<<", Rc(Lc)="<<Rc1 << "\n";
@@ -113,6 +114,7 @@ const double posvel_sph[numtestpoints][6] = {   // order: R, theta, phi
 int main() {
     std::vector<potential::PtrPotential> pots;
     pots.push_back(potential::PtrPotential(new potential::Plummer(10.,5.)));
+    pots.push_back(potential::PtrPotential(new potential::Isochrone(6.,3.)));
     pots.push_back(potential::PtrPotential(new potential::NFW(10.,10.)));
     pots.push_back(potential::PtrPotential(new potential::MiyamotoNagai(5.,2.,0.2)));
     pots.push_back(potential::PtrPotential(new potential::Logarithmic(1.,0.01,.8,.5)));
@@ -132,6 +134,6 @@ int main() {
         }
     }
     if(allok)
-        std::cout << "ALL TESTS PASSED\n";
+        std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;
 }

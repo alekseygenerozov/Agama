@@ -1048,8 +1048,8 @@ static void fncActionsStandalone(void* obj, const double input[], double *result
         const ActionFinderParams* params = static_cast<const ActionFinderParams*>(obj);
         double ifd = params->ifd * conv->lengthUnit;
         actions::Actions acts = isSpherical(*params->pot) ?
-            actions::sphericalActions  (*params->pot, point) :
-            actions::axisymFudgeActions(*params->pot, point, ifd);
+            actions::actionsSpherical  (*params->pot, point) :
+            actions::actionsAxisymFudge(*params->pot, point, ifd);
         // unit of action is V*L
         const double convA = 1 / (conv->velocityUnit * conv->lengthUnit);
         result[0] = acts.Jr   * convA;
