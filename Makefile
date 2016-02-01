@@ -13,6 +13,7 @@ TORUSDIR  = src/torus
 # sources of the main library
 SOURCES   = \
             actions_interfocal_distance_finder.cpp \
+            actions_isochrone.cpp \
             actions_spherical.cpp \
             actions_staeckel.cpp \
             actions_torus.cpp \
@@ -73,6 +74,7 @@ TESTSRCS  = test_math_core.cpp \
             test_orbit_integr.cpp \
             test_potentials.cpp \
             test_potential_sphharm.cpp \
+            test_isochrone.cpp \
             test_staeckel.cpp \
             test_actionfinder.cpp \
             test_actions_nbody.cpp \
