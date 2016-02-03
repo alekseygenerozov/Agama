@@ -1,7 +1,7 @@
-/** \file    actions_torus.h
-    \brief   Wrapper for Torus code
+/** \file    actions_newtorus.h
+    \brief   New implementation of Torus mapping
     \author  Eugene Vasiliev
-    \date    2015
+    \date    Feb 2016
 
 */
 #pragma once
@@ -11,12 +11,11 @@
 
 namespace actions {
 
-/** Wrapper for Paul McMillan's Torus code */
-class ActionMapperTorus: public BaseActionMapper{
+class ActionMapperNewTorus: public BaseActionMapper{
 public:
     /** Construct a torus for the given axisymmetric potential and given values of actions;
         the potential is not subsequently used. */
-    ActionMapperTorus(const potential::BasePotential& poten, const Actions& acts);
+    ActionMapperNewTorus(const potential::BasePotential& pot, const Actions& acts);
 
     /** Map a point in action/angle space to a position/velocity in physical space.
         Note that for this class, the values of actions are set at the constructor;
@@ -24,7 +23,10 @@ public:
         a `std::invalid_argument` exception. */
     virtual coord::PosVelCyl map(const ActionAngles& actAng, Frequencies* freq=0) const;
 private:
-    Torus::PtrTorus torus;  ///< hidden implementation details
+    const Actions acts;
+    PtrToyMap toyMap;
+    PtrCanonicalMap genFnc;
+    PtrCanonicalMap angMap;
 };
 
 }  // namespace actions

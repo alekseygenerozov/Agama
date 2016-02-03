@@ -4,9 +4,6 @@
 #include "torus/Torus.h"
 #include "torus/Potential.h"
 #include <stdexcept>
-#include <cassert>
-#include <cmath>
-#include <iostream>
 
 namespace actions{
 
@@ -60,9 +57,6 @@ ActionMapperTorus::ActionMapperTorus(const potential::BasePotential& poten, cons
     torus->AutoFit(act, &potwrap);
 }
 
-// torus will be automatically deleted by the smart pointer
-ActionMapperTorus::~ActionMapperTorus() {}
-
 coord::PosVelCyl ActionMapperTorus::map(const ActionAngles& actAng, Frequencies* freq) const
 {
     // make sure that the input actions are the same as in the Torus object
@@ -71,7 +65,7 @@ coord::PosVelCyl ActionMapperTorus::map(const ActionAngles& actAng, Frequencies*
         math::fcmp(actAng.Jphi, torus->action(2)) != 0 )
         throw std::invalid_argument("ActionMapperTorus: "
             "values of actions are different from those provided to the constructor");
-    // frequencies are constant for a given torus (depend only on actions, not on angles)    
+    // frequencies are constant for a given torus (depend only on actions, not on angles)
     if(freq!=NULL) {
         Torus::Frequencies tfreq = torus->omega();
         freq->Omegar   = tfreq[0];

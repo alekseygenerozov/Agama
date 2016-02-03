@@ -36,4 +36,20 @@ coord::PosVelCyl mapIsochrone(
     const double isochroneMass, const double isochroneRadius,
     const ActionAngles& actAng, Frequencies* freq=0);
 
+class ToyMapIsochrone: public BaseToyMap{
+public:
+    static const unsigned int nParams = 2;
+    const double M;
+    const double b;
+    ToyMapIsochrone(double isochroneMass, double isochroneRadius):
+        M(isochroneMass), b(isochroneRadius) {};
+    virtual unsigned int numParams() const { return nParams; }
+    virtual coord::PosVelCyl mapDeriv(
+        const ActionAngles& actAng,
+        Frequencies* freq=0,
+        DerivAct* derivAct=0,
+        DerivAng* derivAng=0,
+        coord::PosVelCyl* derivParam=0) const;
+};
+
 }  // namespace actions

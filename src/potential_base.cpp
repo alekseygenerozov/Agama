@@ -62,6 +62,8 @@ double BasePotential::densitySph(const coord::PosSph &pos) const
 
 double BasePotentialSphericallySymmetric::enclosedMass(const double radius) const
 {
+    if(radius==INFINITY)
+        return totalMass();
     double dPhidr;
     evalDeriv(radius, NULL, &dPhidr);
     return pow_2(radius)*dPhidr;

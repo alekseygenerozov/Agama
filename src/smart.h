@@ -96,7 +96,7 @@ typedef std::tr1::shared_ptr<const IFunctionNdim> PtrFunctionNdim;
 
 /// pointer to a generic 2d interpolation class
 typedef std::tr1::shared_ptr<const BaseInterpolator2d> PtrInterpolator2d;
-    
+
 }  // namespace math
 
 
@@ -117,10 +117,24 @@ typedef std::tr1::shared_ptr<const OblatePerfectEllipsoid> PtrOblatePerfectEllip
 namespace actions{
 
 class BaseActionFinder;
+class BaseCanonicalMap;
+class BaseToyMap;
 
 typedef std::tr1::shared_ptr<const BaseActionFinder> PtrActionFinder;
+typedef std::tr1::shared_ptr<const BaseCanonicalMap> PtrCanonicalMap;
+typedef std::tr1::shared_ptr<const BaseToyMap> PtrToyMap;
 
 }  // namespace actions
+
+
+namespace Torus {
+    class Torus;
+#ifdef HAVE_CXX11
+    typedef std::unique_ptr<Torus> PtrTorus;
+#else
+    typedef std::auto_ptr<Torus> PtrTorus;
+#endif
+}  // namespace Torus
 
 
 namespace df{

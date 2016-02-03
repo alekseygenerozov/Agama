@@ -14,6 +14,7 @@ TORUSDIR  = src/torus
 SOURCES   = \
             actions_interfocal_distance_finder.cpp \
             actions_isochrone.cpp \
+            actions_newtorus.cpp \
             actions_spherical.cpp \
             actions_staeckel.cpp \
             actions_torus.cpp \

@@ -23,6 +23,11 @@ public:
     Matrix(unsigned int _nRows, unsigned int _nCols, double val) :
         nRows(_nRows), nCols(_nCols), data(nRows*nCols, val) {};
 
+    /// create a matrix of given size from a flattened array of values:
+    /// M(row, column) = data[ row*nCols + column ]
+    Matrix(unsigned int _nRows, unsigned int _nCols, double* val) :
+        nRows(_nRows), nCols(_nCols), data(val, val+nRows*nCols) {};
+
     /// resize an existing matrix
     void resize(unsigned int newRows, unsigned int newCols) {
         nRows = newRows;
@@ -30,11 +35,11 @@ public:
         data.resize(nRows*nCols);
     }
 
-    /// access the matrix element for reading (bound checks are performed by the underlying vector)
+    /// access the matrix element for reading (no bound checks!)
     const NumT& operator() (unsigned int row, unsigned int column) const {
         return data[row*nCols+column]; }
 
-    /// access the matrix element for writing
+    /// access the matrix element for writing (no bound checks!)
     NumT& operator() (unsigned int row, unsigned int column) {
         return data[row*nCols+column]; }
 
@@ -44,7 +49,8 @@ public:
     /// number of matrix columns
     unsigned int numCols() const { return nCols; }
 
-    /// access raw data for reading (2d array in row-major order)
+    /// access raw data for reading (2d array in row-major order:
+    /// indexing scheme is  `M(row, column) = M.data[ row*M.numCols() + column ]` )
     const NumT* getData() const { return &data.front(); }
 
     /// access raw data for writing (2d array in row-major order)

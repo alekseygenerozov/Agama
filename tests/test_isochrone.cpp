@@ -12,9 +12,11 @@
 #include "debug_utils.h"
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 #include <cmath>
+#include "actions_newtorus.h"
 
-#define TEST_OLD_TORUS
+//#define TEST_OLD_TORUS
 #ifdef TEST_OLD_TORUS
 #include "torus/Toy_Isochrone.h"
 #endif
@@ -24,6 +26,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
     const bool output = false; // whether to write a text file
     const double eps  = 2e-4;  // accuracy of comparison for actions found with different methods
     const double epsd = 1e-7;  // accuracy of action conservation along the orbit for each method
+    const double epst = 1e-9;  // accuracy of reverse transformation (pv=>aa=>pv)
     const double M = 2.5;      // mass and
     const double b = 0.5;      // scale radius of Isochrone potential
     const double total_time=50;// integration time
@@ -40,8 +43,10 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
     bool anglesMonotonic = true;
     bool reversible = true;
     std::ofstream strm;
-    if(output)
+    if(output) {
         strm.open("test_isochrone.dat");
+        strm << std::setprecision(12);
+    }
     double ifd = 1e-4;
 #ifdef TEST_OLD_TORUS
     Torus::IsoPar toypar;
@@ -70,11 +75,12 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
         anglesMonotonic &= i==0 || (
             anewI.thetar   >= aoldI.thetar && ( anewF.thetar   >= aoldF.thetar || aaF.Jr<1e-10 ) &&
             anewI.thetaz   >= aoldI.thetaz   && anewF.thetaz   >= aoldF.thetaz &&
-            anewI.thetaphi >= aoldI.thetaphi && anewF.thetaphi >= aoldF.thetaphi);
+            math::sign(aaI.Jphi) * anewI.thetaphi >= math::sign(aaI.Jphi) * aoldI.thetaphi &&
+            math::sign(aaF.Jphi) * anewF.thetaphi >= math::sign(aaF.Jphi) * aoldF.thetaphi);
         aoldF = anewF;
         aoldI = anewI;
         coord::PosVelCyl pp = mapIsochrone(M, b, aaI);  // inverse transformation
-        reversible &= equalPosVel(pp, traj[i], epsd);
+        reversible &= equalPosVel(pp, traj[i], epst);
 #ifdef TEST_OLD_TORUS
         coord::PosVelSph ps(toPosVelSph(traj[i]));
         Torus::PSPT pvs;
@@ -97,7 +103,8 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
             std::cout << aaT <<'\t' <<aaI << '\n';
 #endif
         if(output) {
-            strm << i*timestep<<"   "<<traj[i].R<<" "<<traj[i].z<<"   "<<
+            strm << i*timestep<<"   "<<traj[i].R<<" "<<traj[i].z<<" "<<traj[i].phi<<"  "<<
+                pp.R<<" "<<pp.z<<" "<<pp.phi<<"   "<<
                 aaI.thetar<<" "<<aaI.thetaz<<" "<<aaI.thetaphi<<"  "<<
                 aaF.thetar<<" "<<aaF.thetaz<<" "<<aaF.thetaphi<<"  "<<
             "\n";
@@ -106,6 +113,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
     statI.finish();
     statF.finish();
     statS.finish();
+    //actions::ActionMapperNewTorus tor(pot, statI.avg);
     bool dispI_ok = statI.disp.Jr<epsd && statI.disp.Jz<epsd && statI.disp.Jphi<epsd;
     bool dispS_ok = statS.disp.Jr<epsd && statS.disp.Jz<epsd && statS.disp.Jphi<epsd;
     bool dispF_ok = statF.disp.Jr<epsd && statF.disp.Jz<epsd && statF.disp.Jphi<epsd;
@@ -140,6 +148,8 @@ int main()
     ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 2.0, 1.0, 0.0, 0.5));  // Jz==0
     ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 3.0, 0.0, 0.21,0.9));  // Jr small
     ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 2.0, 0.6, 1.0, 1e-4)); // Jphi small
+    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.5, 6.0, 0.5, 0.7, -0.5)); // Jphi negative
+    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 2.0, 1.0, 0.0, -0.5)); // Jz==0, Jphi<0
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;
