@@ -37,7 +37,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
     actions::ActionStat statI, statS, statF;
     actions::ActionAngles aaI, aaF;
     actions::Actions acS;
-    actions::Frequencies frI, frF;
+    actions::Frequencies frI, frF, frIinv;
     math::Averager statfrIr, statfrIz;
     actions::Angles aoldF(0,0,0), aoldI(0,0,0);
     bool anglesMonotonic = true;
@@ -79,8 +79,11 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
             math::sign(aaF.Jphi) * anewF.thetaphi >= math::sign(aaF.Jphi) * aoldF.thetaphi);
         aoldF = anewF;
         aoldI = anewI;
-        coord::PosVelCyl pp = mapIsochrone(M, b, aaI);  // inverse transformation
-        reversible &= equalPosVel(pp, traj[i], epst);
+        coord::PosVelCyl pp = mapIsochrone(M, b, aaI, &frIinv);  // inverse transformation
+        reversible &= equalPosVel(pp, traj[i], epst) && 
+        math::fcmp(frI.Omegar, frIinv.Omegar, epst) == 0 &&
+        math::fcmp(frI.Omegaz, frIinv.Omegaz, epst) == 0 &&
+        math::fcmp(frI.Omegaphi, frIinv.Omegaphi, epst) == 0;
 #ifdef TEST_OLD_TORUS
         coord::PosVelSph ps(toPosVelSph(traj[i]));
         Torus::PSPT pvs;
@@ -143,6 +146,12 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
 
 int main()
 {
+    /*actions::ActionAngles aa(actions::Actions(1,2,3),actions::Angles(4,5,6));
+    actions::ToyMapIsochrone m1(1,1);
+    actions::ToyMapIsochrone m2(1+1e-8,1);
+    coord::PosVelSph pv1(toPosVelSph(m1.map(aa)));
+    coord::PosVelSph pv2(toPosVelSph(m2.map(aa)));
+    double drvr = (pv2.r*pv2.vr-pv1.r*pv1.vr)/1e-8;*/
     bool ok=true;
     ok &= test_isochrone(coord::PosVelCyl(1.0, 0.3, 1.1, 0.1, 0.4, 0.1));  // ordinary case
     ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 2.0, 1.0, 0.0, 0.5));  // Jz==0

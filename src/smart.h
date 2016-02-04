@@ -129,11 +129,7 @@ typedef std::tr1::shared_ptr<const BaseToyMap> PtrToyMap;
 
 namespace Torus {
     class Torus;
-#ifdef HAVE_CXX11
-    typedef std::unique_ptr<Torus> PtrTorus;
-#else
-    typedef std::auto_ptr<Torus> PtrTorus;
-#endif
+    typedef std::tr1::shared_ptr<Torus> PtrTorus;
 }  // namespace Torus
 
 
