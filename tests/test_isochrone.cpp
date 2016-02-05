@@ -24,11 +24,11 @@
 bool test_isochrone(const coord::PosVelCyl& initial_conditions)
 {
     const bool output = false; // whether to write a text file
-    const double eps  = 2e-4;  // accuracy of comparison for actions found with different methods
+    const double epsr = 5e-4;  // accuracy of comparison for radial action found with different methods
     const double epsd = 1e-7;  // accuracy of action conservation along the orbit for each method
     const double epst = 1e-9;  // accuracy of reverse transformation (pv=>aa=>pv)
-    const double M = 2.5;      // mass and
-    const double b = 0.5;      // scale radius of Isochrone potential
+    const double M = 2.7;      // mass and
+    const double b = 0.6;      // scale radius of Isochrone potential
     const double total_time=50;// integration time
     const double timestep=1./8;// sampling rate of trajectory
     std::vector<coord::PosVelCyl > traj;
@@ -121,9 +121,9 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
     bool dispS_ok = statS.disp.Jr<epsd && statS.disp.Jz<epsd && statS.disp.Jphi<epsd;
     bool dispF_ok = statF.disp.Jr<epsd && statF.disp.Jz<epsd && statF.disp.Jphi<epsd;
     bool compareIF =
-             fabs(statI.avg.Jr-statF.avg.Jr)<eps
-          && fabs(statI.avg.Jz-statF.avg.Jz)<eps
-          && fabs(statI.avg.Jphi-statF.avg.Jphi)<eps;
+             fabs(statI.avg.Jr-statF.avg.Jr)<epsr
+          && fabs(statI.avg.Jz-statF.avg.Jz)<epsr
+          && fabs(statI.avg.Jphi-statF.avg.Jphi)<epsd;
     bool freq_ok = statfrIr.disp() < epsd && statfrIz.disp() < epsd;
     std::cout << "Isochrone"
     ":  Jr="  <<statI.avg.Jr  <<" +- "<<statI.disp.Jr<<
