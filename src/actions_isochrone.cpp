@@ -101,8 +101,8 @@ coord::PosVelCyl mapIsochrone(
 coord::PosVelCyl ToyMapIsochrone::mapDeriv(
     const ActionAngles& aa,
     Frequencies* freq,
-    DerivAct* derivAct,
-    DerivAng* derivAng,
+    DerivAct* /*derivAct*/,
+    DerivAng* /*derivAng*/,
     coord::PosVelCyl* derivParam) const
 {
     double L  = aa.Jz + fabs(aa.Jphi);
@@ -110,25 +110,28 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
     double J0 = aa.Jr + 0.5 * (L + L1);  // combined magnitude of actions
     double j0invsq = M*b / pow_2(J0);
     // x1,x2 are roots of equation  x^2 - 2*(x-1)/j0^2 + (L/J0)^2-1 = 0:
-    // x1 = j0invsq - det, x2 = j0invsq + det;  -1 <= x1 <= x2 <= 1.
+    // x1 = j0invsq - ecc, x2 = j0invsq + ecc;  -1 <= x1 <= x2 <= 1.
     double ecc  = sqrt(pow_2(1-j0invsq) - pow_2(L/J0));  // determinant of the eqn
+    // or  ecc  = sqrt(pow_2(1+j0invsq) - pow_2(L1/J0))
     double fac1 = (1 + ecc - j0invsq) * J0 / L;   // sqrt( (1-x1) / (1-x2) )
     double fac2 = (1 + ecc + j0invsq) * J0 / L1;  // sqrt( (1+x2) / (1+x1) )
     // quantities below depend on angles
     double eta, sineta, coseta;  // psi in A12; will be computed by the following routine
-    solveKepler(ecc, aa.thetar, eta, sineta, coseta); // thetar = eta - det * sin(eta)
+    solveKepler(ecc, aa.thetar, eta, sineta, coseta); // thetar = eta - ecc * sin(eta)
+    double ra = 1 - ecc * coseta;   // Kepler problem:  r / a = 1 - e cos(eta)
     double tanhalfeta = coseta==-1 ? INFINITY : sineta / (1 + coseta);
-    double psi = aa.thetaz - 0.5 * (1 + L/L1) * (aa.thetar - (eta>M_PI ? 2*M_PI : 0))
-               + atan(fac1 * tanhalfeta) + atan(fac2 * tanhalfeta) * L/L1;  // chi in A14
-    //double tanhalfpsi = tan(0.5*psi);
-    double sinpsi   = sin(psi);  // 2 / (1/tanhalfpsi + tanhalfpsi);
-    double cospsi   = cos(psi);  // 1 - sinpsi * tanhalfpsi;
+    double thetar   = aa.thetar - (eta>M_PI ? 2*M_PI : 0);
+    double psi1     = atan(fac1 * tanhalfeta);
+    double psi2     = atan(fac2 * tanhalfeta);
+    double psi      = aa.thetaz - 0.5 * (1 + L/L1) * thetar + psi1 + psi2 * L/L1;  // chi in A14
+    double sinpsi   = sin(psi);
+    double cospsi   = cos(psi);
     double chi      = aa.Jz != 0 ? atan2(fabs(aa.Jphi) * sinpsi, L * cospsi) : psi;
     double sini     = sqrt(1 - pow_2(aa.Jphi / L)); // inclination angle of the orbital plane
     double costheta = sini * sinpsi;                // z/r
     double sintheta = sqrt(1 - pow_2(costheta));    // R/r is always non-negative
     coord::PosVelCyl point;
-    double r   = b * sqrt(pow_2((ecc * coseta - 1) / j0invsq) - 1);
+    double r   = b * sqrt(pow_2(ra / j0invsq) - 1);
     double vr  = J0 * ecc * sineta / r;
     point.R    = r * sintheta;
     point.z    = r * costheta;
@@ -142,7 +145,43 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
         freq->Omegaz   = freq->Omegar * 0.5 * (1 + L/L1);
         freq->Omegaphi = math::sign(aa.Jphi) * freq->Omegaz;
     }
-    if(derivAct || derivAng || derivParam) {
+    if(derivParam) {
+        // common terms - derivs w.r.t. (M*b)
+        double tmp = 1 + j0invsq - L1/J0;
+        double  decc_dMb = (tmp * (1-j0invsq) / ecc - ecc) / (J0*L1);
+        double dfac1_dMb = tmp * ((1-j0invsq) / ecc + 1)   / (L *L1);
+        double dfac2_dMb = (ecc/(1+j0invsq) + 1) * (J0 * decc_dMb + (1-2*J0/L1)/L1 * ecc) / L1;
+        double  drvr_dMb = sineta * (ecc/L1 + J0/ra * decc_dMb);        // d(r*vr) / d(M*b)
+        double   drb_dMb = b/r / pow_2(j0invsq) * 
+            (decc_dMb * (ecc-coseta) + (2/(J0*L1) - 1/(M*b)) * ra*ra);  // d(r/b)  / d(M*b)
+        double dtanhalfeta_dMb = tanhalfeta / ra * decc_dMb;
+        double  dpsi_dMb = coseta==-1 ? 0 :
+            (thetar - 2*psi2) * L/pow_3(L1) + 
+            (tanhalfeta * dfac1_dMb + dtanhalfeta_dMb * fac1) / (1 + pow_2(fac1*tanhalfeta)) +
+            (tanhalfeta * dfac2_dMb + dtanhalfeta_dMb * fac2) / (1 + pow_2(fac2*tanhalfeta)) * L/L1;
+        double dcostheta_dMb = sini * cospsi * dpsi_dMb;
+        double dsintheta_dMb = -costheta / sintheta * dcostheta_dMb;
+        double  drvtheta_dMb = L * sini * (1-pow_2(sini)) * sinpsi * dpsi_dMb / pow_3(sintheta);
+        double drvR_dMb = drvr_dMb * sintheta + drvtheta_dMb * costheta -
+            r*point.vz * dcostheta_dMb / sintheta;
+        double drvz_dMb = drvr_dMb * costheta - drvtheta_dMb * sintheta +
+            r*point.vR * dcostheta_dMb / sintheta;
+        // derivs w.r.t. M: dX/dM = b * dX/d(M*b)
+        double dr_dM = b*b * drb_dMb;
+        derivParam[0].R    = r * dsintheta_dMb * b + dr_dM * sintheta;
+        derivParam[0].z    = r * dcostheta_dMb * b + dr_dM * costheta;
+        derivParam[0].phi  = 0;  /// doesn't matter at the moment, but TODO!!!
+        derivParam[0].vR   = b/r * drvR_dMb - point.vR/r * dr_dM;
+        derivParam[0].vz   = b/r * drvz_dMb - point.vz/r * dr_dM;
+        derivParam[0].vphi = -point.vphi / point.R * derivParam[0].R;
+        // derivs w.r.t. b
+        double dr_db = M*b * drb_dMb + r/b;
+        derivParam[1].R    = r * dsintheta_dMb * M + dr_db * sintheta;
+        derivParam[1].z    = r * dcostheta_dMb * M + dr_db * costheta;
+        derivParam[1].phi  = 0;
+        derivParam[1].vR   = M/r * drvR_dMb - point.vR/r * dr_db;
+        derivParam[1].vz   = M/r * drvz_dMb - point.vz/r * dr_db;
+        derivParam[1].vphi = -point.vphi / point.R * derivParam[1].R;
     }
     return point;
 }
