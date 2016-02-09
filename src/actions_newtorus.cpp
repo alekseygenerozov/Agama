@@ -70,7 +70,8 @@ public:
                 for(unsigned int p=0; p<toyMap.numParams(); p++) {
                     double dHdP = scaledVars[p] * (  // additional factor for converting d/dP to d/dln(P)
                     grad.dR    * derivParam[p].R +
-                    grad.dz    * derivParam[p].z +   // skip d/dphi for an axisymmetric potential
+                    grad.dz    * derivParam[p].z +
+                    grad.dphi  * derivParam[p].phi +
                     point.vR   * derivParam[p].vR +
                     point.vz   * derivParam[p].vz +
                     point.vphi * derivParam[p].vphi);

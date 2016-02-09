@@ -16,21 +16,39 @@ namespace coord {
 /// comparison functions for positions, gradients and hessians
 
 inline bool equalPos(const PosCar& p1, const PosCar& p2, const double eps) {
-    return fabs(p1.x-p2.x)<eps && fabs(p1.y-p2.y)<eps && fabs(p1.z-p2.z)<eps; }
+    return fabs(p1.x-p2.x)<eps*(1+fabs(p1.x))
+        && fabs(p1.y-p2.y)<eps*(1+fabs(p1.y))
+        && fabs(p1.z-p2.z)<eps*(1+fabs(p1.z)); }
 inline bool equalPos(const PosCyl& p1, const PosCyl& p2, const double eps) {
-    return fabs(p1.R-p2.R)<eps && fabs(p1.z-p2.z)<eps && fabs(p1.phi-p2.phi)<eps; }
+    return fabs(p1.R-p2.R)<eps*(1+fabs(p1.R))
+        && fabs(p1.z-p2.z)<eps*(1+fabs(p1.z))
+        && fabs(p1.phi-p2.phi)<eps*(1+fabs(p1.phi)); }
 inline bool equalPos(const PosSph& p1, const PosSph& p2, const double eps) {
-    return fabs(p1.r-p2.r)<eps && fabs(p1.theta-p2.theta)<eps && fabs(p1.phi-p2.phi)<eps; }
+    return fabs(p1.r-p2.r)<eps*(1+fabs(p1.r))
+        && fabs(p1.theta-p2.theta)<eps*(1+fabs(p1.theta))
+        && fabs(p1.phi-p2.phi)<eps*(1+fabs(p1.phi)); }
 
 inline bool equalPosVel(const PosVelCar& p1, const PosVelCar& p2, const double eps) {
-    return fabs(p1.x-p2.x)<eps && fabs(p1.y-p2.y)<eps && fabs(p1.z-p2.z)<eps &&
-        fabs(p2.vx-p2.vx)<eps && fabs(p1.vy-p2.vy)<eps && fabs(p1.vz-p2.vz)<eps; }
+    return fabs(p1.x-p2.x)<eps*(1+fabs(p1.x))
+        && fabs(p1.y-p2.y)<eps*(1+fabs(p1.y))
+        && fabs(p1.z-p2.z)<eps*(1+fabs(p1.z))
+        && fabs(p2.vx-p2.vx)<eps*(1+fabs(p1.vx))
+        && fabs(p1.vy-p2.vy)<eps*(1+fabs(p1.vy))
+        && fabs(p1.vz-p2.vz)<eps*(1+fabs(p1.vz)); }
 inline bool equalPosVel(const PosVelCyl& p1, const PosVelCyl& p2, const double eps) {
-    return fabs(p1.R-p2.R)<eps && fabs(p1.z-p2.z)<eps && fabs(p1.phi-p2.phi)<eps &&
-        fabs(p2.vR-p2.vR)<eps && fabs(p1.vz-p2.vz)<eps && fabs(p1.vphi-p2.vphi)<eps; }
+    return fabs(p1.R-p2.R)<eps*(1+fabs(p1.R))
+        && fabs(p1.z-p2.z)<eps*(1+fabs(p1.z))
+        && fabs(p1.phi-p2.phi)<eps*(1+fabs(p1.phi))
+        && fabs(p2.vR-p2.vR)<eps*(1+fabs(p1.vR))
+        && fabs(p1.vz-p2.vz)<eps*(1+fabs(p1.vz))
+        && fabs(p1.vphi-p2.vphi)<eps*(1+fabs(p1.vphi)); }
 inline bool equalPosVel(const PosVelSph& p1, const PosVelSph& p2, const double eps) {
-    return fabs(p1.r-p2.r)<eps && fabs(p1.theta-p2.theta)<eps && fabs(p1.phi-p2.phi)<eps &&
-        fabs(p2.vr-p2.vr)<eps && fabs(p1.vtheta-p2.vtheta)<eps && fabs(p1.vphi-p2.vphi)<eps; }
+    return fabs(p1.r-p2.r)<eps*(1+fabs(p1.r))
+        && fabs(p1.theta-p2.theta)<eps*(1+fabs(p1.theta))
+        && fabs(p1.phi-p2.phi)<eps*(1+fabs(p1.phi))
+        && fabs(p2.vr-p2.vr)<eps*(1+fabs(p1.vr))
+        && fabs(p1.vtheta-p2.vtheta)<eps*(1+fabs(p1.vtheta))
+        && fabs(p1.vphi-p2.vphi)<eps*(1+fabs(p1.vphi)); }
 
 inline bool equalGrad(const GradCar& g1, const GradCar& g2, const double eps) {
     return fabs(g1.dx-g2.dx)<eps && fabs(g1.dy-g2.dy)<eps && fabs(g1.dz-g2.dz)<eps; }

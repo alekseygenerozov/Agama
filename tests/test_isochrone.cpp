@@ -21,7 +21,7 @@
 #include "torus/Toy_Isochrone.h"
 #endif
 
-bool test_isochrone(const coord::PosVelCyl& initial_conditions)
+bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* title)
 {
     const bool output = false; // whether to write a text file
     const double epsr = 5e-4;  // accuracy of comparison for radial action found with different methods
@@ -31,6 +31,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
     const double b = 0.6;      // scale radius of Isochrone potential
     const double total_time=50;// integration time
     const double timestep=1./8;// sampling rate of trajectory
+    std::cout << "\033[1;32m"<<title<<"\033[0m\n";
     std::vector<coord::PosVelCyl > traj;
     potential::Isochrone pot(M, b);
     orbit::integrate(pot, initial_conditions, total_time, timestep, traj, 1e-10);
@@ -49,6 +50,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
         strm << std::setprecision(12);
     }
     double ifd = 1e-4;
+    int numWarnings = 0;
 #ifdef TEST_OLD_TORUS
     Torus::IsoPar toypar;
     toypar[0] = sqrt(M);
@@ -80,28 +82,6 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
             math::sign(aaF.Jphi) * anewF.thetaphi >= math::sign(aaF.Jphi) * aoldF.thetaphi);
         aoldF = anewF;
         aoldI = anewI;
-        // inverse transformation with derivs
-        coord::PosVelCyl pd[2];
-        coord::PosVelCyl pp = actions::ToyMapIsochrone(M, b).mapDeriv(aaI, &frIinv, NULL, NULL, pd);
-        coord::PosVelCyl pM = actions::ToyMapIsochrone(M*(1+epsd), b).map(aaI);
-        coord::PosVelCyl pb = actions::ToyMapIsochrone(M, b*(1+epsd)).map(aaI);
-        pM.R    = (pM.R  - pp.R)   / (M*epsd);
-        pM.z    = (pM.z  - pp.z)   / (M*epsd);
-        pM.vR   = (pM.vR - pp.vR)  / (M*epsd);
-        pM.vz   = (pM.vz - pp.vz)  / (M*epsd);
-        pM.vphi = (pM.vphi-pp.vphi)/ (M*epsd);
-        pM.phi  = pd[0].phi;  // don't track
-        pb.R    = (pb.R  - pp.R)   / (b*epsd);
-        pb.z    = (pb.z  - pp.z)   / (b*epsd);
-        pb.vR   = (pb.vR - pp.vR)  / (b*epsd);
-        pb.vz   = (pb.vz - pp.vz)  / (b*epsd);
-        pb.vphi = (pb.vphi-pp.vphi)/ (b*epsd);
-        pb.phi  = pd[1].phi;
-        deriv_ok &= equalPosVel(pM, pd[0], 2e-6) && equalPosVel(pb, pd[1], 2e-6);
-        reversible &= equalPosVel(pp, traj[i], epst) && 
-            math::fcmp(frI.Omegar, frIinv.Omegar, epst) == 0 &&
-            math::fcmp(frI.Omegaz, frIinv.Omegaz, epst) == 0 &&
-            math::fcmp(frI.Omegaphi, frIinv.Omegaphi, epst) == 0;
 #ifdef TEST_OLD_TORUS
         coord::PosVelSph ps(toPosVelSph(traj[i]));
         Torus::PSPT pvs;
@@ -123,6 +103,75 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
         if(!reversible)
             std::cout << aaT <<'\t' <<aaI << '\n';
 #endif
+        // inverse transformation with derivs
+        coord::PosVelCyl pd[2];
+        actions::DerivAct ac;
+        actions::DerivAng an;
+        coord::PosVelCyl pp = actions::ToyMapIsochrone(M, b).mapDeriv(aaI, &frIinv, &ac, &an, pd);
+        reversible &= equalPosVel(pp, traj[i], epst) && 
+            math::fcmp(frI.Omegar, frIinv.Omegar, epst) == 0 &&
+            math::fcmp(frI.Omegaz, frIinv.Omegaz, epst) == 0 &&
+            math::fcmp(frI.Omegaphi, frIinv.Omegaphi, epst) == 0;
+        // check derivs w.r.t. potential params
+        coord::PosVelCyl pM = actions::ToyMapIsochrone(M*(1+epsd), b).map(aaI);
+        coord::PosVelCyl pb = actions::ToyMapIsochrone(M, b*(1+epsd)).map(aaI);
+        pM.R    = (pM.R  - pp.R)   / (M*epsd);
+        pM.z    = (pM.z  - pp.z)   / (M*epsd);
+        pM.phi  = (pM.phi- pp.phi) / (M*epsd);
+        pM.vR   = (pM.vR - pp.vR)  / (M*epsd);
+        pM.vz   = (pM.vz - pp.vz)  / (M*epsd);
+        pM.vphi = (pM.vphi-pp.vphi)/ (M*epsd);
+        pb.R    = (pb.R  - pp.R)   / (b*epsd);
+        pb.z    = (pb.z  - pp.z)   / (b*epsd);
+        pb.phi  = (pb.phi- pp.phi) / (b*epsd);
+        pb.vR   = (pb.vR - pp.vR)  / (b*epsd);
+        pb.vz   = (pb.vz - pp.vz)  / (b*epsd);
+        pb.vphi = (pb.vphi-pp.vphi)/ (b*epsd);
+        if(!equalPosVel(pM, pd[0], 1e-5) && ++numWarnings<10) {
+            deriv_ok = false;
+            std::cout << "d/dM: " << pM << pd[0] << '\n';
+        }
+        if(!equalPosVel(pb, pd[1], 1e-5) && ++numWarnings<10) {
+            deriv_ok = false;
+            std::cout << "d/db: " << pb << pd[1] << '\n';
+        }
+        // check derivs w.r.t. actions
+        actions::ActionAngles aaT = aaI; aaT.Jr += epsd;
+        coord::PosVelCyl pJr = mapIsochrone(M, b, aaT);
+        pJr.R   = (pJr.R   - pp.R)   / epsd;
+        pJr.z   = (pJr.z   - pp.z)   / epsd;
+        pJr.phi = (pJr.phi - pp.phi) / epsd;
+        pJr.vR  = (pJr.vR  - pp.vR)  / epsd;
+        pJr.vz  = (pJr.vz  - pp.vz)  / epsd;
+        pJr.vphi= (pJr.vphi- pp.vphi)/ epsd;
+        aaT = aaI; aaT.Jz += epsd;
+        coord::PosVelCyl pJz = mapIsochrone(M, b, aaT);
+        pJz.R   = (pJz.R   - pp.R)   / epsd;
+        pJz.z   = (pJz.z   - pp.z)   / epsd;
+        pJz.phi = (pJz.phi - pp.phi) / epsd;
+        pJz.vR  = (pJz.vR  - pp.vR)  / epsd;
+        pJz.vz  = (pJz.vz  - pp.vz)  / epsd;
+        pJz.vphi= (pJz.vphi- pp.vphi)/ epsd;
+        aaT = aaI; aaT.Jphi += epsd;
+        coord::PosVelCyl pJp = mapIsochrone(M, b, aaT);
+        pJp.R   = (pJp.R   - pp.R)   / epsd;
+        pJp.z   = (pJp.z   - pp.z)   / epsd;
+        pJp.phi = (pJp.phi - pp.phi) / epsd;
+        pJp.vR  = (pJp.vR  - pp.vR)  / epsd;
+        pJp.vz  = (pJp.vz  - pp.vz)  / epsd;
+        pJp.vphi= (pJp.vphi- pp.vphi)/ epsd;
+        if(!equalPosVel(pJr, ac.dbyJr, 1e-4) && ++numWarnings<10) {
+            deriv_ok = false;
+            std::cout << "d/dJr: " << pJr << ac.dbyJr << '\n';
+        }
+        if(!equalPosVel(pJz, ac.dbyJz, 1e-4) && ++numWarnings<10) {
+            deriv_ok = false;
+            std::cout << "d/dJz: " << pJz << ac.dbyJz << '\n';
+        }
+        if(!equalPosVel(pJp, ac.dbyJphi, 1e-4) && ++numWarnings<10) {
+            deriv_ok = false;
+            std::cout << "d/dJphi: " << pJp << ac.dbyJphi << '\n';
+        }
         if(output) {
             strm << i*timestep<<"   "<<traj[i].R<<" "<<traj[i].z<<" "<<traj[i].phi<<"  "<<
                 pp.R<<" "<<pp.z<<" "<<pp.phi<<"   "<<
@@ -160,18 +209,19 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions)
     (freq_ok?"":" \033[1;31mFREQS NOT CONST\033[0m")<<
     (deriv_ok?"":" \033[1;31mDERIVS INCONSISTENT\033[0m")<<
     (anglesMonotonic?"":" \033[1;31mANGLES NON-MONOTONIC\033[0m")<<'\n';
-    return dispI_ok && dispS_ok && dispF_ok && compareIF && freq_ok && reversible && anglesMonotonic;
+    return dispI_ok && dispS_ok && dispF_ok && compareIF
+        && freq_ok && reversible && deriv_ok && anglesMonotonic;
 }
 
 int main()
 {
     bool ok=true;
-    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.3, 1.1, 0.1, 0.4,  0.1)); // ordinary case
-    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 2.2, 1.0, 0.0,  0.5)); // Jz==0
-    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 3.3, 0.0, 0.21, 0.9)); // Jr small
-    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 4.4, 0.6, 1.0, 1e-4)); // Jphi small
-    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.5, 5.5, 0.5, 0.7, -0.5)); // Jphi negative
-    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0,M_PI, 0.0, 0.0, -0.5)); // Jz==0, Jphi<0
+    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.3, 1.1, 0.1, 0.4,  0.1), "ordinary case");
+    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 2.2, 1.0, 0.0,  0.5), "Jz==0");
+    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 3.3, 0.0, 0.21, 0.9), "Jr small");
+    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 4.4, 0.6, 1.0, 1e-4), "Jphi small");
+    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.5, 5.5, 0.5, 0.7, -0.5), "Jphi negative");
+    ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0,M_PI, 0.0, 0.0, -0.5), "Jz==0, Jphi<0");
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;
