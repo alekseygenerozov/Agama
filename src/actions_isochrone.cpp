@@ -208,16 +208,16 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
             (dfac2_dL  + fac2 * decc_dL  / ra) * dtan2;
         double  dchi_dJr = aa.Jz == 0 ? dpsi_dJr :
             absJphi * L * dpsi_dJr * mult_chi;
-        double  dchi_dJz = aa.Jz == 0 ? dpsi_dL  :
+        double  dchi_dJz = //aa.Jz == 0 ? dpsi_dL  :
             absJphi * (L * dpsi_dL - sinpsi * cospsi) * mult_chi;
         double dchi_dJphi= aa.Jz == 0 ? dpsi_dL  :
             (absJphi * L * dpsi_dL + sinpsi * cospsi * (L - absJphi)) * mult_chi;
         // derivs of spherical coords (r,theta,vr,vtheta)
         double dcostheta_dJr  = sini * cospsi * dpsi_dJr;
         double dcostheta_dL   = sini * cospsi * dpsi_dL + pow_2(aa.Jphi) * sinpsi / (pow_3(L) * sini);
-        double dcostheta_dJphi= sini * cospsi * dpsi_dL - absJphi * (L - absJphi) * sinpsi / (pow_3(L) * sini);
+        double dcostheta_dJphi= sini * cospsi * dpsi_dL - absJphi * sini * sinpsi / (L * (L + absJphi));
         double dsintheta_dJr  = -costheta / sintheta * dcostheta_dJr;
-        double dsintheta_dL   = -costheta / sintheta * dcostheta_dL;
+        double dsintheta_dL   = costheta!=0 ? -costheta / sintheta * dcostheta_dL : -pow_2(sinpsi) / L;
         double dsintheta_dJphi= -costheta / sintheta * dcostheta_dJphi;
         double A = pow_2(b/j0invsq) / r;
         double   dr_dJr = A * (decc_dJr * (ecc-coseta) + 2*ra*ra / J0);
@@ -229,7 +229,7 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
         double drvtheta_dL    = L * sini / sintheta *
             (sinpsi * dpsi_dL  + cospsi / sintheta * dsintheta_dL) - cospsi / (sintheta * sini);
         double drvtheta_dJphi = L * sini / sintheta *
-            (sinpsi * dpsi_dL  + cospsi / sintheta * dsintheta_dJphi) - cospsi * (L - absJphi) / (L * sintheta * sini);
+            (sinpsi * dpsi_dL  + cospsi / sintheta * dsintheta_dJphi) - cospsi * sini * L / ((L + absJphi) * sintheta);
         // d/dJr
         derivAct->dbyJr.R  = dr_dJr * sintheta + r * dsintheta_dJr;
         derivAct->dbyJr.z  = dr_dJr * costheta + r * dcostheta_dJr;
@@ -243,8 +243,10 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
         derivAct->dbyJz.R  = dr_dL * sintheta + r * dsintheta_dL;
         derivAct->dbyJz.z  = dr_dL * costheta + r * dcostheta_dL;
         derivAct->dbyJz.phi= dchi_dJz * signJphi;
-        derivAct->dbyJz.vR = vr * dsintheta_dL + vtheta * dcostheta_dL +
-            (drvr_dL * sintheta + drvtheta_dL * costheta - point.vR * dr_dL) / r;
+        derivAct->dbyJz.vR = costheta!=0 ?
+            vr * dsintheta_dL + vtheta * dcostheta_dL +
+            (drvr_dL * sintheta + drvtheta_dL * costheta - point.vR * dr_dL) / r :
+            vr * dsintheta_dL + (drvr_dL - point.vR * dr_dL - 2 * sinpsi * cospsi) / r;
         derivAct->dbyJz.vz = vr * dcostheta_dL - vtheta * dsintheta_dL +
             (drvr_dL * costheta - drvtheta_dL * sintheta - point.vz * dr_dL) / r;
         derivAct->dbyJz.vphi = -point.vphi / point.R * derivAct->dbyJz.R;

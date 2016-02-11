@@ -14,7 +14,6 @@
 #include <fstream>
 #include <iomanip>
 #include <cmath>
-#include "actions_newtorus.h"
 
 //#define TEST_OLD_TORUS
 #ifdef TEST_OLD_TORUS
@@ -147,11 +146,15 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
         aaT = aaI; aaT.Jz += epsd;
         coord::PosVelCyl pJz = mapIsochrone(M, b, aaT);
         pJz.R   = (pJz.R   - pp.R)   / epsd;
-        pJz.z   = (pJz.z   - pp.z)   / epsd;
+        pJz.z   = (pJz.z  - pp.z)  / epsd;
         pJz.phi = (pJz.phi - pp.phi) / epsd;
         pJz.vR  = (pJz.vR  - pp.vR)  / epsd;
-        pJz.vz  = (pJz.vz  - pp.vz)  / epsd;
+        pJz.vz  = (pJz.vz - pp.vz) / epsd;
         pJz.vphi= (pJz.vphi- pp.vphi)/ epsd;
+        if(aaI.Jz==0) {
+            deriv_ok &= !math::isFinite(ac.dbyJz.z+ac.dbyJz.vz);  // should be infinite
+            pJz.z=pJz.vz=ac.dbyJz.z=ac.dbyJz.vz=0;  // exclude from comparison
+        }
         aaT = aaI; aaT.Jphi += epsd;
         coord::PosVelCyl pJp = mapIsochrone(M, b, aaT);
         pJp.R   = (pJp.R   - pp.R)   / epsd;
@@ -183,7 +186,6 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     statI.finish();
     statF.finish();
     statS.finish();
-    actions::ActionMapperNewTorus tor(pot, statI.avg);
     bool dispI_ok = statI.disp.Jr<epsd && statI.disp.Jz<epsd && statI.disp.Jphi<epsd;
     bool dispS_ok = statS.disp.Jr<epsd && statS.disp.Jz<epsd && statS.disp.Jphi<epsd;
     bool dispF_ok = statF.disp.Jr<epsd && statF.disp.Jz<epsd && statF.disp.Jphi<epsd;
@@ -204,11 +206,11 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     ":  Jr="  <<statF.avg.Jr  <<" +- "<<statF.disp.Jr<<
     ",  Jz="  <<statF.avg.Jz  <<" +- "<<statF.disp.Jz<<
     ",  Jphi="<<statF.avg.Jphi<<" +- "<<statF.disp.Jphi<< (dispF_ok?"":" \033[1;31m**\033[0m")<<
-    (compareIF?"":" \033[1;31mNOT EQUAL\033[0m")<<
-    (reversible?"":" \033[1;31mNOT INVERTIBLE\033[0m")<<
-    (freq_ok?"":" \033[1;31mFREQS NOT CONST\033[0m")<<
-    (deriv_ok?"":" \033[1;31mDERIVS INCONSISTENT\033[0m")<<
-    (anglesMonotonic?"":" \033[1;31mANGLES NON-MONOTONIC\033[0m")<<'\n';
+    (compareIF?"":" \033[1;31mNOT EQUAL\033[0m ")<<
+    (reversible?"":" \033[1;31mNOT INVERTIBLE\033[0m ")<<
+    (freq_ok?"":" \033[1;31mFREQS NOT CONST\033[0m ")<<
+    (deriv_ok?"":" \033[1;31mDERIVS INCONSISTENT\033[0m ")<<
+    (anglesMonotonic?"":" \033[1;31mANGLES NON-MONOTONIC\033[0m ")<<'\n';
     return dispI_ok && dispS_ok && dispF_ok && compareIF
         && freq_ok && reversible && deriv_ok && anglesMonotonic;
 }

@@ -28,5 +28,5 @@ private:
     PtrCanonicalMap genFnc;
     PtrCanonicalMap angMap;
 };
-
+    
 }  // namespace actions

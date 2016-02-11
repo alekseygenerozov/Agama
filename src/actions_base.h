@@ -44,7 +44,8 @@ struct Frequencies {
 };
 
 /** Derivatives of position/velocity variables w.r.t actions:
-    each of three member fields stores the derivative of 6 pos/vel elements by the given action */
+    each of three member fields stores the derivative of 6 pos/vel elements by the given action,
+    in an inverted notation:  e.g.,  d(v_phi)/d(J_z) = dbyJz.vphi */
 struct DerivAct {
     coord::PosVelCyl dbyJr, dbyJz, dbyJphi;
 };
@@ -121,6 +122,7 @@ public:
 /** Base class for canonical maps in action/angle space, which transform from one set of a/a
     variables to another one */
 class BaseCanonicalMap{
+public:
     BaseCanonicalMap() {};
     virtual ~BaseCanonicalMap() {};
 

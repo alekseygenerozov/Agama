@@ -12,6 +12,7 @@ TORUSDIR  = src/torus
 
 # sources of the main library
 SOURCES   = \
+            actions_genfnc.cpp \
             actions_interfocal_distance_finder.cpp \
             actions_isochrone.cpp \
             actions_newtorus.cpp \
@@ -81,6 +82,7 @@ TESTSRCS  = test_math_core.cpp \
             test_actions_nbody.cpp \
             test_torus.cpp \
             test_torus_new.cpp \
+            test_newtorus.cpp \
             test_df_disk.cpp \
             test_df_halo.cpp \
             test_df_fit.cpp \
