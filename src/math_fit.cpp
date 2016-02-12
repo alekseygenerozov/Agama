@@ -3,6 +3,7 @@
 #include <gsl/gsl_multifit.h>
 #include <gsl/gsl_multifit_nlin.h>
 #include <gsl/gsl_multimin.h>
+#include <gsl/gsl_multiroots.h>
 #include <stdexcept>
 
 namespace math{
@@ -201,7 +202,45 @@ int nonlinearMultiFit(const IFunctionNdimDeriv& F, const double xinit[],
     return numIter;
 }
 
-// ----- multidimensional minimization ------ //
+// ----- multidimensional root-finding ----- //
+
+int findRootNdimDeriv(const IFunctionNdimDeriv& F, const double xinit[],
+    const double absToler, const int maxNumIter, double result[])
+{
+    const unsigned int Ndim = F.numVars();
+    if(F.numValues() != F.numVars())
+        throw std::invalid_argument(
+            "findRootNdimDeriv: number of equations must be equal to the number of variables");
+    gsl_multiroot_fdfsolver* solver = gsl_multiroot_fdfsolver_alloc(
+        gsl_multiroot_fdfsolver_hybridsj, Ndim);
+    gsl_multiroot_function_fdf fnc;
+    FncWrapper<IFunctionNdimDeriv> params(F);
+    fnc.params = &params;
+    fnc.n = Ndim;
+    fnc.f = functionWrapperNdimMval;
+    fnc.df = functionWrapperNdimMvalDer;
+    fnc.fdf = functionWrapperNdimMvalFncDer;
+    int numIter = 0;
+    gsl_vector_const_view v_xinit = gsl_vector_const_view_array(xinit, Ndim);
+    if(gsl_multiroot_fdfsolver_set(solver, &fnc, &v_xinit.vector) == GSL_SUCCESS)
+    {   // iterate
+        do {
+            numIter++;
+            if(gsl_multiroot_fdfsolver_iterate(solver) != GSL_SUCCESS)
+                break;
+        } while(numIter<maxNumIter && 
+            gsl_multiroot_test_residual(solver->f, absToler) == GSL_CONTINUE);
+    }
+    // store the found location of minimum
+    for(unsigned int i=0; i<Ndim; i++)
+        result[i] = solver->x->data[i];
+    gsl_multiroot_fdfsolver_free(solver);
+    if(!params.error.empty())
+        throw std::runtime_error("Error in findRootNdimDeriv: "+params.error);
+    return numIter;
+}
+
+// ----- multidimensional minimization ----- //
 
 int findMinNdim(const IFunctionNdim& F, const double xinit[], const double xstep[],
     const double absToler, const int maxNumIter, double result[])
@@ -246,7 +285,7 @@ int findMinNdim(const IFunctionNdim& F, const double xinit[], const double xstep
         result[i] = mizer->x->data[i];
     gsl_multimin_fminimizer_free(mizer);
     if(!params.error.empty())
-        throw std::runtime_error("Error in nonlinearMultiFit: "+params.error);
+        throw std::runtime_error("Error in findMinNdim: "+params.error);
     return numIter;
 }
 
@@ -260,13 +299,12 @@ int findMinNdimDeriv(const IFunctionNdimDeriv& F, const double xinit[], const do
     gsl_multimin_fdfminimizer* mizer = gsl_multimin_fdfminimizer_alloc(
         gsl_multimin_fdfminimizer_vector_bfgs2, Ndim);
     gsl_multimin_function_fdf fnc;
-    FncWrapper<IFunctionNdim> params(F);
+    FncWrapper<IFunctionNdimDeriv> params(F);
     fnc.params = &params;
     fnc.n = Ndim;
     fnc.f = functionWrapperNdim;
     fnc.df = functionWrapperNdimDer;
     fnc.fdf = functionWrapperNdimFncDer;
-    fnc.params = const_cast<IFunctionNdimDeriv*>(&F);
     int numIter = 0;
     gsl_vector_const_view v_xinit = gsl_vector_const_view_array(xinit, Ndim);
     if(gsl_multimin_fdfminimizer_set(mizer, &fnc, &v_xinit.vector, xstep, 0.1) == GSL_SUCCESS)
@@ -283,7 +321,7 @@ int findMinNdimDeriv(const IFunctionNdimDeriv& F, const double xinit[], const do
         result[i] = mizer->x->data[i];
     gsl_multimin_fdfminimizer_free(mizer);
     if(!params.error.empty())
-        throw std::runtime_error("Error in nonlinearMultiFit: "+params.error);
+        throw std::runtime_error("Error in findMinNdimDeriv: "+params.error);
     return numIter;
 }
 

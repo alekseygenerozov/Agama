@@ -208,6 +208,29 @@ private:
     const math::IFunctionNdimDeriv& F;
 };
 
+// test of multidimensional root-finding using Rosenbrock's function
+class test10Ndim: public math::IFunctionNdimDeriv {
+public:
+    test10Ndim(double _a, double _b) : a(_a), b(_b) {}
+    virtual void evalDeriv(const double vars[], double values[], double *derivs=0) const
+    {
+        numEval++;;
+        if(values) {
+            values[0] = a * (1 - vars[0]);
+            values[1] = b * (vars[1] - pow_2(vars[0]));
+        }
+        if(derivs) {
+            derivs[0] = -a;
+            derivs[1] = 0;
+            derivs[2] = -2*b * vars[0];
+            derivs[3] = b;
+        }
+    }
+    virtual unsigned int numVars() const { return 2; }
+    virtual unsigned int numValues() const { return 2; }
+private:
+    double a, b;
+};
 
 int main()
 {
@@ -332,6 +355,16 @@ int main()
     // which is tough for derivative-based minimizers - hence a looser tolerance
     ok &= fabs(yresult[0]-c0) * fabs(yresult[1]-c1) * fabs(yresult[2]-c2) < 1e-8;
 
+    // N-dimensional root finding
+    numEval=0;
+    yinit[0] = -10;
+    yinit[1] = -5;
+    numIter = math::findRootNdimDeriv(test10Ndim(1, 10), yinit, 1e-10, 100, yresult);
+    std::cout << "RootNdim(N=2): "<<yresult[0]<<","<<yresult[1]<<
+        " (delta="<<(yresult[0]-1)<<","<<(yresult[1]-1)<<"; neval="<<numEval<<", nIter="<<numIter<<")\n";
+    ok &= fabs(yresult[0]-1)<toler && fabs(yresult[1]-1)<toler;
+
+    // N-dimensional integration
     numEval=0;
     double ymin[] = {-4,-4,-2};
     double ymax[] = {+4,+4,+2};

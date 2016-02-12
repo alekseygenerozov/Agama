@@ -47,6 +47,10 @@ double linearFitZero(const std::vector<double>& x, const std::vector<double>& y,
 void linearMultiFit(const Matrix<double>& coefs, const std::vector<double>& rhs, 
     const std::vector<double>* w, std::vector<double>& result, double* rms=0);
 
+///@}
+/// \name ------ nonlinear regression ------
+///@{
+
 /** perform a multi-parameter nonlinear least-square fit by the Levenberg--Marquardt method.
     Let `f(d; x)` be a single-valued function of data point `d` that depends on
     a vector of parameters `x` (of length N).
@@ -72,6 +76,25 @@ void linearMultiFit(const Matrix<double>& coefs, const std::vector<double>& rhs,
 */
 int nonlinearMultiFit(const IFunctionNdimDeriv& F, const double xinit[],
     const double relToler, const int maxNumIter, double result[]);
+
+///@}
+/// \name ------ multidimensional root-finding -------
+///@{
+
+/** solve a multidimensional system of equation.
+    \param[in]  F  is the multivalued function of many variables that defines the NxN
+    equation system (that is, `F.numVars() == F.numValues()`, where each equation involving
+    N variables is represented by one element of the array of output values).
+    It must provide the Jacobian matrix of derivatives of each function by all input vars.
+    The equation system is \f$  F_i( \{x_k\} ) = 0, i=0..N-1, k=0..N-1  \f$.
+    \param[in]  xinit  is the starting N-dimensional point for root finding;
+    \param[in]  absToler  is the required tolerance on the value of each function at root;
+    \param[in]  maxNumIter  is the upper limit on the number of iterations;
+    \param[out] result will contain the array of variables that solve F(x)=0.
+    \returns  the number of iterations taken.
+*/
+int findRootNdimDeriv(const IFunctionNdimDeriv& F, const double xinit[],
+    const double absToler, const int maxNumIter, double result[]);
 
 ///@}
 /// \name ------ multidimensional minimization -------

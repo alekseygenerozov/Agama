@@ -20,17 +20,21 @@ struct GenFncIndex {
 
 /** Array of indices that represent all non-trivial terms in the generating function */
 typedef std::vector<GenFncIndex> GenFncIndices;
+typedef std::vector<Actions> GenFncDerivs;
 
-/** Generating function that maps the true angles to toy angles */
-class ActionMap: public BaseCanonicalMap{
+/** Generating function that maps the true action/angles to toy action/angles */
+class GenFnc: public BaseCanonicalMap{
 public:
-    ActionMap(const GenFncIndices& _indices, const double _values[]) :
-        indices(_indices), values(_values, _values+indices.size()) {}
+    GenFnc(const GenFncIndices& _indices, const double _values[], const Actions _derivs[]) :
+        indices(_indices),
+        values(_values, _values+indices.size()),
+        derivs(_derivs, _derivs+indices.size()) {}
     virtual unsigned int numParams() const { return indices.size(); }
     virtual ActionAngles map(const ActionAngles& actAng) const;
 private:
     const GenFncIndices indices;      ///< indices of terms in generating function
     const std::vector<double> values; ///< amplitudes of terms in generating function
+    const GenFncDerivs derivs;        ///< amplitudes of derivatives dS/dJ_{r,z,phi}
 };
 
 /** Variant of generating function used during the fitting process.

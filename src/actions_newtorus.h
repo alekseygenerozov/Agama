@@ -23,10 +23,10 @@ public:
         a `std::invalid_argument` exception. */
     virtual coord::PosVelCyl map(const ActionAngles& actAng, Frequencies* freq=0) const;
 private:
-    const Actions acts;
-    PtrToyMap toyMap;
-    PtrCanonicalMap genFnc;
-    PtrCanonicalMap angMap;
+    const Actions acts;     ///< the values of actions for this torus
+    Frequencies freqs;      ///< frequencies (dH/dJ evaluated at these actions)
+    PtrCanonicalMap genFnc; ///< generating function that converts real to toy action/angles
+    PtrToyMap toyMap;       ///< toy map that converts toy action/angles to position/velocity
 };
     
 }  // namespace actions
