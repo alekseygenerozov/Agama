@@ -1,4 +1,5 @@
 #include "math_fit.h"
+#include "math_core.h"
 #include <gsl/gsl_fit.h>
 #include <gsl/gsl_multifit.h>
 #include <gsl/gsl_multifit_nlin.h>
@@ -65,38 +66,36 @@ static void functionWrapperNdimFncDer(const gsl_vector* x, void* param, double* 
 }
 
 // ----- wrappers for multidimensional nonlinear fitting ----- //
-static int functionWrapperNdimMval(const gsl_vector* x, void* param, gsl_vector* f) {
+static int functionWrapperNdimMvalFncDer(const gsl_vector* x, void* param, gsl_vector* f, gsl_matrix* df) {
+    FncWrapper<IFunctionNdimDeriv>* p = static_cast<FncWrapper<IFunctionNdimDeriv>*>(param);
     try{
-        static_cast<FncWrapper<IFunctionNdimDeriv>*>(param)->F.eval(x->data, f->data);
+        p->F.evalDeriv(x->data, f? f->data : NULL, df? df->data : NULL);
+        // check that values and/or derivatives are ok
+        bool ok=true;
+        for(unsigned int i=0; f && i<p->F.numVars(); i++)
+            ok &= isFinite(f->data[i]);
+        for(unsigned int i=0; df && i<p->F.numVars()*p->F.numValues(); i++)
+            ok &= isFinite(df->data[i]);
+        if(!ok) {
+            p->error = "Function is not finite";
+            return GSL_FAILURE;
+        }
         return GSL_SUCCESS;
     }
     catch(std::exception& e){
-        static_cast<FncWrapper<IFunctionNdimDeriv>*>(param)->error = e.what();
+        p->error = e.what();
         return GSL_FAILURE;
     }
+}
+    
+static int functionWrapperNdimMval(const gsl_vector* x, void* param, gsl_vector* f) {
+    return functionWrapperNdimMvalFncDer(x, param, f, NULL);
 }
 
 static int functionWrapperNdimMvalDer(const gsl_vector* x, void* param, gsl_matrix* df) {
-    try{
-        static_cast<FncWrapper<IFunctionNdimDeriv>*>(param)->F.evalDeriv(x->data, NULL, df->data);
-        return GSL_SUCCESS;
-    }
-    catch(std::exception& e){
-        static_cast<FncWrapper<IFunctionNdimDeriv>*>(param)->error = e.what();
-        return GSL_FAILURE;
-    }
+    return functionWrapperNdimMvalFncDer(x, param, NULL, df);
 }
 
-static int functionWrapperNdimMvalFncDer(const gsl_vector* x, void* param, gsl_vector* f, gsl_matrix* df) {
-    try{
-        static_cast<FncWrapper<IFunctionNdimDeriv>*>(param)->F.evalDeriv(x->data, f->data, df->data);
-        return GSL_SUCCESS;
-    }
-    catch(std::exception& e){
-        static_cast<FncWrapper<IFunctionNdimDeriv>*>(param)->error = e.what();
-        return GSL_FAILURE;
-    }
-}
 
 }  // internal namespace
 
@@ -184,16 +183,17 @@ int nonlinearMultiFit(const IFunctionNdimDeriv& F, const double xinit[],
     gsl_multifit_fdfsolver* solver = gsl_multifit_fdfsolver_alloc(
         gsl_multifit_fdfsolver_lmsder, Ndata, Nparam);
     int numIter = 0;
-    if(gsl_multifit_fdfsolver_set(solver, &fnc, &v_xinit.vector) == GSL_SUCCESS)
-    {   // iterate
-        do {
-            numIter++;
-            if(gsl_multifit_fdfsolver_iterate(solver) != GSL_SUCCESS)
-                break;
-        } while(numIter<maxNumIter && 
-            gsl_multifit_test_delta(solver->dx, solver->x, 0, relToler) == GSL_CONTINUE);
+    int status = gsl_multifit_fdfsolver_set(solver, &fnc, &v_xinit.vector);
+    while(status == GSL_SUCCESS) {  // iterations
+        status = gsl_multifit_fdfsolver_iterate(solver);
+        if(++numIter >= maxNumIter ||
+            gsl_multifit_test_delta(solver->dx, solver->x, 0, relToler) != GSL_CONTINUE)
+            break;
     }
-    // store the found location of minimum
+    // check for convergence
+    if(gsl_multifit_test_delta(solver->dx, solver->x, 0, relToler) != GSL_SUCCESS)
+        numIter *= -1;  // signal of non-convergence
+    // store the found location of minimum regardless of successful termination
     for(unsigned int i=0; i<Nparam; i++)
         result[i] = solver->x->data[i];
     gsl_multifit_fdfsolver_free(solver);

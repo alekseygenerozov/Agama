@@ -28,7 +28,7 @@ public:
     GenFnc(const GenFncIndices& _indices, const double _values[], const Actions _derivs[]) :
         indices(_indices),
         values(_values, _values+indices.size()),
-        derivs(_derivs, _derivs+indices.size()) {}
+        derivs(_derivs, _derivs+indices.size()) {};
     virtual unsigned int numParams() const { return indices.size(); }
     virtual ActionAngles map(const ActionAngles& actAng) const;
 private:

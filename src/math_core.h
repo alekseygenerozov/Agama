@@ -29,7 +29,8 @@ inline bool withinReasonableRange(double x) {
     return x<UNREASONABLY_LARGE_VALUE && x>1/UNREASONABLY_LARGE_VALUE; }
 
 /** compare two numbers with a relative accuracy eps: 
-    \return -1 if x<y, +1 if x>y, or 0 if x and y are approximately equal */
+    \return -1 if x<y, +1 if x>y, -2 if x==NAN, +2 if y==NAN, or 0 if x and y are approximately equal
+*/
 int fcmp(double x, double y, double eps=1e-15);
 
 /** return sign of a number */

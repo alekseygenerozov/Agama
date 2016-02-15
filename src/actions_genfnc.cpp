@@ -1,5 +1,6 @@
 #include "actions_genfnc.h"
 #include "math_fit.h"
+#include "math_core.h"
 #include <cmath>
 
 namespace actions{
@@ -66,7 +67,8 @@ ActionAngles GenFnc::map(const ActionAngles& actAng) const
     double realAngles[3] = {actAng.thetar, actAng.thetaz, actAng.thetaphi};
     double toyAngles[3];
     math::findRootNdimDeriv(fnc, realAngles, 1e-6, 10, toyAngles);
-    ActionAngles aa(actAng, Angles(toyAngles[0], toyAngles[1], toyAngles[2]));
+    ActionAngles aa(actAng, Angles(math::wrapAngle(toyAngles[0]),
+        math::wrapAngle(toyAngles[1]), math::wrapAngle(toyAngles[2])));
     // 2. compute toy actions from real actions and toy angles
     for(unsigned int i=0; i<indices.size(); i++) {
         double val = values[i] * cos(indices[i].mr * aa.thetar +
@@ -75,6 +77,9 @@ ActionAngles GenFnc::map(const ActionAngles& actAng) const
         aa.Jz  += val * indices[i].mz;
         aa.Jphi+= val * indices[i].mphi;
     }
+    // prevent non-physical negative values
+    aa.Jr = fmax(aa.Jr, actAng.Jr*1e-8);
+    aa.Jz = fmax(aa.Jz, actAng.Jz*1e-8);
     return aa;
 }
 
@@ -99,6 +104,9 @@ ActionAngles GenFncFit::toyActionAngles(unsigned int indexAngle, const double va
         aa.Jz  += val * indices[indexCoef].mz;
         aa.Jphi+= val * indices[indexCoef].mphi;
     }
+    // prevent non-physical negative values
+    aa.Jr = fmax(aa.Jr, acts.Jr*1e-8);
+    aa.Jz = fmax(aa.Jz, acts.Jz*1e-8);
     return aa;
 }
 

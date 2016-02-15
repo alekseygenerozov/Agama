@@ -133,22 +133,22 @@ namespace actions{
 /// Helper class to compute scatter in actions
 class ActionStat{
 public:
-    actions::Actions avg, disp;
+    actions::Actions avg, rms;
     int N;
-    ActionStat() { avg.Jr=avg.Jz=avg.Jphi=0; disp=avg; N=0; }
+    ActionStat() { avg.Jr=avg.Jz=avg.Jphi=0; rms=avg; N=0; }
     void add(const actions::Actions& act) {
-        avg.Jr  +=act.Jr;   disp.Jr  +=pow_2(act.Jr);
-        avg.Jz  +=act.Jz;   disp.Jz  +=pow_2(act.Jz);
-        avg.Jphi+=act.Jphi; disp.Jphi+=pow_2(act.Jphi);
+        avg.Jr  +=act.Jr;   rms.Jr  +=pow_2(act.Jr);
+        avg.Jz  +=act.Jz;   rms.Jz  +=pow_2(act.Jz);
+        avg.Jphi+=act.Jphi; rms.Jphi+=pow_2(act.Jphi);
         N++;
     }
     void finish() {
         avg.Jr/=N;
         avg.Jz/=N;
         avg.Jphi/=N;
-        disp.Jr  =sqrt(std::max<double>(0, disp.Jr/N  -pow_2(avg.Jr)));
-        disp.Jz  =sqrt(std::max<double>(0, disp.Jz/N  -pow_2(avg.Jz)));
-        disp.Jphi=sqrt(std::max<double>(0, disp.Jphi/N-pow_2(avg.Jphi)));
+        rms.Jr  =sqrt(std::max<double>(0, rms.Jr/N  -pow_2(avg.Jr)));
+        rms.Jz  =sqrt(std::max<double>(0, rms.Jz/N  -pow_2(avg.Jz)));
+        rms.Jphi=sqrt(std::max<double>(0, rms.Jphi/N-pow_2(avg.Jphi)));
     }
 };
 

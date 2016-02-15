@@ -4,6 +4,7 @@
 #include "torus/Torus.h"
 #include "torus/Potential.h"
 #include <stdexcept>
+#include <iostream>
 
 namespace actions{
 
@@ -42,7 +43,7 @@ private:
     const potential::BasePotential& poten;
 };
 
-ActionMapperTorus::ActionMapperTorus(const potential::BasePotential& poten, const Actions& acts)
+ActionMapperTorus::ActionMapperTorus(const potential::BasePotential& poten, const Actions& acts, double tol)
 {
     if(!isAxisymmetric(poten))
         throw std::invalid_argument("ActionMapperTorus only works for axisymmetric potentials");
@@ -54,7 +55,8 @@ ActionMapperTorus::ActionMapperTorus(const potential::BasePotential& poten, cons
     act[0] = acts.Jr;
     act[1] = acts.Jz;
     act[2] = acts.Jphi;
-    torus->AutoFit(act, &potwrap);
+    torus->AutoFit(act, &potwrap, tol, 600, 150, 12, 3, 16, 200, 12, 1);
+    torus->show(std::cout);
 }
 
 coord::PosVelCyl ActionMapperTorus::map(const ActionAngles& actAng, Frequencies* freq) const

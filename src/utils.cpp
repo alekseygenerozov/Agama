@@ -222,9 +222,9 @@ std::string pp(double num, unsigned int width)
         }
     }
     result=stream.str();
-    // padding if necessary (add spaces after string)
-    while(result.length()<static_cast<size_t>(width))
-        result+=" ";
+    // padding if necessary (add spaces in front of the string)
+    if(result.length()<static_cast<size_t>(width))
+        result.insert(0, width-result.length(), ' ');
     if(result.length()>static_cast<size_t>(width))  // cut tail if necessary (no warning given!)
         result=result.substr(0,width);
     return result;

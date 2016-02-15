@@ -9,21 +9,21 @@ namespace actions{
 /// store eta, its sin and cos in output arguments
 static void solveKepler(double ecc, double phase, double &eta, double &sineta, double &coseta)
 {
+    phase = math::wrapAngle(phase);
     if(phase==0 || phase==M_PI) {
         eta    = phase;
         sineta = 0;
         coseta = phase==0 ? 1 : -1;
         return;
     }
-    bool signeta = phase > M_PI;
-    // initial guess - TODO!!! needs to be improved
-    eta = 0.5*M_PI + (M_PI/8)/ecc * 
-        (sqrt(M_PI*M_PI + (ecc + (signeta ? 1.5*M_PI-phase : phase-0.5*M_PI)) * 16*ecc ) - M_PI);
-    if(signeta)
-        eta = 2*M_PI - eta;
+    if(ecc>0.95 && (phase<0.3 || phase>6.0)) {
+        if(phase>M_PI) phase -= 2*M_PI;
+        eta = phase + pow_2(ecc) * (cbrt(6*phase) - phase);
+    } else
+        eta = phase + ecc * sin(phase) / sqrt(1 - ecc * (2*cos(phase) - ecc));
     double deltaeta = 0;
     int niter = 0;
-    do {  // Newton's method
+    do {  // Halley's method
         sineta    = sin(eta);
         coseta    = cos(eta);
         double f  = eta - ecc * sineta - phase;
@@ -33,7 +33,7 @@ static void solveKepler(double ecc, double phase, double &eta, double &sineta, d
         deltaeta  = -f / (df + 0.5 * deltaeta * ecc * sineta);
         eta      += deltaeta;
         niter++;
-    } while(fabs(deltaeta) > 1e-12 && niter<42);
+    } while(fabs(deltaeta) > 1e-15 && niter<42);
 }
     
 Actions actionsIsochrone(

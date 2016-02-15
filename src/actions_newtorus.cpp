@@ -4,9 +4,14 @@
 #include "math_core.h"
 #include "math_fit.h"
 #include <stdexcept>
+#include <cassert>
 #include <cmath>
+#include <utility>
+#include <map>
 
 #include <iostream>
+#include <fstream>
+#include "utils.h"
 
 namespace actions{
 
@@ -59,7 +64,8 @@ public:
         coord::PosVelCyl* derivParam=0) const
     {
         // input parameters are log-scaled
-        double M = exp(params[0]), b = exp(params[1]);
+        double M = exp(params[0]);
+        double b = exp(params[1]);
         coord::PosVelCyl result = ToyMapIsochrone(M, b).mapDeriv(
             actAng, NULL, derivAct, NULL, derivParam);
         if(derivParam) {  // multiply derivs by additional factor for converting d/dP to d/dln(P)
@@ -219,8 +225,8 @@ public:
                     derivs[index] = (derivs[index] - (values[k]+1) * dHavgdP[p]) / Havg;
                 }
         }
-        std::cout << "M="<<exp(vars[0])<<", b="<<exp(vars[1])<<
-        "; Havg="<<Havg<<", DeltaH="<<sqrt(disp/numPoints)<<"\n";
+        //std::cout << "M="<<exp(vars[0])<<", b="<<exp(vars[1])<<
+        //"; Havg="<<Havg<<", dH/H="<<sqrt(disp/numPoints)<<"\n";
     }
 
     /** Compute the derivatives of generating function by real actions, used in angle mapping.
@@ -238,11 +244,13 @@ public:
         generating function (in the same order as for `evalDeriv` or as returned by
         `math::nonlinearFitNdim`); then the three linear systems are solved using
         the singular-value decomposition of the shared coefficient matrix,
-        and the output frequencies and gen.fnc.derivatives are returned.
+        and the output frequencies and gen.fnc.derivatives are returned in corresponding arguments.
+        The return value of the routine is the dispersion of values of Hamiltonian at grid points.
     */
-    void fitAngleMap(const double vars[],
-        actions::Frequencies& freqs, actions::GenFncDerivs& derivs) const
+    double fitAngleMap(const double vars[], Frequencies& freqs, GenFncDerivs& derivs) const
     {
+        // accumulator for the rms scatter in H
+        math::Averager Havg;
         // the matrix of coefficients shared between three linear systems
         math::Matrix<double> coefsdHdS(numPoints, numParamsGenFnc+1);
         // derivs of Hamiltonian by toy actions (RHS vectors)
@@ -252,9 +260,12 @@ public:
             ActionAngles toyAA = genFnc.toyActionAngles(k, vars+numParamsToyMap);
             DerivAct derivAct;
             coord::PosVelCyl point = toyMap.mapDeriv(toyAA, vars, &derivAct);
-            // obtain the gradient of real potential at the given point
+            // obtain the value and gradient of real potential at the given point
             coord::GradCyl grad;
-            pot.eval(point, NULL, &grad);
+            double Phi;
+            pot.eval(point, &Phi, &grad);
+            // accumulate the rms scatter in total Hamiltonian
+            Havg.add(Phi + 0.5 * (pow_2(point.vR) + pow_2(point.vz) + pow_2(point.vphi)));
             // derivative of Hamiltonian by toy actions
             Actions dHby = dHbydJ(point, grad, derivAct);
             // fill the elements of each of three rhs vectors
@@ -289,6 +300,7 @@ public:
             derivs[p].Jz   = dSdJz[p+1];
             derivs[p].Jphi = dSdJphi[p+1];
         }
+        return Havg.disp();
     }
 };
 
@@ -307,25 +319,21 @@ static std::vector<Angles> makeGridAngles(unsigned int nr, unsigned int nz, unsi
     return vec;
 }
 
-/// create the array of indices of the generating function with some default terms
-static GenFncIndices makeDefaultIndices()
+/// create grid in angles with size determined by the maximal Fourier harmonic in the indices array
+static std::vector<Angles> makeGridAngles(const GenFncIndices& indices)
 {
-    GenFncIndices indices;
-    indices.push_back(GenFncIndex(0,-4, 0));
-    indices.push_back(GenFncIndex(0,-2, 0));
-    indices.push_back(GenFncIndex(1,-2, 0));
-    indices.push_back(GenFncIndex(1, 0, 0));
-    indices.push_back(GenFncIndex(1, 2, 0));
-    indices.push_back(GenFncIndex(2,-2, 0));
-    indices.push_back(GenFncIndex(2, 0, 0));
-    indices.push_back(GenFncIndex(2, 2, 0));
-    indices.push_back(GenFncIndex(3, 0, 0));
-    return indices;
+    int maxmr=0, maxmz=0, maxmphi=0;
+    for(unsigned int i=0; i<indices.size(); i++) {
+        maxmr   = std::max<int>(maxmr,   abs(indices[i].mr));
+        maxmz   = std::max<int>(maxmz,   abs(indices[i].mz));
+        maxmphi = std::max<int>(maxmphi, abs(indices[i].mphi));
+    }
+    return makeGridAngles(maxmr*2+1, maxmz*2+1, maxmphi*2+1);
 }
 
 /// create the array of indices of the generating function with all terms up to the given maximum order
 static GenFncIndices makeGridIndices(int irmax, int izmax)
-{
+{   /// NOTE: here we specialize for the case of axisymmetric systems!
     GenFncIndices indices;
     for(int ir=0; ir<=irmax; ir++)
         for(int iz=-izmax; iz<=(ir==0?-2:izmax); iz+=2)
@@ -333,37 +341,185 @@ static GenFncIndices makeGridIndices(int irmax, int izmax)
     return indices;
 }
 
+/// return the absolute value of an element in a map, or zero if it doesn't exist
+static inline double absvalue(const std::map< std::pair<int,int>, double >& indPairs, int ir, int iz)
+{
+    if(indPairs.find(std::make_pair(ir, iz)) != indPairs.end())
+        return fabs(indPairs.find(std::make_pair(ir, iz))->second);
+    else
+        return 0;
+}
+
+/// extend the array of indices by adding an adjacent layer with the smallest unused m_r,m_z:
+/// \param[in]  values  are the magnitudes of terms in gen.fnc.
+/// \param[in,out]  indices  is the list of corresponding indices, which will be extended on output
+static void addMoreIndices(const double values[], GenFncIndices& indices)
+{   /// NOTE: here we specialize for the case of axisymmetric systems!
+    std::map< std::pair<int,int>, double > indPairs;
+    // 1. determine the extent of existing grid in (mr,mz)
+    int maxmr=0, maxmz=0;
+    for(unsigned int i=0; i<indices.size(); i++) {
+        indPairs[std::make_pair(indices[i].mr, indices[i].mz)] = values[i];
+        maxmr = std::max<int>(maxmr, abs(indices[i].mr));
+        maxmz = std::max<int>(maxmz, abs(indices[i].mz));
+    }
+    if(maxmz==0) {  // dealing with the case Jz==0 -- add only two elements in m_r
+        indices.push_back(GenFncIndex(maxmr+1, 0, 0));
+        indices.push_back(GenFncIndex(maxmr+2, 0, 0));
+        return;
+    }
+    // 2. determine the largest amplitude of coefs that are at the boundary of existing values
+    double maxval = 0;
+    for(int ir=0; ir<=maxmr+2; ir++)
+        for(int iz=-maxmz-2; iz<=maxmz+2; iz+=2) {
+            if(indPairs.find(std::make_pair(ir, iz)) != indPairs.end() &&
+               (iz<=0 && indPairs.find(std::make_pair(ir, iz-2)) == indPairs.end() ||
+                iz>=0 && indPairs.find(std::make_pair(ir, iz+2)) == indPairs.end() ||
+                indPairs.find(std::make_pair(ir+1, iz)) == indPairs.end()) )
+                maxval = fmax(fabs(indPairs[std::make_pair(ir, iz)]), maxval);
+        }
+    // 3. add more terms adjacent to the existing ones at the boundary, if they are large enough
+    double thresh = maxval * 0.1;
+    int numadd = 0;
+    for(int ir=0; ir<=maxmr+2; ir++)
+        for(int iz=-maxmz-2; iz<=maxmz+2; iz+=2) {
+            if(indPairs.find(std::make_pair(ir, iz)) != indPairs.end() || (ir==0 && iz>=0))
+                continue;  // already exists or not required
+            if (absvalue(indPairs, ir-2, iz)   >= thresh ||
+                absvalue(indPairs, ir-1, iz)   >= thresh ||
+                absvalue(indPairs, ir  , iz-2) >= thresh ||
+                absvalue(indPairs, ir  , iz+2) >= thresh ||
+                absvalue(indPairs, ir+1, iz-2) >= thresh ||
+                absvalue(indPairs, ir+1, iz+2) >= thresh ||
+                absvalue(indPairs, ir+1, iz)   >= thresh)
+            {   // add a term if any of its neighbours are large enough
+                indices.push_back(GenFncIndex(ir, iz, 0));
+                numadd++;
+            }
+        }
+    assert(numadd>0);
+}
+
+/// debugging: print a 2d table (mr,mz) of gen.fnc.coefs (log magnitude)
+static void printoutGenFncCoefs(const GenFncIndices& indices, const double values[])
+{   /// NOTE: axisymmetric case only!
+    std::map< std::pair<int,int>, double > indPairs;
+    // 1. determine the extent of existing grid in (mr,mz)
+    int maxmr=0, minmz=0, maxmz=0;
+    for(unsigned int i=0; i<indices.size(); i++) {
+        indPairs[std::make_pair(indices[i].mr, indices[i].mz)] = values[i];
+        maxmr = std::max<int>(maxmr, indices[i].mr);
+        maxmz = std::max<int>(maxmz, indices[i].mz);
+        minmz = std::min<int>(minmz, indices[i].mz);
+    }
+    for(int iz=minmz; iz<=maxmz; iz+=2) {
+        std::cout << utils::pp(iz,3);
+        for(int ir=0; ir<=maxmr; ir++) {
+            double val = absvalue(indPairs, ir, iz);
+            std::cout << ' ' << (val>0 ? utils::pp(int(-10.*log10(val)),3) : " - ");
+        }
+        std::cout << '\n';
+    }
+}
+
+///DEBUGGING!!!
+void printoutTorus(const potential::BasePotential& pot, const Actions& acts,
+    const std::vector<Angles>& angs, const BaseToyMapFit& toyMap, const double toyMapParams[],
+    const GenFncIndices& indices, const double genFncParams[], const GenFncDerivs& derivs)
+{
+    std::ofstream strm("torus.dat");
+    GenFnc genFnc(indices, genFncParams, &derivs[0]);
+    for(unsigned int k=0; k<angs.size(); k++) {
+        ActionAngles toyAA = genFnc.map(ActionAngles(acts, angs[k]));
+        coord::PosVelCyl point = toyMap.mapDeriv(toyAA, toyMapParams);
+        double H = totalEnergy(pot, point);
+        strm << angs[k].thetar << ' ' << angs[k].thetaz << ' ' << angs[k].thetaphi << '\t' <<
+        toyAA.thetar << ' ' << toyAA.thetaz << ' ' << toyAA.thetaphi << '\t' <<
+        point.R << ' ' << point.z << '\t' << H << '\n';
+    }
+}        
+
+/// perform a complete cycle of Levenberg-Marquardt fitting for the given set of gen.fnc.indices.
+static double fitTorus(
+    const potential::BasePotential& pot, const Actions& acts,
+    const BaseToyMapFit& toyMapFit, const GenFncIndices& indices,
+    std::vector<double>& fitParams,
+    Frequencies& freqs, GenFncDerivs& derivs)
+{
+    // number of iterations in Levenberg-Marquardt algorithm
+    const unsigned int maxNumIter = 10;
+    // stopping criterion for LM fit (relative change in parameters during step)
+    const double relToler = 0.1;
+    // create grid in toy angles large enough to properly sample all requested indices
+    std::vector<Angles> angs = makeGridAngles(indices);
+    // instance of generating function to be used during the fit
+    GenFncFit genFncFit(indices, acts, angs);
+    // routine that computes the scatter in Hamiltonian among the points in angle grid
+    FitMappingParams fnc(toyMapFit, genFncFit, pot);
+    // allocate or extend (if it was not empty) the array of initial parameter values
+    fitParams.resize(fnc.numVars());
+    // perform the Levenberg-Marquardt minimization and store best-fit parameters in fitParams
+    try{
+        int numIter = 
+        math::nonlinearMultiFit(fnc, &fitParams[0], relToler, maxNumIter, &fitParams[0]);
+        std::cout << numIter << " iterations; " << angs.size() << " points; ";
+    }
+    catch(std::exception&) {
+        return NAN;  // signal of error, will restart the fit from default initial params
+    }
+    // compute dS/dJ used in the angle map and obtain the dispersion of Hamiltonian at grid points
+    double dispH = fnc.fitAngleMap(&fitParams[0], freqs, derivs);
+    // DEBUGGING!!!
+    if(dispH==42)
+        printoutTorus(pot, acts, angs, toyMapFit, &fitParams[0],
+            indices, &fitParams[toyMapFit.numParams()], derivs);
+    return dispH;
+}
+
 }  // internal namespace
 
-ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& pot, const Actions& _acts) :
+ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& pot,
+    const Actions& _acts, double tol) :
     acts(_acts)
 {
     if(!isAxisymmetric(pot))
         throw std::invalid_argument("ActionMapperNewTorus only works for axisymmetric potentials");
-    // number of iterations in Levenberg-Marquardt algorithm
-    const unsigned int maxNumIter = 20;
-    // stopping criterion for LM fit
-    const double relToler = 0.01;
-    // grid in toy angles
-    std::vector<Angles> angs = makeGridAngles(12, 12);
-    // indices of non-trivial terms of generating function
-    GenFncIndices indices = makeGridIndices(8, 8); //makeDefaultIndices();
-    // instance of generating function to be used during the fit
-    GenFncFit genFncFit(indices, acts, angs);
+    // number of complete cycles of Levenberg-Marquardt fitting procedure
+    const unsigned int maxNumCycles = 6;
     // instance of toy map to be used during the fit
     ToyMapFitIsochrone toyMapFit;
-    // routine that computes the scatter in Hamiltonian among the points in angle grid
-    FitMappingParams fnc(toyMapFit, genFncFit, pot);
-    // initial values of parameters of toy map and generating function
-    std::vector<double> fitParams(fnc.numVars(), 0.);
-    // perform the Levenberg-Marquardt minimization and store best-fit parameters in fitParams
-    math::nonlinearMultiFit(fnc, &fitParams[0], relToler, maxNumIter, &fitParams[0]);
-    // compute dS/dJ used in the angle map
+    // parameters of toy map and generating function obtained during the fit
+    std::vector<double> fitParams(toyMapFit.numParams());
+    // derivatives of gen.fnc. w.r.t. J, obtained during the fit independently from the above params
     GenFncDerivs derivs;
-    fnc.fitAngleMap(&fitParams[0], freqs, derivs);
-    // create the toy map with best-fit params
+    // indices of non-trivial terms of generating function: initial assignment
+    GenFncIndices indices = makeGridIndices(4, 4);
+    // perform one or more complete fit cycles, expanding the set of indices after each cycle
+    // if the residuals in Hamiltonian are not sufficiently small
+    unsigned int numCycles = 0;
+    double dispHprev = INFINITY;
+    do{
+        double dispH = fitTorus(/*input*/ pot, acts, toyMapFit, indices,
+            /*in/out*/ fitParams, /*output*/ freqs, derivs);
+        double dispHmax = pow_2(tol) * (pow_2(freqs.Omegar) + pow_2(freqs.Omegaz)) *
+            (acts.Jr==0 || acts.Jz==0 ? pow_2(acts.Jr + acts.Jz) : acts.Jr * acts.Jz);
+        std::cout <<indices.size()<<" GF terms; dispH="<<sqrt(dispH)<<" (goal="<<sqrt(dispHmax)<<")\n";
+        printoutGenFncCoefs(indices, &fitParams[toyMapFit.numParams()]);
+        if(++numCycles>=maxNumCycles || dispH <= dispHmax)
+            break;
+        if(!math::isFinite(dispH + dispHmax) || dispH > dispHprev*0.8)
+        {   // an error occurred or the process does not seem to converge
+            fitParams.clear();   // restart fitting with zero initial parameters
+            std::cout << "\033[1;33mRESTARTING\033[0m\n";
+        } else {
+            dispHprev = dispH;
+        }
+        // add more terms to gen.fnc., taking into account the magnitudes of existing terms
+        addMoreIndices(&fitParams[toyMapFit.numParams()], indices);
+    } while(1);
+    // create the toy map with best-fit params (first toyMapFit.numParams() elements)
     toyMap = toyMapFit.create(&fitParams[0]);
-    // create the generating function with best-fit params
+    // create the generating function with best-fit params (all remaining elements)
     genFnc = PtrCanonicalMap(
         new GenFnc(indices, &fitParams[toyMapFit.numParams()], &derivs[0]));
 }

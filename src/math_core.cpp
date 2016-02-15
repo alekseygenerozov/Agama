@@ -59,6 +59,10 @@ int fcmp(double x, double y, double eps) {
         return y<-eps ? -1 : y>eps ? +1 : 0;
     if(y==0)
         return x<-eps ? -1 : x>eps ? +1 : 0;
+    if(x!=x)
+        return -2;
+    if(y!=y)
+        return +2;
     return gsl_fcmp(x, y, eps);
 }
 

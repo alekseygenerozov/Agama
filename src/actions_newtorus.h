@@ -15,7 +15,7 @@ class ActionMapperNewTorus: public BaseActionMapper{
 public:
     /** Construct a torus for the given axisymmetric potential and given values of actions;
         the potential is not subsequently used. */
-    ActionMapperNewTorus(const potential::BasePotential& pot, const Actions& acts);
+    ActionMapperNewTorus(const potential::BasePotential& pot, const Actions& acts, double tol=0.003);
 
     /** Map a point in action/angle space to a position/velocity in physical space.
         Note that for this class, the values of actions are set at the constructor;

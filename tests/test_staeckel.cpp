@@ -86,20 +86,20 @@ bool test_oblate_staeckel(const potential::OblatePerfectEllipsoid& potential,
     }
     stats.finish();
     statf.finish();
-    bool ok= stats.disp.Jr<eps && stats.disp.Jz<eps && stats.disp.Jphi<eps && !ex_afs
-          && statf.disp.Jr<eps && statf.disp.Jz<eps && statf.disp.Jphi<eps && !ex_aff
+    bool ok= stats.rms.Jr<eps && stats.rms.Jz<eps && stats.rms.Jphi<eps && !ex_afs
+          && statf.rms.Jr<eps && statf.rms.Jz<eps && statf.rms.Jphi<eps && !ex_aff
           && fabs(stats.avg.Jr-statf.avg.Jr)<eps
           && fabs(stats.avg.Jz-statf.avg.Jz)<eps
           && fabs(stats.avg.Jphi-statf.avg.Jphi)<eps;
     std::cout << coordSysT::name() << ", Exact"
-    ":  Jr="  <<stats.avg.Jr  <<" +- "<<stats.disp.Jr<<
-    ",  Jz="  <<stats.avg.Jz  <<" +- "<<stats.disp.Jz<<
-    ",  Jphi="<<stats.avg.Jphi<<" +- "<<stats.disp.Jphi<<
+    ":  Jr="  <<stats.avg.Jr  <<" +- "<<stats.rms.Jr<<
+    ",  Jz="  <<stats.avg.Jz  <<" +- "<<stats.rms.Jz<<
+    ",  Jphi="<<stats.avg.Jphi<<" +- "<<stats.rms.Jphi<<
     (ex_afs ? ",  \033[1;33mCAUGHT EXCEPTION\033[0m\n":"\n");
     std::cout << coordSysT::name() << ", Fudge"
-    ":  Jr="  <<statf.avg.Jr  <<" +- "<<statf.disp.Jr<<
-    ",  Jz="  <<statf.avg.Jz  <<" +- "<<statf.disp.Jz<<
-    ",  Jphi="<<statf.avg.Jphi<<" +- "<<statf.disp.Jphi << (ok?"":" \033[1;31m**\033[0m")<<
+    ":  Jr="  <<statf.avg.Jr  <<" +- "<<statf.rms.Jr<<
+    ",  Jz="  <<statf.avg.Jz  <<" +- "<<statf.rms.Jz<<
+    ",  Jphi="<<statf.avg.Jphi<<" +- "<<statf.rms.Jphi << (ok?"":" \033[1;31m**\033[0m")<<
     (ex_aff ? ",  \033[1;33mCAUGHT EXCEPTION\033[0m\n":"\n");
     return ok;
 }

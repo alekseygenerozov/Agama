@@ -44,8 +44,8 @@ bool headerPrinted = false;
 class BestIFDFinder: public math::IFunctionNoDeriv {
 public:
     BestIFDFinder(const potential::BasePotential& p, const std::vector<coord::PosVelCar>& t,
-                  actions::Actions& a, actions::Actions& d) :
-        potential(p), traj(t), avg(a), disp(d) {};
+                  actions::Actions& a, actions::Actions& r) :
+        potential(p), traj(t), avg(a), rms(r) {};
     virtual double value(double ifd) const {
         actions::ActionStat acts;
         for(size_t i=0; i<traj.size(); i++)
@@ -53,14 +53,14 @@ public:
         numActionEval += traj.size();
         acts.finish();
         avg = acts.avg;
-        disp= acts.disp;
-        return acts.disp.Jr + acts.disp.Jz;
+        rms = acts.rms;
+        return acts.rms.Jr + acts.rms.Jz;
     }
 private:
     const potential::BasePotential& potential;
     const std::vector<coord::PosVelCar>& traj;
     actions::Actions& avg;
-    actions::Actions& disp;
+    actions::Actions& rms;
 };
 
 bool test_actions(const potential::BasePotential& potential,
@@ -69,11 +69,11 @@ bool test_actions(const potential::BasePotential& potential,
 {
     std::vector<coord::PosVelCar> traj;
     orbit::integrate(potential, initial_conditions, total_time, timestep, traj, integr_eps);
-    actions::Actions avg, disp;
+    actions::Actions avg, rms;
     if(ifd<=0) 
         ifd = actions::estimateInterfocalDistancePoints(potential, traj);
 
-    BestIFDFinder fnc(potential, traj, avg, disp);
+    BestIFDFinder fnc(potential, traj, avg, rms);
     // uncommenting the line below enables the search of best-fit interfocal distance,
     // i.e. the one that minimizes the variation in actions over the entire orbit.
     // It turns out that the value provided by InterfocalDistanceFinder is good enough,
@@ -84,7 +84,7 @@ bool test_actions(const potential::BasePotential& potential,
 #endif
     fnc.value(ifd);
     double dim = unit.to_Kpc*unit.to_Kpc/unit.to_Myr; //unit.to_Kpc_kms;
-    double scatter = (disp.Jr+disp.Jz) / (avg.Jr+avg.Jz);
+    double scatter = (rms.Jr+rms.Jz) / (avg.Jr+avg.Jz);
     double scatterNorm = 0.33 * sqrt( (avg.Jr+avg.Jz) / (avg.Jr+avg.Jz+fabs(avg.Jphi)) );
     bool tolerable = scatter < scatterNorm ; 
     double E = totalEnergy(potential, initial_conditions);
@@ -96,9 +96,9 @@ bool test_actions(const potential::BasePotential& potential,
         E*pow_2(unit.to_Kpc/unit.to_Myr) <<" "<<
         L_circ(potential, E)*dim << "  " << 
         avg.Jphi*dim <<" "<<
-        avg.Jr*dim <<" "<< disp.Jr*dim <<" "<< 
-        avg.Jz*dim <<" "<< disp.Jz*dim <<" "<<
-        //acts.avg.Jphi*dim <<" "<< acts.disp.Jphi*dim <<"  "<< 
+        avg.Jr*dim <<" "<< rms.Jr*dim <<" "<< 
+        avg.Jz*dim <<" "<< rms.Jz*dim <<" "<<
+        //acts.avg.Jphi*dim <<" "<< acts.rms.Jphi*dim <<"  "<< 
         //angs.freqr <<" "<< angs.freqz <<" "<< angs.freqphi <<"  "<<
         //angs.dispr <<" "<< angs.dispz <<" "<< angs.dispphi <<"  "<<
         //maxJr*dim << " " << maxJz*dim << "  "<<

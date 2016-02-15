@@ -440,7 +440,7 @@ int SbyLevMar(               // return:        error flag (see below)
       cerr<<" lam, <H>, dH, dch = "
           <<lambda<<' ' <<mean_H<<' '<<delta_H<<' '<< dchisq //<<'\n';
 	//<<"  a=" << cpy 
-	  <<"; b="<<tpy<<'\n';
+	  <<"; b="<<tpy(0)<<','<<tpy(1)<<','<<tpy(2)<<','<<tpy(3)<<'\n';
 
 //##############################################################################
 // iteration (i.e. the main part of this routine)
@@ -493,7 +493,7 @@ int SbyLevMar(               // return:        error flag (see below)
 	    if (err)
 	      cerr<<"SbyLevMar: it "<<iterations<<": NEG. ACTIONS;   "
 	        //<< cpy << 
-		" b=" << tpy <<'\n';
+		" b=" << tpy(0)<<','<<tpy(1)<<','<<tpy(2)<<','<<tpy(3) <<'\n';
 	  } else 
 	    if(err)
 	    cerr<<"SbyLevMar: it "<<iterations<<": |dCHI^2/dA|>TOLERANCE\n";
@@ -507,7 +507,7 @@ int SbyLevMar(               // return:        error flag (see below)
 	    cerr<<"SbyLevMar: it "<<iterations
 	    <<": lam, <H>, dH, dch = "<<lambda<<' '<<mean_H
 		<<' '<<delta_H<<' '<< dchisq//<<"  a="<< cpy 
-		<<"; b="<<tpy<<'\n';
+		<<"; b="<<tpy(0)<<','<<tpy(1)<<','<<tpy(2)<<','<<tpy(3)<<'\n';
 	  lambda *= 0.5;
 	  //if(fit[2]) cp = PT.parameters();
 	  if(fit[1]) tp = TM.parameters();
@@ -520,7 +520,7 @@ int SbyLevMar(               // return:        error flag (see below)
 	} else {
 	  if(err){
 	    cerr<<"SbyLevMar: it "<<iterations<<": no improvement;"//a="<<cpy<<
-		<< " dH = "<<delta_H<<"; b="<<tpy<<'\n';
+		<< " dH = "<<delta_H<<"; b="<<tpy(0)<<','<<tpy(1)<<','<<tpy(2)<<','<<tpy(3)<<'\n';
 	  }
 	    lambda *= 4.;
         }

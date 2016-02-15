@@ -96,16 +96,16 @@ void Torus::DelMaps()
 
 void Torus::show(ostream& out) const
 {
-    out <<" Actions                = "<<J<<'\n'
+    out <<" Actions                = "<<J(0)<<','<<J(1)<<','<<J(2)<<'\n'
 	<<" E, dE                  = "<<E<<' ';
     if(J(0) && J(1))
       out << (  hypot(Om(0),Om(1)) * sqrt(J(0)*J(1)) * dc(0) ) <<'\n';
     else
       out << (  hypot(Om(0),Om(1)) * (J(0) + J(1)) * dc(0) ) <<'\n';
-    out <<" Frequencies            = "<<Om<<'\n'
-	<<" dJ, chi_rms            = "<<dc<<'\n'
+    out <<" Frequencies            = "<<Om(0)<<','<<Om(1)<<','<<Om(2)<<'\n'
+	<<" dJ, chi_rms            = "<<dc(0)<<','<<dc(1)<<','<<dc(2)<<','<<dc(3)<<'\n'
       //<<" parameters of PoiTra   = "<<PP()<<'\n'
-	<<" parameters of ToyMap   = "<<TP()<<'\n'
+	<<" parameters of ToyMap   = "<<TP()(0)<<','<<TP()(1)<<','<<TP()(2)<<','<<TP()(3)<<','<<'\n'
 	<<" number of Sn, log|Sn|  : ";
 	SN().write_log(out);
     out <<"\n log|dSn/dJr|           : ";

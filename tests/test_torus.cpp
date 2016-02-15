@@ -56,15 +56,15 @@ bool test_actions(const potential::BasePotential& poten,
     }
     acts.finish();
     angs.finish();
-    double scatter = (acts.disp.Jr+acts.disp.Jz) / (acts.avg.Jr+acts.avg.Jz);
+    double scatter = (acts.rms.Jr+acts.rms.Jz) / (acts.avg.Jr+acts.avg.Jz);
     double scatterNorm = 0.33 * sqrt( (acts.avg.Jr+acts.avg.Jz) / (acts.avg.Jr+acts.avg.Jz+fabs(acts.avg.Jphi)) );
     bool tolerable = scatter < scatterNorm && 
         angs.dispr < 0.1 && angs.dispz < 1.0 && angs.dispphi < 0.05;
     const double dim = unit.to_Kpc_kms;
     std::cout << 
-        acts.avg.Jr*dim <<" "<< acts.disp.Jr*dim <<" "<< 
-        acts.avg.Jz*dim <<" "<< acts.disp.Jz*dim <<" "<< 
-        acts.avg.Jphi*dim <<" "<< acts.disp.Jphi*dim <<"  "<< 
+        acts.avg.Jr*dim <<" "<< acts.rms.Jr*dim <<" "<< 
+        acts.avg.Jz*dim <<" "<< acts.rms.Jz*dim <<" "<< 
+        acts.avg.Jphi*dim <<" "<< acts.rms.Jphi*dim <<"  "<< 
         angs.freqr <<" "<< angs.freqz <<" "<< angs.freqphi <<"  "<<
         angs.dispr <<" "<< angs.dispz <<" "<< angs.dispphi <<"  "<<
         std::endl;

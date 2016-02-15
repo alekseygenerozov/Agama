@@ -26,6 +26,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     const double epsr = 5e-4;  // accuracy of comparison for radial action found with different methods
     const double epsd = 1e-7;  // accuracy of action conservation along the orbit for each method
     const double epst = 1e-9;  // accuracy of reverse transformation (pv=>aa=>pv)
+    const double epsf = 1e-6;  // accuracy of frequency determination
     const double M = 2.7;      // mass and
     const double b = 0.6;      // scale radius of Isochrone potential
     const double total_time=50;// integration time
@@ -61,7 +62,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
         traj[i].phi = math::wrapAngle(traj[i].phi);
         aaI = actions::actionAnglesIsochrone(M, b,  traj[i], &frI);
         aaF = actions::actionAnglesAxisymFudge(pot, traj[i], ifd, &frF);
-        acS = actions::actionsSpherical(pot, traj[i]);        
+        acS = actions::actionsSpherical(pot, traj[i]);
         statI.add(aaI);
         statF.add(aaF);
         statS.add(acS);
@@ -186,26 +187,26 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     statI.finish();
     statF.finish();
     statS.finish();
-    bool dispI_ok = statI.disp.Jr<epsd && statI.disp.Jz<epsd && statI.disp.Jphi<epsd;
-    bool dispS_ok = statS.disp.Jr<epsd && statS.disp.Jz<epsd && statS.disp.Jphi<epsd;
-    bool dispF_ok = statF.disp.Jr<epsd && statF.disp.Jz<epsd && statF.disp.Jphi<epsd;
+    bool dispI_ok = statI.rms.Jr<epsd && statI.rms.Jz<epsd && statI.rms.Jphi<epsd;
+    bool dispS_ok = statS.rms.Jr<epsd && statS.rms.Jz<epsd && statS.rms.Jphi<epsd;
+    bool dispF_ok = statF.rms.Jr<epsd && statF.rms.Jz<epsd && statF.rms.Jphi<epsd;
     bool compareIF =
              fabs(statI.avg.Jr-statF.avg.Jr)<epsr
           && fabs(statI.avg.Jz-statF.avg.Jz)<epsr
           && fabs(statI.avg.Jphi-statF.avg.Jphi)<epsd;
-    bool freq_ok = statfrIr.disp() < epsd && statfrIz.disp() < epsd;
+    bool freq_ok = statfrIr.disp() < epsf*epsf && statfrIz.disp() < epsf*epsf;
     std::cout << "Isochrone"
-    ":  Jr="  <<statI.avg.Jr  <<" +- "<<statI.disp.Jr<<
-    ",  Jz="  <<statI.avg.Jz  <<" +- "<<statI.disp.Jz<<
-    ",  Jphi="<<statI.avg.Jphi<<" +- "<<statI.disp.Jphi<< (dispI_ok?"":" \033[1;31m**\033[0m")<<
+    ":  Jr="  <<statI.avg.Jr  <<" +- "<<statI.rms.Jr<<
+    ",  Jz="  <<statI.avg.Jz  <<" +- "<<statI.rms.Jz<<
+    ",  Jphi="<<statI.avg.Jphi<<" +- "<<statI.rms.Jphi<< (dispI_ok?"":" \033[1;31m**\033[0m")<<
     "\nSpherical"
-    ":  Jr="  <<statS.avg.Jr  <<" +- "<<statS.disp.Jr<<
-    ",  Jz="  <<statS.avg.Jz  <<" +- "<<statS.disp.Jz<<
-    ",  Jphi="<<statS.avg.Jphi<<" +- "<<statS.disp.Jphi<< (dispS_ok?"":" \033[1;31m**\033[0m")<<
+    ":  Jr="  <<statS.avg.Jr  <<" +- "<<statS.rms.Jr<<
+    ",  Jz="  <<statS.avg.Jz  <<" +- "<<statS.rms.Jz<<
+    ",  Jphi="<<statS.avg.Jphi<<" +- "<<statS.rms.Jphi<< (dispS_ok?"":" \033[1;31m**\033[0m")<<
     "\nAxi.Fudge"
-    ":  Jr="  <<statF.avg.Jr  <<" +- "<<statF.disp.Jr<<
-    ",  Jz="  <<statF.avg.Jz  <<" +- "<<statF.disp.Jz<<
-    ",  Jphi="<<statF.avg.Jphi<<" +- "<<statF.disp.Jphi<< (dispF_ok?"":" \033[1;31m**\033[0m")<<
+    ":  Jr="  <<statF.avg.Jr  <<" +- "<<statF.rms.Jr<<
+    ",  Jz="  <<statF.avg.Jz  <<" +- "<<statF.rms.Jz<<
+    ",  Jphi="<<statF.avg.Jphi<<" +- "<<statF.rms.Jphi<< (dispF_ok?"":" \033[1;31m**\033[0m")<<
     (compareIF?"":" \033[1;31mNOT EQUAL\033[0m ")<<
     (reversible?"":" \033[1;31mNOT INVERTIBLE\033[0m ")<<
     (freq_ok?"":" \033[1;31mFREQS NOT CONST\033[0m ")<<
