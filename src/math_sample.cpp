@@ -323,8 +323,8 @@ void Sampler::evalFncLoop(unsigned int first, unsigned int count)
 
 void Sampler::runPass(const unsigned int numSamples)
 {
-    sampleCoords.resize(numSamples, Ndim);    // clear both arrays
-    weightedFncValues.resize(numSamples);     // or, rather, preallocate space for them
+    sampleCoords.resize(numSamples, Ndim);    // preallocate space for both arrays
+    weightedFncValues.resize(numSamples);
     defaultSamplesPerCell = numSamples * 1. / numCells;
     samplesPerCell.clear();
 
@@ -345,7 +345,7 @@ void Sampler::runPass(const unsigned int numSamples)
 void Sampler::computeIntegral()
 {
     const unsigned int numSamples = weightedFncValues.size();
-    assert(sampleCoords.numRows() == numSamples);
+    assert(sampleCoords.rows() == numSamples);
     Averager avg;
     for(unsigned int i=0; i<numSamples; i++)
         avg.add(weightedFncValues[i]);
@@ -360,7 +360,7 @@ void Sampler::computeIntegral()
 void Sampler::readjustBins()
 {
     const unsigned int numSamples = weightedFncValues.size();
-    assert(sampleCoords.numRows() == numSamples);
+    assert(sampleCoords.rows() == numSamples);
     assert(numSamples>0);
 
     // draw bin boundaties in each dimension separately
@@ -500,9 +500,9 @@ void Sampler::refineCellByAddingSamples(CellEnum indexCell, double refineFactor,
         weightedFncValues[ listOfPointsInCell[i] ] /= refineFactor;
 
     // extend the array of sampling points
-    unsigned int numPrevSamples = sampleCoords.numRows();
+    unsigned int numPrevSamples = sampleCoords.rows();
     assert(weightedFncValues.size() == numPrevSamples);
-    sampleCoords.resize(numPrevSamples + numNewSamples, Ndim);
+    sampleCoords.conservativeResize(numPrevSamples + numNewSamples, Ndim);  // preserve existing values
     weightedFncValues.resize(numPrevSamples + numNewSamples);
 
     // assign coordinates for newly sampled points, but don't evaluate function yet --
@@ -520,7 +520,7 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
     int nIter=0;  // safeguard against infinite loop
     do{
         const unsigned int numSamples = weightedFncValues.size();
-        assert(sampleCoords.numRows() == numSamples);   // number of internal samples already taken
+        assert(sampleCoords.rows() == numSamples);   // number of internal samples already taken
         // maximum allowed value of f(x)*w(x), which is the weight of one output sample
         // (this number is not constant because the estimate of integValue is adjusted after each iteration)
         const double maxWeight = integValue / (numOutputSamples+1e-6);
@@ -572,7 +572,7 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
         }
 
         // then evaluate function values for all new samples
-        unsigned int numNewSamples = sampleCoords.numRows()-numSamples;
+        unsigned int numNewSamples = sampleCoords.rows()-numSamples;
 #ifdef VERBOSE_REPORT
         std::cout << "Iteration #" << nIter <<": refining " << numCellsForRefinement <<
             " cells because of " << numOverweightSamples << " overweight samples"
@@ -591,7 +591,7 @@ void Sampler::drawSamples(const unsigned int numOutputSamples, Matrix<double>& o
 {
     outputSamples.resize(numOutputSamples, Ndim);
     const unsigned int npoints = weightedFncValues.size();
-    assert(sampleCoords.numRows() == npoints);   // number of internal samples already taken
+    assert(sampleCoords.rows() == npoints);   // number of internal samples already taken
     double partialSum = 0;        // accumulates the sum of f(x_i) w(x_i) for i=0..{current value}
     const double outputWeight =   // difference in accumulated sum between two output samples
         integValue / (numOutputSamples+1e-6);
@@ -606,7 +606,8 @@ void Sampler::drawSamples(const unsigned int numOutputSamples, Matrix<double>& o
             outputIndex++;
         }
     }
-    outputSamples.resize(outputIndex, Ndim);
+    if(outputIndex != numOutputSamples)
+        outputSamples.conservativeResize(outputIndex, Ndim);
 }
 
 }  // unnamed namespace

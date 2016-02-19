@@ -64,7 +64,7 @@ public:
     //void computeRegressionAtPoints(const std::vector<double> &xpoints, std::vector<double> &ypoints) const;
 
     /** check if the basis matrix L is singular */
-    bool isSingular() const { return LMatrix.numRows()==0; }
+    bool isSingular() const { return LMatrix.rows()==0; }
 
 private:
     /** In the unfortunate case that the fit matrix appears to be singular, another algorithm
@@ -77,7 +77,14 @@ private:
 };
 
 SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const std::vector<double> &_knots) :
-    numDataPoints(_xvalues.size()), numKnots(_knots.size())
+    numDataPoints(_xvalues.size()), numKnots(_knots.size()),
+    knots(_knots),
+    xvalues(_xvalues),
+    weightCoefs  (numKnots+2),
+    zRHS         (numKnots+2),
+    bsplineMatrix(numDataPoints, numKnots+2),
+    LMatrix      (numKnots+2, numKnots+2),
+    MTz          (numKnots+2)
 {
     // first check for validity of input range
     bool range_ok = (numDataPoints>2 && numKnots>2);
@@ -85,8 +92,6 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const st
         range_ok &= (_knots[k-1]<_knots[k]);  // knots must be in ascending order
     if(!range_ok)
         throw std::invalid_argument("Error in SplineApprox initialization: knots must be in ascending order");
-    xvalues = _xvalues;
-    knots = _knots;
     for(size_t v=0; v<xvalues.size(); v++) {
         if(xvalues[v] < knots.front() || xvalues[v] > knots.back()) 
             throw std::invalid_argument("Error in SplineApprox initialization: "
@@ -94,12 +99,6 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const st
     }
     ynorm2 = gsl_nan();  // to indicate that no y-values have been loaded yet
 
-    // next allocate b-splines and other matrices
-    bsplineMatrix.resize(numDataPoints, numKnots+2); // matrix C_ip -- this is the largest chunk of memory to be used
-    LMatrix      .resize(numKnots+2, numKnots+2);    // lower triangular matrix L obtained by Cholesky decomposition of matrix A = C^T C
-    weightCoefs  .assign(numKnots+2, 0);             // weight coefficients at basis functions, which are the unknowns in the linear system
-    zRHS         .resize(numKnots+2);                // z = C^T y, RHS of the linear system
-    MTz          .resize(numKnots+2);
     bsplineWorkspace      = gsl_bspline_alloc(4, numKnots);
 #if GSL_MAJOR_VERSION < 2
     bsplineDerivWorkspace = gsl_bspline_deriv_alloc(4);
@@ -167,13 +166,13 @@ inline double getVal(const Matrix<double>& deriv, size_t row, size_t col)
 
 void SplineApproxImpl::initRoughnessMatrix()
 {
-    if(MMatrix.numRows()>0) {  // already computed
+    if(MMatrix.rows()>0) {  // already computed
         blas_dgemv(CblasTrans, 1, MMatrix, zRHS, 0, MTz);  // precompute M^T z
         return;
     }
     // init matrix with roughness penalty (integrals of product of second derivatives of basis functions)
-    MMatrix = Matrix<double>(numKnots+2, numKnots+2, 0.);   // matrix R_pq
-    Matrix<double> derivs(3, numKnots, 0.);
+    MMatrix = Matrix<double>(numKnots+2, numKnots+2);   // matrix R_pq
+    Matrix<double> derivs(3, numKnots);
     gsl_matrix* bsplineDerivValues = gsl_matrix_alloc(4, 3);
     for(size_t k=0; k<numKnots; k++)
     {
@@ -820,9 +819,9 @@ BaseInterpolator2d::BaseInterpolator2d(
     const unsigned int ysize = ygrid.size();
     if(xsize<2 || ysize<2)
         throw std::invalid_argument("Error in 2d interpolator initialization: number of nodes should be >=2 in each direction");
-    if(zvalues.numRows() != xsize)
+    if(zvalues.rows() != xsize)
         throw std::invalid_argument("Error in 2d interpolator initialization: x and z array lengths differ");
-    if(zvalues.numCols() != ysize)
+    if(zvalues.cols() != ysize)
         throw std::invalid_argument("Error in 2d interpolator initialization: y and z array lengths differ");
 }
 

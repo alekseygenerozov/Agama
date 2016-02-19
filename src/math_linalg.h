@@ -1,12 +1,30 @@
 /** \file   math_linalg.h
     \brief  linear algebra routines (including BLAS)
-    \date   2015
+    \date   2015-2016
     \author Eugene Vasiliev
 */
 #pragma once
 #include <vector>
+#ifdef HAVE_EIGEN
+#define EIGEN_DEFAULT_TO_ROW_MAJOR
+#include <Eigen/Core>
+#endif
 
 namespace math{
+
+#ifdef HAVE_EIGEN
+
+/** class for two-dimensional matrices that is simply a renamed matrix class from Eigen */
+template<typename NumT>
+class Matrix: public Eigen::Matrix<NumT, Eigen::Dynamic, Eigen::Dynamic> {
+public:
+    Matrix() :
+        Eigen::Matrix<NumT, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>() {}
+    Matrix(unsigned int nRows, unsigned int nCols) :
+        Eigen::Matrix<NumT, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>(nRows, nCols) {}
+};
+
+#else
 
 /** a simple class for two-dimensional matrices */
 template<typename NumT>
@@ -17,49 +35,53 @@ public:
 
     /// create a matrix of given size
     Matrix(unsigned int _nRows, unsigned int _nCols) :
-        nRows(_nRows), nCols(_nCols), data(nRows*nCols) {};
-
-    /// create a matrix of given size and fill it with a value
-    Matrix(unsigned int _nRows, unsigned int _nCols, double val) :
-        nRows(_nRows), nCols(_nCols), data(nRows*nCols, val) {};
+        nRows(_nRows), nCols(_nCols), arr(nRows*nCols) {};
 
     /// create a matrix of given size from a flattened array of values:
     /// M(row, column) = data[ row*nCols + column ]
     Matrix(unsigned int _nRows, unsigned int _nCols, double* val) :
-        nRows(_nRows), nCols(_nCols), data(val, val+nRows*nCols) {};
+        nRows(_nRows), nCols(_nCols), arr(val, val+nRows*nCols) {};
 
-    /// resize an existing matrix
-    void resize(unsigned int newRows, unsigned int newCols) {
+    /// fill the matrix with the given value
+    void fill(const NumT value) { arr.assign(arr.size(), value); };
+
+    /// resize an existing matrix while preserving its existing elements
+    void conservativeResize(unsigned int newRows, unsigned int newCols) {
         nRows = newRows;
         nCols = newCols;
-        data.resize(nRows*nCols);
+        arr.resize(nRows*nCols);
     }
+
+    /// resize matrix without preserving its elements
+    void resize(unsigned int newRows, unsigned int newCols) {
+        conservativeResize(newRows, newCols); }
 
     /// access the matrix element for reading (no bound checks!)
     const NumT& operator() (unsigned int row, unsigned int column) const {
-        return data[row*nCols+column]; }
+        return arr[row*nCols+column]; }
 
     /// access the matrix element for writing (no bound checks!)
     NumT& operator() (unsigned int row, unsigned int column) {
-        return data[row*nCols+column]; }
+        return arr[row*nCols+column]; }
 
     /// number of matrix rows
-    unsigned int numRows() const { return nRows; }
+    unsigned int rows() const { return nRows; }
 
     /// number of matrix columns
-    unsigned int numCols() const { return nCols; }
+    unsigned int cols() const { return nCols; }
 
     /// access raw data for reading (2d array in row-major order:
-    /// indexing scheme is  `M(row, column) = M.data[ row*M.numCols() + column ]` )
-    const NumT* getData() const { return &data.front(); }
+    /// indexing scheme is  `M(row, column) = M.data[ row*M.cols() + column ]` )
+    const NumT* data() const { return &arr.front(); }
 
     /// access raw data for writing (2d array in row-major order)
-    NumT* getData() { return &data.front(); }
+    NumT* data() { return &arr.front(); }
 private:
-    unsigned int nRows;      ///< number of rows (first index)
-    unsigned int nCols;      ///< number of columns (second index)
-    std::vector<NumT> data;  ///< flattened data storage
+    unsigned int nRows;     ///< number of rows (first index)
+    unsigned int nCols;     ///< number of columns (second index)
+    std::vector<NumT> arr;  ///< flattened data storage
 };
+#endif
 
 /** zero out array elements with magnitude smaller than the threshold
     times the maximum element of the array;

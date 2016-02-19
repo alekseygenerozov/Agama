@@ -400,6 +400,7 @@ static bool readAzimuthalHarmonics(std::istream& strm,
         ok &= gridR.size() == size_R;
         gridz.clear();
         data[m+mmax].resize(size_R, size_z);
+        data[m+mmax].fill(0);
         for(unsigned int iz=0; ok && iz<size_z; iz++) {
             std::getline(strm, buffer);
             utils::splitString(buffer, "# \t", fields);
@@ -571,7 +572,7 @@ static void writeAzimuthalHarmonics(std::ostream& strm,
     int mmax = (-1+data.size())/2;
     assert(mmax>=0);
     for(unsigned int mm=0; mm<data.size(); mm++) 
-        if(data[mm].numRows()*data[mm].numCols()>0) {
+        if(data[mm].rows()*data[mm].cols()>0) {
             strm << (-mmax+mm) << "\t#m\n#z\\R";
             for(unsigned int iR=0; iR<gridR.size(); iR++)
                 strm << "\t" << gridR[iR];

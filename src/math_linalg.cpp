@@ -19,12 +19,12 @@ void eliminateNearZeros(std::vector<double>& vec, double threshold)
 void eliminateNearZeros(Matrix<double>& mat, double threshold)
 {
     double mag=0;
-    for(unsigned int i=0; i<mat.numRows(); i++)
-        for(unsigned int j=0; j<mat.numCols(); j++)
+    for(unsigned int i=0; i<mat.rows(); i++)
+        for(unsigned int j=0; j<mat.cols(); j++)
             mag = fmax(mag, fabs(mat(i,j)));
     mag *= threshold;
-    for(unsigned int i=0; i<mat.numRows(); i++)
-        for(unsigned int j=0; j<mat.numCols(); j++)
+    for(unsigned int i=0; i<mat.rows(); i++)
+        for(unsigned int j=0; j<mat.cols(); j++)
             if(fabs(mat(i,j)) <= mag)
                 mat(i,j)=0;
 }
@@ -39,8 +39,8 @@ bool allZeros(const std::vector<double>& vec)
 
 bool allZeros(const Matrix<double>& mat)
 {
-    for(unsigned int i=0; i<mat.numRows(); i++)
-        for(unsigned int j=0; j<mat.numCols(); j++)
+    for(unsigned int i=0; i<mat.rows(); i++)
+        for(unsigned int j=0; j<mat.cols(); j++)
             if(mat(i,j) != 0)
                 return false;
     return true;
@@ -65,7 +65,7 @@ private:
 
 struct Mat {
     explicit Mat(Matrix<double>& mat) :
-        m(gsl_matrix_view_array(mat.getData(), mat.numRows(), mat.numCols())) {}
+        m(gsl_matrix_view_array(mat.data(), mat.rows(), mat.cols())) {}
     operator gsl_matrix* () { return &m.matrix; }
 private:
     gsl_matrix_view m;
@@ -73,7 +73,7 @@ private:
 
 struct MatC {
     explicit MatC(const Matrix<double>& mat) :
-        m(gsl_matrix_const_view_array(mat.getData(), mat.numRows(), mat.numCols())) {}
+        m(gsl_matrix_const_view_array(mat.data(), mat.rows(), mat.cols())) {}
     operator const gsl_matrix* () const { return &m.matrix; }
 private:
     gsl_matrix_const_view m;
@@ -133,11 +133,11 @@ void linearSystemSolveCholesky(const Matrix<double>& cholA, const std::vector<do
 
 void singularValueDecomp(Matrix<double>& A, Matrix<double>& V, std::vector<double>& SV)
 {
-    V.resize(A.numCols(), A.numCols());
-    SV.resize(A.numCols());
-    std::vector<double> temp(A.numCols());
-    if(A.numRows() >= A.numCols()*5) {   // use a modified algorithm for very 'elongated' matrices
-        Matrix<double> tempmat(A.numCols(), A.numCols());
+    V.resize(A.cols(), A.cols());
+    SV.resize(A.cols());
+    std::vector<double> temp(A.cols());
+    if(A.rows() >= A.cols()*5) {   // use a modified algorithm for very 'elongated' matrices
+        Matrix<double> tempmat(A.cols(), A.cols());
         gsl_linalg_SV_decomp_mod(Mat(A), Mat(tempmat), Mat(V), Vec(SV), Vec(temp));
     } else
         gsl_linalg_SV_decomp(Mat(A), Mat(V), Vec(SV), Vec(temp));
@@ -146,7 +146,7 @@ void singularValueDecomp(Matrix<double>& A, Matrix<double>& V, std::vector<doubl
 void linearSystemSolveSVD(const Matrix<double>& U, const Matrix<double>& V, const std::vector<double>& SV,
     const std::vector<double>& y, std::vector<double>& x)
 {
-    x.resize(U.numCols());
+    x.resize(U.cols());
     gsl_linalg_SV_solve(MatC(U), MatC(V), VecC(SV), VecC(y), Vec(x));
 }
 

@@ -481,9 +481,9 @@ void generatePosVelSamples(const GalaxyModel& model, const unsigned int numSampl
     double xlower[6] = {0,0,0,0,0,0}; // boundaries of sampling region in scaled coordinates
     double xupper[6] = {1,1,1,1,1,1};
     math::sampleNdim(fnc, xlower, xupper, numSamples, result, NULL, &totalMass, &errorMass);
-    const double pointMass = totalMass / result.numRows();
+    const double pointMass = totalMass / result.rows();
     points.data.clear();
-    for(unsigned int i=0; i<result.numRows(); i++) {
+    for(unsigned int i=0; i<result.rows(); i++) {
         double scaledvars[6] = {result(i,0), result(i,1), result(i,2),
             result(i,3), result(i,4), result(i,5)};
         // transform from scaled vars (array of 6 numbers) to real pos/vel
@@ -503,9 +503,9 @@ void generateDensitySamples(const potential::BaseDensity& dens, const unsigned i
     double xlower[3] = {0,0,0};       // boundaries of sampling region in scaled coordinates
     double xupper[3] = {1,1,1};
     math::sampleNdim(fnc, xlower, xupper, numPoints, result, NULL, &totalMass, &errorMass);
-    const double pointMass = totalMass / result.numRows();
+    const double pointMass = totalMass / result.rows();
     points.data.clear();
-    for(unsigned int i=0; i<result.numRows(); i++) {
+    for(unsigned int i=0; i<result.rows(); i++) {
         // if the system is axisymmetric, phi is not provided by the sampling routine
         double scaledvars[3] = {result(i,0), result(i,1), 
             axisym ? math::random() : result(i,2)};

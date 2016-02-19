@@ -236,8 +236,10 @@ void computePotentialCoefsFromDensity(const BaseDensity &src,
     // the number of output coefficients is always a full set even if some of them are empty
     for(unsigned int q=0; q<numQuantitiesOutput; q++) {
         output[q]->resize(2*mmax+1);
-        for(unsigned int i=0; i<indices.size(); i++)  // only allocate those coefs that will be used
+        for(unsigned int i=0; i<indices.size(); i++) {  // only allocate those coefs that will be used
             output[q]->at(indices[i]+mmax).resize(sizeR, sizez);
+            output[q]->at(indices[i]+mmax).fill(0);
+        }
     }
 
     PtrDensity densInterp;  // pointer to an internally created interpolating object if it is needed
@@ -344,8 +346,10 @@ void computePotentialCoefsFromPoints(
     unsigned int numQuantitiesOutput = useDerivs ? 3 : 1;  // Phi only, or Phi plus two derivs
     for(unsigned int q=0; q<numQuantitiesOutput; q++) {
         output[q]->resize(2*mmax+1);
-        for(unsigned int i=0; i<indices.size(); i++)
+        for(unsigned int i=0; i<indices.size(); i++) {
             output[q]->at(indices[i]+mmax).resize(sizeR, sizez);
+            output[q]->at(indices[i]+mmax).fill(0);
+        }
     }
     int nbody = Rz.size();
     int numPoints = sizeR * sizez;
@@ -393,7 +397,7 @@ void computeDensityCoefsCyl(const BaseDensity& src,
             double d1 = output[mmax](0, iz+1);  // value at R=0,z>0
             double d2 = output[mmax](1, iz);    // value at R>0,z=0
             for(unsigned int mm=0; mm<output.size(); mm++)
-                if(output[mm].numCols()>0)  // loop over all non-empty harmonics
+                if(output[mm].cols()>0)  // loop over all non-empty harmonics
                     output[mm](0, iz) = mm==mmax ? (d1+d2)/2 : 0;  // only m=0 survives
         }
 }
@@ -414,11 +418,11 @@ void computePotentialCoefsCyl(const BasePotential &src,
         if(gridz[iz] == 0 && isZReflSymmetric(src)) {
             for(unsigned int iR=0; iR<gridR.size(); iR++)
                 for(unsigned int mm=0; mm<dPhidz.size(); mm++)
-                    if(dPhidz[mm].numCols()>0)  // loop over all non-empty harmonics
+                    if(dPhidz[mm].cols()>0)  // loop over all non-empty harmonics
                         dPhidz[mm](iR, iz) = 0; // z-derivative is zero in the symmetry plane
         }
         for(unsigned int mm=0; mm<dPhidR.size(); mm++)
-            if(dPhidR[mm].numCols()>0)  // loop over all non-empty harmonics
+            if(dPhidR[mm].cols()>0)  // loop over all non-empty harmonics
                 dPhidR[mm](0, iz) = 0;  // R-derivative at R=0 should always be zero
     }
 }
@@ -592,9 +596,9 @@ DensityAzimuthalHarmonic::DensityAzimuthalHarmonic(
     int mmax = (coefs.size()-1)/2;
     spl.resize(2*mmax+1);
     for(int mm=0; mm<=2*mmax; mm++) {
-        if(coefs[mm].numRows() == 0 && coefs[mm].numCols() == 0)
+        if(coefs[mm].rows() == 0 && coefs[mm].cols() == 0)
             continue;
-        if(coefs[mm].numRows() != sizeR || coefs[mm].numCols() != sizez_orig)
+        if(coefs[mm].rows() != sizeR || coefs[mm].cols() != sizez_orig)
             throw std::invalid_argument("DensityAzimuthalHarmonic: incorrect coefs array size");
         double sum=0;
         for(unsigned int iR=0; iR<sizeR; iR++)
@@ -751,7 +755,7 @@ static PtrPotential determineAsympt(
     // find values of spherical harmonic coefficients
     // that best match the potential at the array of boundary points
     for(int m=-mmax_fit; m<=mmax_fit; m++)
-        if(Phi[m+mmax].numCols()*Phi[m+mmax].numRows()>0) {
+        if(Phi[m+mmax].cols()*Phi[m+mmax].rows()>0) {
             // for m-th harmonic, we may have lmax-m+1 different l-terms
             int absm = math::abs(m);
             math::Matrix<double> matr(npoints, lmax_fit-absm+1);
@@ -885,11 +889,11 @@ CylSplineExp::CylSplineExp(
     math::Matrix<double> val(sizeR, sizez), derR(sizeR, sizez), derz(sizeR, sizez);
     spl.resize(2*mmax+1);
     for(int mm=0; mm<=2*mmax; mm++) {
-        if(Phi[mm].numRows() == 0 && Phi[mm].numCols() == 0)
+        if(Phi[mm].rows() == 0 && Phi[mm].cols() == 0)
             continue;
-        if((   Phi[mm].numRows() != sizeR ||    Phi[mm].numCols() != sizez_orig) || (haveDerivs && 
-           (dPhidR[mm].numRows() != sizeR || dPhidR[mm].numCols() != sizez_orig  ||
-            dPhidz[mm].numRows() != sizeR || dPhidz[mm].numCols() != sizez_orig)))
+        if((   Phi[mm].rows() != sizeR ||    Phi[mm].cols() != sizez_orig) || (haveDerivs && 
+           (dPhidR[mm].rows() != sizeR || dPhidR[mm].cols() != sizez_orig  ||
+            dPhidz[mm].rows() != sizeR || dPhidz[mm].cols() != sizez_orig)))
             throw std::invalid_argument("CylSplineExp: incorrect coefs array size");
         double sum=0;
         for(unsigned int iR=0; iR<sizeR; iR++) {

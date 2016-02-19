@@ -1991,7 +1991,7 @@ static PyObject* sampleNdim(PyObject* /*self*/, PyObject* args, PyObject* namedA
         FncWrapper fnc(xlow.size(), callback);
         math::sampleNdim(fnc, &xlow[0], &xupp[0], numSamples, samples, &numEval, &result, &error, false);
         npy_intp dim[] = {numSamples, xlow.size()};
-        PyObject* arr  = PyArray_SimpleNewFromData(2, dim, NPY_DOUBLE, const_cast<double*>(samples.getData()));
+        PyObject* arr  = PyArray_SimpleNewFromData(2, dim, NPY_DOUBLE, const_cast<double*>(samples.data()));
         return Py_BuildValue("Oddi", arr, result, error, numEval);
     }
     catch(std::exception& e) {

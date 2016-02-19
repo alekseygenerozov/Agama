@@ -16,15 +16,18 @@
 #include <ctime>
 
 const double axis_a=1.6, axis_c=1.0; // axes of perfect ellipsoid
-const double EPSACT  = 1e-2;
-const double EPSANG  = 1e-2;
+const double EPSACT  = 3e-2;
+const double EPSANG  = 5e-2;
 const double EPSFREQ = 1e-2;
+const double EPSENER = 3e-3;
+std::ofstream strm;
 
 bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVelCyl& point)
 {
     // obtain exact actions and frequencies corresponding to the given IC
     actions::Frequencies frOrig;
     actions::ActionAngles aaOrig = actions::actionAnglesAxisymStaeckel(pot, point, &frOrig);
+    std::cout << "\033[1;39m" << (actions::Actions(aaOrig)) << "\033[0m\n";
 
     // numerically compute the orbit
     double totalTime = 50*M_PI/fmax(frOrig.Omegar, frOrig.Omegaz);
@@ -95,7 +98,7 @@ bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVe
     double tstk = (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC;
 
     // output
-    std::ofstream strm("torus.dat");
+    /*std::ofstream strm("torus.dat");
     strm << "#t\tR z phi\ttorus_R z phi\ttorus_thetar thetaz thetaphi\t"
         "exact_thetar thetaz thetaphi\tJr Jz E\n";
     for(unsigned int i=0; i<NPOINTS; i++) {
@@ -106,24 +109,32 @@ bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVe
         aaStk  [i].thetar << ' ' << aaStk  [i].thetaz << ' ' << aaStk  [i].thetaphi << '\t' <<
         aaStk[i].Jr << ' ' << aaStk[i].Jz << ' ' << totalEnergy(pot, trajTorus[i]) << '\n';
     }
-    strm.close();
+    strm.close();*/
     
     // summarize
     statAct.finish();
     statAng = sqrt(statAng/(NPOINTS*3));
+    double statEner = (-sqrt(statH.disp())/statH.mean());
+    bool ok_ang = statAng < EPSANG;
+    bool ok_ener= statEner< EPSENER;
     bool ok_act = math::fcmp(aaOrig.Jr,   statAct.avg.Jr,   EPSACT) == 0
                && math::fcmp(aaOrig.Jz,   statAct.avg.Jz,   EPSACT) == 0
                && math::fcmp(aaOrig.Jphi, statAct.avg.Jphi, EPSACT) == 0
                && statAct.rms.Jr < aaOrig.Jr * EPSACT && statAct.rms.Jz < aaOrig.Jz * EPSACT;
-    bool ok_ang = statAng < EPSANG;
     bool ok_frq = math::fcmp(frTorus.Omegar,   statOmegar.mean(),   EPSFREQ) == 0
                && math::fcmp(frTorus.Omegaz,   statOmegaz.mean(),   EPSFREQ) == 0
                && math::fcmp(frTorus.Omegaphi, statOmegaphi.mean(), EPSFREQ) == 0
                && sqrt(statOmegar.disp())   < EPSFREQ * statOmegar.mean()
                && sqrt(statOmegaz.disp())   < EPSFREQ * statOmegaz.mean()
-               && sqrt(statOmegaphi.disp()) < EPSFREQ * statOmegaphi.mean();
+               && sqrt(statOmegaphi.disp()) < EPSFREQ * fabs(statOmegaphi.mean());
     
-    std::cout << 
+    strm << aaOrig.Jr<<' '<<aaOrig.Jz<<' '<<aaOrig.Jphi<<'\t'<<
+    ((statAct.rms.Jr+statAct.rms.Jz)/(statAct.avg.Jr+statAct.avg.Jz))<<'\t'<<
+    (sqrt(statOmegar.disp()+statOmegaz.disp()+statOmegaphi.disp())/
+    (statOmegar.mean()+statOmegaz.mean()+statOmegaphi.mean()))<<'\t'<<
+    statAng<<'\t'<<statEner<<std::endl;
+    
+    std::cout <<
         "  Jr: "  <<aaOrig.Jr  <<" = "<<statAct.avg.Jr  <<" +- "<<statAct.rms.Jr<<
         ", Jz: "  <<aaOrig.Jz  <<" = "<<statAct.avg.Jz  <<" +- "<<statAct.rms.Jz<<
         ", Jphi: "<<aaOrig.Jphi<<" = "<<statAct.avg.Jphi<<" +- "<<statAct.rms.Jphi<<
@@ -133,14 +144,15 @@ bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVe
         ", Omegaphi="<<frTorus.Omegaphi<<" = "<<statOmegaphi.mean()<<" +- "<<sqrt(statOmegaphi.disp())<<
         (ok_frq ? "" : " \033[1;31m**\033[0m ")<<
         "; deltatheta="<<statAng << (ok_ang ? "" : " \033[1;31m**\033[0m ") <<
-        "; deltaHrel=" << (-sqrt(statH.disp())/statH.mean()) << "\n";
+        "; deltaHrel=" <<statEner<< (ok_ener? "" : " \033[1;31m**\033[0m ") << "\n";
     std::cout << torbit << " s to integrate orbit, " << ttorus << " s to create torus, " <<
         tmap << " s to map " << NPOINTS << " points, " << tstk << " s to compute actions\n";
-    return ok_act && ok_ang && ok_frq;
+    return ok_act && ok_ang && ok_frq && ok_ener;
 }
 
 int main()
 {
+    strm.open("torus.stat");
     const potential::OblatePerfectEllipsoid potential(1.0, axis_a, axis_c);
     bool allok=true;
     allok &= test_torus(potential, coord::PosVelCyl(2.0000000, 0, 0, 0, 0.24, 0.5));
@@ -148,6 +160,22 @@ int main()
     allok &= test_torus(potential, coord::PosVelCyl(1.4142136, 0, 0, 0, 0.30, 0.7071068));
     allok &= test_torus(potential, coord::PosVelCyl(1.2000000, 0, 0, 0, 0.80, 0.083333333));
     allok &= test_torus(potential, coord::PosVelCyl(3.2000000, 0, 0, 0, 0.54, 0.3125));
+    for(int p=0; p<100; p++) {
+        double m = math::random();
+        double r = pow(1/sqrt(m)-1, -2./3);
+        double costheta = math::random()*2 - 1;
+        double sintheta = sqrt(1-pow_2(costheta));
+        double phi = math::random()*2*M_PI;
+        coord::PosVelCyl point(r*sintheta, r*costheta, phi, 0, 0, 0);
+        double v = math::random() * sqrt(-2*totalEnergy(potential, point));   // uniform in [0..v_escape]
+        costheta = math::random()*2 - 1;
+        sintheta = sqrt(1-pow_2(costheta));
+        phi = math::random()*2*M_PI;
+        point.vR = v*sintheta*cos(phi);
+        point.vz = v*sintheta*sin(phi);
+        point.vphi = v*costheta;
+        allok &= test_torus(potential, point);
+    }
     if(allok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;

@@ -25,6 +25,7 @@ public:
 private:
     const Actions acts;     ///< the values of actions for this torus
     Frequencies freqs;      ///< frequencies (dH/dJ evaluated at these actions)
+    bool converged;         ///< flag indicating whether the torus construction was successful
     PtrCanonicalMap genFnc; ///< generating function that converts real to toy action/angles
     PtrToyMap toyMap;       ///< toy map that converts toy action/angles to position/velocity
 };

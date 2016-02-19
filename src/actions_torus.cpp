@@ -47,7 +47,7 @@ ActionMapperTorus::ActionMapperTorus(const potential::BasePotential& poten, cons
 {
     if(!isAxisymmetric(poten))
         throw std::invalid_argument("ActionMapperTorus only works for axisymmetric potentials");
-    torus = Torus::PtrTorus(new Torus::Torus(true));  // using a new angular mapping method
+    torus = Torus::PtrTorus(new Torus::Torus(true));
     // the actual potential is used only during torus fitting, but not required 
     // later in angle mapping - so we create a temporary object
     TorusPotentialWrapper potwrap(poten);
@@ -55,8 +55,13 @@ ActionMapperTorus::ActionMapperTorus(const potential::BasePotential& poten, cons
     act[0] = acts.Jr;
     act[1] = acts.Jz;
     act[2] = acts.Jphi;
-    torus->AutoFit(act, &potwrap, tol, 600, 150, 12, 3, 16, 200, 12, 1);
-    torus->show(std::cout);
+    bool printDebug = true;
+    int result = torus->AutoFit(act, &potwrap, tol, 600, 150, 12, 3, 16, 200, 12, printDebug);
+    if(printDebug) {
+        if(result!=0)
+            std::cout << "\033[1;31mNOT CONVERGED: "<<result<<"\033[0m ";
+        torus->show(std::cout);
+    }
 }
 
 coord::PosVelCyl ActionMapperTorus::map(const ActionAngles& actAng, Frequencies* freq) const

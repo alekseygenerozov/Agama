@@ -7,6 +7,11 @@
 #include <gsl/gsl_multiroots.h>
 #include <stdexcept>
 
+#ifdef HAVE_EIGEN
+#include <Eigen/Dense>
+#include <unsupported/Eigen/NonLinearOptimization>
+#endif
+
 namespace math{
 
 namespace {
@@ -29,7 +34,7 @@ private:
 
 struct Mat {
     explicit Mat(Matrix<double>& mat) :
-        m(gsl_matrix_view_array(mat.getData(), mat.numRows(), mat.numCols())) {}
+        m(gsl_matrix_view_array(mat.data(), mat.rows(), mat.cols())) {}
     operator gsl_matrix* () { return &m.matrix; }
 private:
     gsl_matrix_view m;
@@ -37,7 +42,7 @@ private:
 
 struct MatC {
     explicit MatC(const Matrix<double>& mat) :
-        m(gsl_matrix_const_view_array(mat.getData(), mat.numRows(), mat.numCols())) {}
+        m(gsl_matrix_const_view_array(mat.data(), mat.rows(), mat.cols())) {}
     operator const gsl_matrix* () const { return &m.matrix; }
 private:
     gsl_matrix_const_view m;
@@ -96,6 +101,51 @@ static int functionWrapperNdimMvalDer(const gsl_vector* x, void* param, gsl_matr
     return functionWrapperNdimMvalFncDer(x, param, NULL, df);
 }
 
+#ifdef HAVE_EIGEN
+template <class T>
+struct EigenFncWrapper {
+    const T& F;
+    mutable std::string error;
+    explicit EigenFncWrapper(const T& _F) : F(_F) {}
+
+    int operator()(const Eigen::VectorXd &x, Eigen::VectorXd &f) const {
+        try{
+            F.eval(x.data(), f.data());
+            for(unsigned int i=0; i<F.numVars(); i++)
+                if(!isFinite(f[i])) {
+                    error = "Function is not finite";
+                    return -1;
+                }
+            return 0;
+        }
+        catch(std::exception& e){
+            error = e.what();
+            return -1;
+        }
+        return 0;
+    }
+
+    int df(const Eigen::VectorXd &x, Eigen::MatrixXd &df) const {
+        try{
+            F.evalDeriv(x.data(), NULL, df.data());
+            for(unsigned int i=0; i<F.numVars()*F.numValues(); i++)
+                if(!isFinite(df.data()[i])) {
+                    error = "Derivative is not finite";
+                    return -1;
+                }
+            return 0;
+        }
+        catch(std::exception& e){
+            error = e.what();
+            return -1;
+        }
+        return 0;
+    }
+    
+    int inputs() const { return F.numVars(); }
+    int values() const { return F.numValues(); }
+};
+#endif
 
 }  // internal namespace
 
@@ -135,14 +185,14 @@ void linearFit(const std::vector<double>& x, const std::vector<double>& y,
 void linearMultiFit(const Matrix<double>& coefs, const std::vector<double>& rhs, 
     const std::vector<double>* w, std::vector<double>& result, double* rms)
 {
-    if(coefs.numRows() != rhs.size())
+    if(static_cast<unsigned int>(coefs.rows()) != rhs.size())
         throw std::invalid_argument(
             "LinearMultiFit: number of rows in matrix is different from the length of RHS vector");
-    result.assign(coefs.numCols(), 0);
+    result.assign(coefs.cols(), 0);
     gsl_matrix* covarMatrix =
-        gsl_matrix_alloc(coefs.numCols(), coefs.numCols());
+        gsl_matrix_alloc(coefs.cols(), coefs.cols());
     gsl_multifit_linear_workspace* fitWorkspace =
-        gsl_multifit_linear_alloc(coefs.numRows(),coefs.numCols());
+        gsl_multifit_linear_alloc(coefs.rows(),coefs.cols());
     if(covarMatrix==NULL || fitWorkspace==NULL) {
         if(fitWorkspace)
             gsl_multifit_linear_free(fitWorkspace);
@@ -171,32 +221,51 @@ int nonlinearMultiFit(const IFunctionNdimDeriv& F, const double xinit[],
     if(Ndata < Nparam)
         throw std::invalid_argument(
             "nonlinearMultiFit: number of data points is less than the number of parameters to fit");
-    gsl_multifit_function_fdf fnc;
+    for(unsigned int i=0; i<Nparam; i++)
+        result[i] = xinit[i];
+#ifdef HAVE_EIGEN
+    EigenFncWrapper<IFunctionNdimDeriv> params(F);
+    Eigen::VectorXd data = Eigen::Map<const Eigen::VectorXd>(xinit, Nparam);
+    Eigen::LevenbergMarquardt< EigenFncWrapper<IFunctionNdimDeriv>, double > solver(params);
+    if(solver.minimizeInit(data) == Eigen::LevenbergMarquardtSpace::ImproperInputParameters)
+        params.error = "invalid input parameters";
+#else
     FncWrapper<IFunctionNdimDeriv> params(F);
+    gsl_multifit_function_fdf fnc;
     fnc.params = &params;
     fnc.p = Nparam;
     fnc.n = Ndata;
     fnc.f = functionWrapperNdimMval;
     fnc.df = functionWrapperNdimMvalDer;
     fnc.fdf = functionWrapperNdimMvalFncDer;
-    gsl_vector_const_view v_xinit = gsl_vector_const_view_array(xinit, Nparam);
     gsl_multifit_fdfsolver* solver = gsl_multifit_fdfsolver_alloc(
         gsl_multifit_fdfsolver_lmsder, Ndata, Nparam);
+    gsl_vector_const_view v_xinit = gsl_vector_const_view_array(xinit, Nparam);
+    if(gsl_multifit_fdfsolver_set(solver, &fnc, &v_xinit.vector) != GSL_SUCCESS)
+        params.error = "invalid input parameters";
+    const double* data = solver->x->data;
+#endif
     int numIter = 0;
-    int status = gsl_multifit_fdfsolver_set(solver, &fnc, &v_xinit.vector);
-    while(status == GSL_SUCCESS) {  // iterations
-        status = gsl_multifit_fdfsolver_iterate(solver);
-        if(++numIter >= maxNumIter ||
-            gsl_multifit_test_delta(solver->dx, solver->x, 0, relToler) != GSL_CONTINUE)
-            break;
+    bool carryon = true, converged = false;
+    while(params.error.empty() && carryon && !converged) {
+#ifdef HAVE_EIGEN
+        carryon = solver.minimizeOneStep(data) == Eigen::LevenbergMarquardtSpace::Running;
+#else
+        carryon = gsl_multifit_fdfsolver_iterate(solver) == GSL_SUCCESS;
+#endif
+        carryon &= ++numIter < maxNumIter;
+        // store the current result and test for convergence
+        converged = true;
+        for(unsigned int i=0; i<Nparam; i++) {
+            converged &= fabs(data[i] - result[i]) <= relToler * fabs(data[i]);
+            result[i] = data[i];
+        }
     }
-    // check for convergence
-    if(gsl_multifit_test_delta(solver->dx, solver->x, 0, relToler) != GSL_SUCCESS)
+    if(!converged)
         numIter *= -1;  // signal of non-convergence
-    // store the found location of minimum regardless of successful termination
-    for(unsigned int i=0; i<Nparam; i++)
-        result[i] = solver->x->data[i];
+#ifndef HAVE_EIGEN
     gsl_multifit_fdfsolver_free(solver);
+#endif
     if(!params.error.empty())
         throw std::runtime_error("Error in nonlinearMultiFit: "+params.error);
     return numIter;
