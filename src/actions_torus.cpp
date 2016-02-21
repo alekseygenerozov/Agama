@@ -55,7 +55,7 @@ ActionMapperTorus::ActionMapperTorus(const potential::BasePotential& poten, cons
     act[0] = acts.Jr;
     act[1] = acts.Jz;
     act[2] = acts.Jphi;
-    bool printDebug = true;
+    int printDebug = 2;
     int result = torus->AutoFit(act, &potwrap, tol, 600, 150, 12, 3, 16, 200, 12, printDebug);
     if(printDebug) {
         if(result!=0)

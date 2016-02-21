@@ -110,14 +110,14 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
     double L    = aa.Jz + absJphi;
     double L1   = sqrt(L*L + 4*M*b);
     double LL1  = 0.5 + 0.5 * L/L1;
-    double J0   = aa.Jr + L1 * LL1;  // combined magnitude of actions
+    double J0   = aa.Jr + 0.5 * (L + L1);  // combined magnitude of actions
     double j0invsq = M*b / pow_2(J0);
-    // x1,x2 are roots of equation  x^2 - 2*(x-1)/j0^2 + (L/J0)^2-1 = 0:
+    // x1,x2 are roots of equation  x^2 - 2*(x-1)*M*b/J0^2 + (L/J0)^2-1 = 0:
     // x1 = j0invsq - ecc, x2 = j0invsq + ecc;  -1 <= x1 <= x2 <= 1.
-    double ecc  = sqrt(fmax(0, pow_2(1-j0invsq) - pow_2(L/J0)));  // determinant of the eqn
-    // or  ecc  = sqrt(pow_2(1+j0invsq) - pow_2(L1/J0))
+    double ecc  = fmin(sqrt(aa.Jr * (aa.Jr+L) * (aa.Jr+L1) * (aa.Jr+L+L1)) / pow_2(J0), 1.);
     double fac1 = (1 + ecc - j0invsq) * J0 / L;   // sqrt( (1-x1) / (1-x2) )
     double fac2 = (1 + ecc + j0invsq) * J0 / L1;  // sqrt( (1+x2) / (1+x1) )
+    
     // quantities below depend on angles
     double eta, sineta, coseta;     // will be computed by the following routine:
     solveKepler(ecc, aa.thetar, eta, sineta, coseta); // thetar = eta - ecc * sin(eta)
@@ -191,7 +191,7 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
         derivParam[1].vz   = M/r * drvz_dMb - point.vz/r * dr_db;
         derivParam[1].vphi = -point.vphi / point.R * derivParam[1].R;
     }
-    if(derivAct) {
+    if(derivAct) {  // TODO: rewrite to make it less prone to cancellation errors!!!
         double  decc_dJr = ( (1 - pow_2(j0invsq)) / ecc - ecc) / J0;
         double  decc_add = -L / (J0*J0*ecc);
         double  decc_dL  = decc_dJr * LL1 + decc_add;

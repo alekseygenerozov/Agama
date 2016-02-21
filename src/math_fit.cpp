@@ -113,6 +113,9 @@ struct EigenFncWrapper {
             F.eval(x.data(), f.data());
             for(unsigned int i=0; i<F.numVars(); i++)
                 if(!isFinite(f[i])) {
+                    for(unsigned int j=0; j<F.numVars(); j++)
+                        f[j] = 1e10;
+                    return 0;
                     error = "Function is not finite";
                     return -1;
                 }
@@ -141,12 +144,56 @@ struct EigenFncWrapper {
         }
         return 0;
     }
-    
+
     int inputs() const { return F.numVars(); }
     int values() const { return F.numValues(); }
+
+    // definitions for automatic numerical differentiation framework
+    typedef double Scalar;
+	enum {
+        InputsAtCompileTime = Eigen::Dynamic,
+        ValuesAtCompileTime = Eigen::Dynamic
+	};
+	typedef Eigen::Matrix<Scalar,InputsAtCompileTime,1> InputType;
+	typedef Eigen::Matrix<Scalar,ValuesAtCompileTime,1> ValueType;
+	typedef Eigen::Matrix<Scalar,ValuesAtCompileTime,InputsAtCompileTime> JacobianType;
 };
 #endif
 
+//!!!!DEBUGGING!!!!
+#if 0
+void printoutD(const math::IFunctionNdimDeriv &fnc, const double params[]){
+    std::vector<double> jac(fnc.numVars()*fnc.numValues());
+    fnc.evalDeriv(params, NULL, &jac[0]);
+    std::ofstream strm("jac_analytic");
+    for(unsigned int v=0; v<fnc.numValues(); v++) {
+        for(unsigned int p=0; p<fnc.numVars(); p++)
+            strm<<jac[v*fnc.numVars()+p]<<' ';
+        strm<<'\n';
+    }
+}
+
+void printoutN(const math::IFunctionNdim &fnc, const double params[]){
+    std::vector<double> jac(fnc.numVars()*fnc.numValues());
+    std::vector<double> var(params, params+fnc.numVars());
+    std::vector<double> val0(fnc.numValues());
+    fnc.eval(params, &val0[0]);
+    for(unsigned int p=0; p<fnc.numVars(); p++) {
+        std::vector<double> var(params, params+fnc.numVars());
+        std::vector<double> val(fnc.numValues());
+        var[p]+=1e-8;
+        fnc.eval(&var[0], &val[0]);
+        for(unsigned int v=0; v<fnc.numValues(); v++)
+            jac[v*fnc.numVars()+p] = (val[v]-val0[v])/1e-8;
+    }
+    std::ofstream strm("jac_finitedif");
+    for(unsigned int v=0; v<fnc.numValues(); v++) {
+        for(unsigned int p=0; p<fnc.numVars(); p++)
+            strm<<jac[v*fnc.numVars()+p]<<' ';
+        strm<<'\n';
+    }
+}
+#endif
 }  // internal namespace
 
 // ----- linear least-square fit ------- //
@@ -226,7 +273,9 @@ int nonlinearMultiFit(const IFunctionNdimDeriv& F, const double xinit[],
 #ifdef HAVE_EIGEN
     EigenFncWrapper<IFunctionNdimDeriv> params(F);
     Eigen::VectorXd data = Eigen::Map<const Eigen::VectorXd>(xinit, Nparam);
-    Eigen::LevenbergMarquardt< EigenFncWrapper<IFunctionNdimDeriv>, double > solver(params);
+    //Eigen::NumericalDiff< EigenFncWrapper<IFunctionNdimDeriv> > fw(params);
+    //Eigen::LevenbergMarquardt< Eigen::NumericalDiff< EigenFncWrapper<IFunctionNdimDeriv> >, double > solver(fw);
+    Eigen::LevenbergMarquardt< EigenFncWrapper<IFunctionNdimDeriv> , double > solver(params);
     if(solver.minimizeInit(data) == Eigen::LevenbergMarquardtSpace::ImproperInputParameters)
         params.error = "invalid input parameters";
 #else

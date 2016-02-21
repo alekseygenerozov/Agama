@@ -93,9 +93,9 @@ static std::vector<Angles> makeGridAngles(unsigned int nr, unsigned int nz, unsi
 {
     std::vector<Angles> vec(nr*nz*nphi);
     for(unsigned int ir=0; ir<nr; ir++) {
-        double thetar = ir * M_PI / fmax(nr-1, 1);
+        double thetar = ir * M_PI / nr;
         for(unsigned int iz=0; iz<nz; iz++) {
-            double thetaz = iz * M_PI / fmax(nz-1, 1);
+            double thetaz = iz * M_PI / nz;
             for(unsigned int iphi=0; iphi<nphi; iphi++)
                 vec[ (ir*nz + iz) * nphi + iphi ] =
                     Angles(thetar, thetaz, iphi * M_PI / fmax(nphi-1, 1));
@@ -107,13 +107,13 @@ static std::vector<Angles> makeGridAngles(unsigned int nr, unsigned int nz, unsi
 /// create grid in angles with size determined by the maximal Fourier harmonic in the indices array
 static std::vector<Angles> makeGridAngles(const GenFncIndices& indices)
 {
-    int maxmr=2, maxmz=2, maxmphi=0;
+    int maxmr=4, maxmz=4, maxmphi=0;
     for(unsigned int i=0; i<indices.size(); i++) {
         maxmr   = std::max<int>(maxmr,   abs(indices[i].mr));
         maxmz   = std::max<int>(maxmz,   abs(indices[i].mz));
         maxmphi = std::max<int>(maxmphi, abs(indices[i].mphi));
     }
-    return makeGridAngles(maxmr*2+1, maxmz*2+1, maxmphi*2+1);
+    return makeGridAngles(6*(maxmr/4+1), 6*(maxmz/4+1), maxmphi>0 ? 6*(maxmphi/4+1) : 1);
 }
 
 /// create the array of indices of the generating function with all terms up to the given maximum order
@@ -425,6 +425,10 @@ double Mapping::computeHamiltonianAtPoint(const double params[], const unsigned 
     // at the given point in the grid of toy angles grid
     ActionAngles toyAA = genFncFit.toyActionAngles(indPoint, params + offsetGenFncParam);
 
+    // do not allow to stray into forbidden region of negative actions
+    if(toyAA.Jr<0 || toyAA.Jz<0)
+        return NAN;
+
     // Toy map computes the position and velocity from the toy actions and angles,
     // and optionally their derivatives w.r.t. toy actions and toy map parameters,
     DerivAct derivAct;
@@ -491,7 +495,7 @@ void Mapping::evalDeriv(const double params[],
         Havg += H;
         Hvalues[indPoint] = H;
     }
-    
+
     // convert from  H_k  to  deltaH_k = H_k / <H> - 1
     Havg /= numPoints;
     if(deltaHvalues) {
@@ -504,8 +508,11 @@ void Mapping::evalDeriv(const double params[],
             for(unsigned int indReg=0; indReg < numParams; indReg++)
                 deltaHvalues[indReg + numPoints] = 
                 lambda * params[indReg];
-        //std::cout << "M="<<exp(params[0])<<", b="<<exp(params[1])<<
-        //"; Havg="<<Havg<<", dH/H="<<sqrt(disp/numPoints)<<"\n";
+     //   std::cout << "M="<<exp(params[0])<<", b="<<exp(params[1])<<
+     //   "; Havg="<<Havg<<", dH/H="<<sqrt(disp/numPoints)<<"\n";
+        /*for(unsigned int i=0; i<numParamsGenFnc; i++)
+            std::cout<<indices[i].mr<<','<<indices[i].mz<<'='<<params[i+offsetGenFncParam]<<' ';
+        std::cout<<'\n';*/
     }
 
     // convert derivatives:  d(deltaH_k) / dP_p = (1/<H>) dH_k / dP_p - (H_k / <H>^2) d<H> / dP_p
@@ -695,7 +702,7 @@ ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& poten
             dispHprev = dispH;
             std::cout << "\n";
         }
-
+        
         // perform Levenberg-Marquardt least-square fit for the given set of parameters
         numIter = mapping->fitTorus(params);
         

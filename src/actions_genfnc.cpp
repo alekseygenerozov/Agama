@@ -78,8 +78,8 @@ ActionAngles GenFnc::map(const ActionAngles& actAng) const
         aa.Jphi+= val * indices[i].mphi;
     }
     // prevent non-physical negative values
-    aa.Jr = fmax(aa.Jr, actAng.Jr*1e-8);
-    aa.Jz = fmax(aa.Jz, actAng.Jz*1e-8);
+    aa.Jr = fmax(aa.Jr, 0);
+    aa.Jz = fmax(aa.Jz, 0);
     return aa;
 }
 
@@ -104,9 +104,8 @@ ActionAngles GenFncFit::toyActionAngles(unsigned int indexAngle, const double va
         aa.Jz  += val * indices[indexCoef].mz;
         aa.Jphi+= val * indices[indexCoef].mphi;
     }
-    // prevent non-physical negative values
-    aa.Jr = fmax(aa.Jr, acts.Jr*1e-8);
-    aa.Jz = fmax(aa.Jz, acts.Jz*1e-8);
+    // non-physical negative actions may appear,
+    // which means that these values of parameters are unsuitable.
     return aa;
 }
 
