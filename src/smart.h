@@ -117,12 +117,7 @@ typedef std::tr1::shared_ptr<const OblatePerfectEllipsoid> PtrOblatePerfectEllip
 namespace actions{
 
 class BaseActionFinder;
-class BaseCanonicalMap;
-class BaseToyMap;
-
 typedef std::tr1::shared_ptr<const BaseActionFinder> PtrActionFinder;
-typedef std::tr1::shared_ptr<const BaseCanonicalMap> PtrCanonicalMap;
-typedef std::tr1::shared_ptr<const BaseToyMap> PtrToyMap;
 
 }  // namespace actions
 

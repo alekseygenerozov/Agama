@@ -43,17 +43,17 @@ struct Frequencies {
     Frequencies(double omr, double omz, double omphi) : Omegar(omr), Omegaz(omz), Omegaphi(omphi) {};
 };
 
-/** Derivatives of position/velocity variables w.r.t actions:
+/** Derivatives of coordinate/momentum variables w.r.t actions:
     each of three member fields stores the derivative of 6 pos/vel elements by the given action,
     in an inverted notation:  e.g.,  d(v_phi)/d(J_z) = dbyJz.vphi */
-struct DerivAct {
-    coord::PosVelCyl dbyJr, dbyJz, dbyJphi;
+template <typename coordSysT> struct DerivAct {
+    coord::PosVelT<coordSysT> dbyJr, dbyJz, dbyJphi;
 };
 
-/** Derivatives of position/velocity variables w.r.t angles:
+/** Derivatives of coordinate/momentum variables w.r.t angles:
     each of three member fields stores the derivative of 6 pos/vel elements by the given angle */
-struct DerivAng {
-    coord::PosVelCyl dbythetar, dbythetaz, dbythetaphi;
+template <typename coordSysT> struct DerivAng {
+    coord::PosVelT<coordSysT> dbythetar, dbythetaz, dbythetaphi;
 };
 
 
@@ -91,34 +91,6 @@ private:
     BaseActionMapper& operator= (const BaseActionMapper&);
 };
 
-/** Base class for toy maps used in torus machinery, which provide conversion from action/angle
-    to position/velocity variables, and also provide the derivatives of this transformation */
-class BaseToyMap: public BaseActionMapper{
-public:
-    /// return the number of parameters of toy potential
-    virtual unsigned int numParams() const = 0;
-
-    /** Convert from action/angles to position/velocity, optionally computing the derivatives;
-        if any of the output arguments is NULL, it is not computed.
-        \param[in]  actAng are the action/angles;
-        \param[out] freq   are the frequencies;
-        \param[out] derivAct are the derivatives of pos/vel w.r.t three actions;
-        \param[out] derivAng are the derivatives of pos/vel w.r.t three actions;
-        \param[out] derivParam are the derivatives of pos/vel w.r.t the parameters of toy potential:
-                    if not NULL, must point to an array of length `numParams()`;
-        \return     pos/vel coordinates.
-    */
-    virtual coord::PosVelCyl mapDeriv(
-        const ActionAngles& actAng,
-        Frequencies* freq=0,
-        DerivAct* derivAct=0,
-        DerivAng* derivAng=0,
-        coord::PosVelCyl* derivParam=0) const = 0;
-
-    virtual coord::PosVelCyl map(const ActionAngles& actAng, Frequencies* freq=0) const
-    { return mapDeriv(actAng, freq); }
-};
-
 /** Base class for canonical maps in action/angle space, which transform from one set of a/a
     variables to another one */
 class BaseCanonicalMap{
@@ -134,6 +106,42 @@ private:
     /// disable copy constructor and assignment operator
     BaseCanonicalMap(const BaseCanonicalMap&);
     BaseCanonicalMap& operator= (const BaseCanonicalMap&);
+};
+
+/** Base class for toy maps used in torus machinery, which provide conversion from action/angle
+    to coordinate/momentum variables, and also provide the derivatives of this transformation */
+template <typename coordSysT>
+class BaseToyMap{
+public:
+    virtual ~BaseToyMap() {};
+
+    /** Convert from action/angles to position/velocity, optionally computing the derivatives;
+        if any of the output arguments is NULL, it is not computed.
+        \param[in]  actAng are the action/angles;
+        \param[out] freq   are the frequencies;
+        \param[out] derivAct are the derivatives of pos/vel w.r.t three actions;
+        \param[out] derivAng are the derivatives of pos/vel w.r.t three actions;
+        \param[out] derivParam are the derivatives of pos/vel w.r.t the parameters of toy potential:
+                    if not NULL, must point to an array of length `numParams()`;
+        \return     pos/vel coordinates.
+    */
+    virtual coord::PosVelT<coordSysT> map(
+        const ActionAngles& actAng,
+        Frequencies* freq=0,
+        DerivAct<coordSysT>* derivAct=0,
+        DerivAng<coordSysT>* derivAng=0,
+        coord::PosVelT<coordSysT>* derivParam=0) const = 0;
+};
+
+/** Base class for point transformations that map canonically conjugate coordinate/momentum
+    in some intrinsic coord system into position/velocity in cylindrical coordinates */
+template <typename coordSysT>
+class BasePointTransform{
+public:
+    virtual ~BasePointTransform() {};
+    /** convert from coordinate/momentum in the intrinsic template coordinate system
+        to position/velocity in cylindrical coordinates */
+    virtual coord::PosVelCyl map(const coord::PosVelT<coordSysT> &point) const = 0;
 };
 
 }  // namespace action

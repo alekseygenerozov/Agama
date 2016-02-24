@@ -95,15 +95,15 @@ coord::PosVelCyl mapIsochrone(
     const double M, const double b,
     const ActionAngles& aa, Frequencies* freq)
 {
-    return ToyMapIsochrone(M, b).map(aa, freq);
+    return toPosVelCyl(ToyMapIsochrone(M, b).map(aa, freq));
 }
 
-coord::PosVelCyl ToyMapIsochrone::mapDeriv(
+coord::PosVelSphMod ToyMapIsochrone::map(
     const ActionAngles& aa,
     Frequencies* freq,
-    DerivAct* derivAct,
-    DerivAng* derivAng,
-    coord::PosVelCyl* derivParam) const
+    DerivAct<coord::SphMod>* derivAct,
+    DerivAng<coord::SphMod>* derivAng,
+    coord::PosVelSphMod* derivParam) const
 {
     double signJphi = math::sign(aa.Jphi);
     double absJphi  = signJphi * aa.Jphi;
@@ -133,16 +133,13 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
     double sini     = sqrt(1 - pow_2(aa.Jphi / L)); // inclination angle of the orbital plane
     double costheta = sini * sinpsi;                // z/r
     double sintheta = sqrt(1 - pow_2(costheta));    // R/r is always non-negative
-    coord::PosVelCyl point;
-    double r   = b * sqrt(fmax(0, pow_2(ra / j0invsq) - 1));
-    double vr  = J0 * ecc * sineta / r;
-    point.R    = r * sintheta;
-    point.z    = r * costheta;
-    double vtheta = -L * sini * cospsi / point.R;
-    point.vR   = vr * sintheta + vtheta * costheta;
-    point.vz   = vr * costheta - vtheta * sintheta;
-    point.vphi = aa.Jphi / point.R;
+    coord::PosVelSphMod point;
+    point.r    = sqrt(fmax(0, pow_2(ra * J0*J0/M) - b*b));
+    point.pr   = J0 * ecc * sineta / point.r;
+    point.tau  = costheta / (1+sintheta);
+    point.ptau = L * sini * cospsi * (1/sintheta + 1);
     point.phi  = math::wrapAngle(aa.thetaphi + (chi-aa.thetaz) * signJphi);
+    point.pphi = aa.Jphi;
     if(freq) {
         freq->Omegar   = pow_2(M) / pow_3(J0);
         freq->Omegaz   = freq->Omegar * LL1;
@@ -150,11 +147,14 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
     }
     if(!derivParam && !derivAct && !derivAng)
         return point;
+    // common terms
     double dtan1 = 1 / (1/tanhalfeta + tanhalfeta*pow_2(fac1));
     double dtan2 = 1 / (1/tanhalfeta + tanhalfeta*pow_2(fac2)) * L/L1;
-    double mult_chi  = 1 / (pow_2(aa.Jphi * sinpsi) + pow_2(L * cospsi));
+    double mult_chi = 1 / (pow_2(aa.Jphi * sinpsi) + pow_2(L * cospsi));
+    double  dtau = sini * cospsi / (sintheta * (1 + sintheta));
+    double dptau = -L * sini * sinpsi * (pow_2(aa.Jphi/L) / pow_3(sintheta) + 1);
     if(derivParam) {
-        // common terms - derivs w.r.t. (M*b)
+        // common terms - derivs w.r.t. (M*b)  !!!NOTE: the case b==0 is not supported!!!
         double tmp       = 1 + j0invsq - L1/J0;
         double  decc_dMb = (tmp * (1-j0invsq) / ecc - ecc) / (J0*L1);
         double dfac1_dMb = tmp * ((1-j0invsq) / ecc + 1)   / (L *L1);
@@ -164,32 +164,23 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
             (dfac2_dMb + fac2 * decc_dMb / ra) * dtan2;
         double  dchi_dMb = aa.Jz == 0 ? dpsi_dMb :
             absJphi * L * dpsi_dMb * mult_chi;
-        double dcostheta_dMb = sini * cospsi * dpsi_dMb;
-        double dsintheta_dMb = -costheta / sintheta * dcostheta_dMb;
-        double  drvtheta_dMb = L * sini * (1-pow_2(sini)) * sinpsi * dpsi_dMb / pow_3(sintheta);
-        double drvr_dMb = sineta * (ecc/L1 + J0/ra * decc_dMb);         // d(r*vr) / d(M*b)
-        double  drb_dMb = b/r / pow_2(j0invsq) * 
+        double drpr_dMb  = sineta * (ecc/L1 + J0/ra * decc_dMb);        // d(r*pr) / d(M*b)
+        double  drb_dMb  = b/point.r / pow_2(j0invsq) * 
             (decc_dMb * (ecc-coseta) + (2/(J0*L1) - 1/(M*b)) * ra*ra);  // d(r/b)  / d(M*b)
-        double drvR_dMb = drvr_dMb * sintheta + drvtheta_dMb * costheta -
-            r*point.vz * dcostheta_dMb / sintheta;
-        double drvz_dMb = drvr_dMb * costheta - drvtheta_dMb * sintheta +
-            r*point.vR * dcostheta_dMb / sintheta;
         // derivs w.r.t. M: dX/dM = b * dX/d(M*b)
-        double dr_dM = b*b * drb_dMb;
-        derivParam[0].R    = r * dsintheta_dMb * b + dr_dM * sintheta;
-        derivParam[0].z    = r * dcostheta_dMb * b + dr_dM * costheta;
+        derivParam[0].r    = b*b * drb_dMb;
+        derivParam[0].pr   = b/point.r * (drpr_dMb - b*point.pr * drb_dMb);
+        derivParam[0].tau  = b *  dtau * dpsi_dMb;
+        derivParam[0].ptau = b * dptau * dpsi_dMb;
         derivParam[0].phi  = b * dchi_dMb * signJphi;
-        derivParam[0].vR   = b/r * drvR_dMb - point.vR/r * dr_dM;
-        derivParam[0].vz   = b/r * drvz_dMb - point.vz/r * dr_dM;
-        derivParam[0].vphi = -point.vphi / point.R * derivParam[0].R;
+        derivParam[0].pphi = 0;
         // derivs w.r.t. b
-        double dr_db = M*b * drb_dMb + r/b;
-        derivParam[1].R    = r * dsintheta_dMb * M + dr_db * sintheta;
-        derivParam[1].z    = r * dcostheta_dMb * M + dr_db * costheta;
+        derivParam[1].r    = M*b * drb_dMb + point.r/b;
+        derivParam[1].pr   = M/b * derivParam[0].pr - point.pr/b;
+        derivParam[1].tau  = M *  dtau * dpsi_dMb;
+        derivParam[1].ptau = M * dptau * dpsi_dMb;
         derivParam[1].phi  = M * dchi_dMb * signJphi;
-        derivParam[1].vR   = M/r * drvR_dMb - point.vR/r * dr_db;
-        derivParam[1].vz   = M/r * drvz_dMb - point.vz/r * dr_db;
-        derivParam[1].vphi = -point.vphi / point.R * derivParam[1].R;
+        derivParam[1].pphi = 0;
     }
     if(derivAct) {  // TODO: rewrite to make it less prone to cancellation errors!!!
         double  decc_dJr = ( (1 - pow_2(j0invsq)) / ecc - ecc) / J0;
@@ -199,7 +190,7 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
         double dfac1_dL  = dfac1_dJr * LL1 -  fac1 / L  - 1 / (J0*ecc);
         double dfac2_dJr = fac2 / J0 + (decc_dJr*J0 - 2*j0invsq) / L1;
         double dfac2_dL  = dfac2_dJr * LL1 - (fac2 / L1 + 1 / (J0*ecc)) * L/L1;
-        // derivs of intermediate angle vars
+        // derivs of intermediate angle vars and other common factors
         double  dpsi_dJr = 
             (dfac1_dJr + fac1 * decc_dJr / ra) * dtan1 +
             (dfac2_dJr + fac2 * decc_dJr / ra) * dtan2;
@@ -212,53 +203,33 @@ coord::PosVelCyl ToyMapIsochrone::mapDeriv(
             absJphi * (L * dpsi_dL - sinpsi * cospsi) * mult_chi;
         double dchi_dJphi= aa.Jz == 0 ? dpsi_dL  :
             (absJphi * L * dpsi_dL + sinpsi * cospsi * (L - absJphi)) * mult_chi;
-        // derivs of spherical coords (r,theta,vr,vtheta)
-        double dcostheta_dJr  = sini * cospsi * dpsi_dJr;
-        double dcostheta_dL   = sini * cospsi * dpsi_dL + pow_2(aa.Jphi) * sinpsi / (pow_3(L) * sini);
-        double dcostheta_dJphi= sini * cospsi * dpsi_dL - absJphi * sini * sinpsi / (L * (L + absJphi));
-        double dsintheta_dJr  = -costheta / sintheta * dcostheta_dJr;
-        double dsintheta_dL   = costheta!=0 ? -costheta / sintheta * dcostheta_dL : -pow_2(sinpsi) / L;
-        double dsintheta_dJphi= -costheta / sintheta * dcostheta_dJphi;
-        double A = pow_2(b/j0invsq) / r;
-        double   dr_dJr = A * (decc_dJr * (ecc-coseta) + 2*ra*ra / J0);
-        double   dr_dL  = dr_dJr * LL1 + A * (ecc-coseta) * decc_add;
-        double drvr_dJr = sineta * (J0 * decc_dJr / ra + ecc);
-        double drvr_dL  = sineta * (J0 * decc_dL  / ra + ecc * LL1);
-        double drvtheta_dJr   = L * sini / sintheta *
-            (sinpsi * dpsi_dJr + cospsi / sintheta * dsintheta_dJr);
-        double drvtheta_dL    = L * sini / sintheta *
-            (sinpsi * dpsi_dL  + cospsi / sintheta * dsintheta_dL) - cospsi / (sintheta * sini);
-        double drvtheta_dJphi = L * sini / sintheta *
-            (sinpsi * dpsi_dL  + cospsi / sintheta * dsintheta_dJphi) - cospsi * sini * L / ((L + absJphi) * sintheta);
+        double aoverr   = pow_2(J0*J0/M) / point.r;
+        double drpr_dJr = sineta * (J0 * decc_dJr / ra + ecc);
+        double drpr_dL  = sineta * (J0 * decc_dL  / ra + ecc * LL1);
+        double ptau1 = dptau * dpsi_dL - cospsi * sini * pow_2(costheta) / pow_3(sintheta);
+        double ptau2 = (1/pow_3(sintheta) + 1) * cospsi;
+        double Ll    = L / (L + absJphi);
         // d/dJr
-        derivAct->dbyJr.R  = dr_dJr * sintheta + r * dsintheta_dJr;
-        derivAct->dbyJr.z  = dr_dJr * costheta + r * dcostheta_dJr;
-        derivAct->dbyJr.phi= dchi_dJr * signJphi;
-        derivAct->dbyJr.vR = vr * dsintheta_dJr + vtheta * dcostheta_dJr +
-            (drvr_dJr * sintheta + drvtheta_dJr * costheta - point.vR * dr_dJr) / r;
-        derivAct->dbyJr.vz = vr * dcostheta_dJr - vtheta * dsintheta_dJr +
-            (drvr_dJr * costheta - drvtheta_dJr * sintheta - point.vz * dr_dJr) / r;
-        derivAct->dbyJr.vphi = -point.vphi / point.R * derivAct->dbyJr.R;
+        derivAct->dbyJr.r   = aoverr * (decc_dJr * (ecc-coseta) + 2*ra*ra / J0);
+        derivAct->dbyJr.pr  = (drpr_dJr - point.pr * derivAct->dbyJr.r) / point.r;
+        derivAct->dbyJr.tau =  dtau * dpsi_dJr;
+        derivAct->dbyJr.ptau= dptau * dpsi_dJr;
+        derivAct->dbyJr.phi = dchi_dJr * signJphi;
+        derivAct->dbyJr.pphi= 0;
         // d/dJz
-        derivAct->dbyJz.R  = dr_dL * sintheta + r * dsintheta_dL;
-        derivAct->dbyJz.z  = dr_dL * costheta + r * dcostheta_dL;
-        derivAct->dbyJz.phi= dchi_dJz * signJphi;
-        derivAct->dbyJz.vR = costheta!=0 ?
-            vr * dsintheta_dL + vtheta * dcostheta_dL +
-            (drvr_dL * sintheta + drvtheta_dL * costheta - point.vR * dr_dL) / r :
-            vr * dsintheta_dL + (drvr_dL - point.vR * dr_dL - 2 * sinpsi * cospsi) / r;
-        derivAct->dbyJz.vz = vr * dcostheta_dL - vtheta * dsintheta_dL +
-            (drvr_dL * costheta - drvtheta_dL * sintheta - point.vz * dr_dL) / r;
-        derivAct->dbyJz.vphi = -point.vphi / point.R * derivAct->dbyJz.R;
+        derivAct->dbyJz.r   = aoverr * (ecc-coseta) * decc_add + derivAct->dbyJr.r * LL1;
+        derivAct->dbyJz.pr  = (drpr_dL - point.pr * derivAct->dbyJz.r) / point.r;
+        derivAct->dbyJz.tau =  dtau * dpsi_dL + point.tau / (L * sintheta) * (1/pow_2(sini)-1);
+        derivAct->dbyJz.ptau= ptau1 + ptau2 / sini;
+        derivAct->dbyJz.phi = dchi_dJz * signJphi;
+        derivAct->dbyJz.pphi= 0;
         // d/dJphi
-        derivAct->dbyJphi.R  = (dr_dL * sintheta + r * dsintheta_dJphi) * signJphi;
-        derivAct->dbyJphi.z  = (dr_dL * costheta + r * dcostheta_dJphi) * signJphi;
-        derivAct->dbyJphi.phi= dchi_dJphi;
-        derivAct->dbyJphi.vR = (vr * dsintheta_dJphi + vtheta * dcostheta_dJphi +
-            (drvr_dL * sintheta + drvtheta_dJphi * costheta - point.vR * dr_dL) / r) * signJphi;
-        derivAct->dbyJphi.vz = (vr * dcostheta_dJphi - vtheta * dsintheta_dJphi +
-            (drvr_dL * costheta - drvtheta_dJphi * sintheta - point.vz * dr_dL) / r) * signJphi;
-        derivAct->dbyJphi.vphi = (1 - point.vphi * derivAct->dbyJphi.R) / point.R;
+        derivAct->dbyJphi.r   = derivAct->dbyJz.r  * signJphi;
+        derivAct->dbyJphi.pr  = derivAct->dbyJz.pr * signJphi;
+        derivAct->dbyJphi.tau = (dtau * dpsi_dL - point.tau / (L * sintheta) * (1-Ll) ) * signJphi;
+        derivAct->dbyJphi.ptau= (ptau1 + ptau2 * sini * Ll) * signJphi;
+        derivAct->dbyJphi.phi = dchi_dJphi;
+        derivAct->dbyJphi.pphi= 1;
     }
     return point;
 }

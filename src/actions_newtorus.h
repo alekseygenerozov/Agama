@@ -11,6 +11,10 @@
 
 namespace actions {
 
+typedef std::tr1::shared_ptr<const BaseCanonicalMap> PtrCanonicalMap;
+typedef std::tr1::shared_ptr<const BaseToyMap<coord::SphMod> > PtrToyMap;
+typedef std::tr1::shared_ptr<const BasePointTransform<coord::SphMod> > PtrPointTransform;
+
 class ActionMapperNewTorus: public BaseActionMapper{
 public:
     /** Construct a torus for the given axisymmetric potential and given values of actions;
@@ -27,7 +31,8 @@ private:
     Frequencies freqs;      ///< frequencies (dH/dJ evaluated at these actions)
     bool converged;         ///< flag indicating whether the torus construction was successful
     PtrCanonicalMap genFnc; ///< generating function that converts real to toy action/angles
-    PtrToyMap toyMap;       ///< toy map that converts toy action/angles to position/velocity
+    PtrToyMap toyMap;       ///< toy map that converts toy action/angles to coord/momenta
+    PtrPointTransform pointTrans;  ///< point transformation from coord/momenta to cylindrical pos/vel
 };
     
 }  // namespace actions

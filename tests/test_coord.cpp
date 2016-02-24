@@ -238,6 +238,18 @@ bool test_prol2(const coord::PosCyl& src) {
     return samepos && samegrad;
 }
 
+bool test_prolmod() {
+    const coord::ProlMod cs(1.23456);
+    const double rho = cs.d+1e-15, tau = 1.;
+    const coord::PosProlMod pp(rho, tau, 0, cs);
+    const coord::PosCyl pc=coord::toPosCyl(pp);
+    const coord::PosProlMod ppnew=coord::toPos<coord::Cyl,coord::ProlMod>(pc, cs);
+    coord::PosVelSphMod psm(1.765432,0.3456,3.76543,0.213456,-2.123456,0.76543);
+    coord::PosVelCyl pcy = toPosVelCyl(psm);
+    coord::PosVelSphMod psm1 = coord::toPosVel<coord::Cyl, coord::SphMod>(pcy);
+    return fabs(ppnew.rho-rho)<1e-15 && fabs(ppnew.tau-tau)<1e-15 && equalPosVel(psm, psm1, 1e-12);
+}
+
 /// define test suite in terms of points for various coord systems
 const int numtestpoints=5;
 const double posvel_car[numtestpoints][6] = {
@@ -265,6 +277,7 @@ int main() {
     if(!passed) std::cout << "ProlSph => Cyl => ProlSph failed for a nearly-degenerate case\n";
     passed &= test_prol2(coord::PosCyl(1.2,-2.3,3.4));  // testing negative z
     if(!passed) std::cout << "ProlSph => Cyl => ProlSph failed for z<0\n";
+    passed &= test_prolmod();
 
     std::cout << " ======= Testing conversion of position/velocity points =======\n";
     for(int n=0; n<numtestpoints; n++) {
@@ -290,6 +303,6 @@ int main() {
         passed &= test_conv_deriv<coord::Sph, coord::Car, coord::Cyl>(coord::PosSph(posvel_sph[n][0], posvel_sph[n][1], posvel_sph[n][2]));
         passed &= test_conv_deriv<coord::Sph, coord::Cyl, coord::Car>(coord::PosSph(posvel_sph[n][0], posvel_sph[n][1], posvel_sph[n][2]));
     }
-    if(passed) std::cout << "ALL TESTS PASSED\n";
+    if(passed) std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;
 }

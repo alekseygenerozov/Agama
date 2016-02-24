@@ -1,7 +1,7 @@
 /** \file   py_wrapper.cpp
-    \brief  Python wrapper for the library
+    \brief  Python wrapper for the Agama library
     \author Eugene Vasiliev
-    \date   2014-2015
+    \date   2014-2016
 
     This is a Python extension module that provides the interface to
     some of the classes and functions from the C++ library.
@@ -1017,8 +1017,10 @@ static void fncActions(void* obj, const double input[], double *result) {
 }
 static PyObject* ActionFinder_value(PyObject* self, PyObject* args, PyObject* /*namedArgs*/)
 {
-    if(!((ActionFinderObject*)self)->af)
+    if(!((ActionFinderObject*)self)->af) {
+        PyErr_SetString(PyExc_ValueError, "ActionFinder object is not properly initialized");
         return NULL;
+    }
     return callAnyFunctionOnArray<INPUT_VALUE_SEXTET, OUTPUT_VALUE_TRIPLET>
         (self, args, fncActions);
 }
@@ -1172,16 +1174,20 @@ static void fncDistributionFunction(void* obj, const double input[], double *res
 
 static PyObject* DistributionFunction_value(PyObject* self, PyObject* args, PyObject* /*namedArgs*/)
 {
-    if(((DistributionFunctionObject*)self)->df==NULL)
+    if(((DistributionFunctionObject*)self)->df==NULL) {
+        PyErr_SetString(PyExc_ValueError, "DistributionFunction object is not properly initialized");
         return NULL;
+    }
     return callAnyFunctionOnArray<INPUT_VALUE_TRIPLET, OUTPUT_VALUE_SINGLE>
         (self, args, fncDistributionFunction);
 }
 
 static PyObject* DistributionFunction_totalMass(PyObject* self)
 {
-    if(((DistributionFunctionObject*)self)->df==NULL)
+    if(((DistributionFunctionObject*)self)->df==NULL) {
+        PyErr_SetString(PyExc_ValueError, "DistributionFunction object is not properly initialized");
         return NULL;
+    }
     double val = ((DistributionFunctionObject*)self)->df->totalMass(1e-5,1e7);
     return Py_BuildValue("d", val / conv->massUnit);
 }
@@ -1702,8 +1708,14 @@ static PyObject* SplineApprox_value(PyObject* self, PyObject* args, PyObject* /*
 {
     PyObject* ptx=NULL;
     int der=0;
-    if(self==NULL || ((SplineApproxObject*)self)->spl==NULL || !PyArg_ParseTuple(args, "O|i", &ptx, &der))
+    if(self==NULL || ((SplineApproxObject*)self)->spl==NULL) {
+        PyErr_SetString(PyExc_ValueError, "SplineApprox object is not properly initialized");
         return NULL;
+    }
+    if(!PyArg_ParseTuple(args, "O|i", &ptx, &der)) {
+        PyErr_SetString(PyExc_ValueError, "Invalid arguments");
+        return NULL;
+    }
     if(der>2) {
         PyErr_SetString(PyExc_ValueError, "Can only compute derivatives up to 2nd");
         return NULL;

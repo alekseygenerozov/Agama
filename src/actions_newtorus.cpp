@@ -42,11 +42,11 @@ public:
         parameters of toy map (must point to an existing array with numParams elements);
         \return  position and velocity point.
     */
-    virtual coord::PosVelCyl mapDeriv(
+    virtual coord::PosVelSphMod map(
         const ActionAngles& actAng,
         const double params[],
-        DerivAct* derivAct=0,
-        coord::PosVelCyl* derivParam=0) const = 0;
+        DerivAct<coord::SphMod>* derivAct=0,
+        coord::PosVelSphMod* derivParam=0) const = 0;
 
     /** create an instance of ordinary ToyMap from the provided (scaled) parameters;
         this should be used after the torus fitting procedure finishes and returns
@@ -59,30 +59,64 @@ public:
 class ToyMapFitIsochrone: public BaseToyMapFit{
 public:
     virtual unsigned int numParams() const { return 2; }
-    virtual coord::PosVelCyl mapDeriv(
+    virtual coord::PosVelSphMod map(
         const ActionAngles& actAng,
         const double params[],
-        DerivAct* derivAct=0,
-        coord::PosVelCyl* derivParam=0) const
+        DerivAct<coord::SphMod>* derivAct=0,
+        coord::PosVelSphMod* derivParam=0) const
     {
         // input parameters are log-scaled
         double M = exp(params[0]);
         double b = exp(params[1]);
-        coord::PosVelCyl result = ToyMapIsochrone(M, b).mapDeriv(
+        coord::PosVelSphMod result = ToyMapIsochrone(M, b).map(
             actAng, NULL, derivAct, NULL, derivParam);
         if(derivParam) {  // multiply derivs by additional factor for converting d/dP to d/dln(P)
-            derivParam[0].R   *= M;  derivParam[1].R   *= b;
-            derivParam[0].z   *= M;  derivParam[1].z   *= b;
+            derivParam[0].r   *= M;  derivParam[1].r   *= b;
+            derivParam[0].tau *= M;  derivParam[1].tau *= b;
             derivParam[0].phi *= M;  derivParam[1].phi *= b;
-            derivParam[0].vR  *= M;  derivParam[1].vR  *= b;
-            derivParam[0].vz  *= M;  derivParam[1].vz  *= b;
-            derivParam[0].vphi*= M;  derivParam[1].vphi*= b;
+            derivParam[0].pr  *= M;  derivParam[1].pr  *= b;
+            derivParam[0].ptau*= M;  derivParam[1].ptau*= b;
+            derivParam[0].pphi*= M;  derivParam[1].pphi*= b;
         }
         return result;
     }
     virtual PtrToyMap create(const double params[]) const
     {
         return PtrToyMap(new ToyMapIsochrone(exp(params[0]), exp(params[1])));
+    }
+};
+
+// ----- Point transformations, i.e. change of coordinates ----- //
+
+/** Point transform as used during the fitting process, augmented with the routine for
+    computing derivatives of Hamiltonian by coordinate/momenta in the toy phase space
+*/
+class PointTransformFit: public BasePointTransform<coord::SphMod> {
+public:
+    virtual coord::PosVelCyl map(const coord::PosVelSphMod &point) const
+    {
+        return toPosVelCyl(point);
+    }
+    double Hamiltonian(const coord::PosVelSphMod &point,
+        const potential::BasePotential& potential, coord::PosVelSphMod *dHby=NULL) const
+    {
+        coord::PosVelCyl pointCyl(toPosVelCyl(point));
+        coord::GradCyl gradCyl;
+        double H;
+        potential.eval(pointCyl, &H, &gradCyl);
+        H += 0.5 * (pow_2(pointCyl.vR) + pow_2(pointCyl.vz) + pow_2(pointCyl.vphi));
+        if(dHby != NULL) {
+            dHby->r   = (gradCyl.dR * pointCyl.R + gradCyl.dz * pointCyl.z
+                - pow_2(point.ptau / (pointCyl.R + point.r)) - pow_2(pointCyl.vphi)) / point.r;
+            dHby->tau = (-gradCyl.dR * pointCyl.z + gradCyl.dz * pointCyl.R) * (pointCyl.R / point.r + 1)
+                + point.ptau * (point.pr - pointCyl.vR - point.tau * pointCyl.vz) / point.r
+                + pow_2(pointCyl.vphi) * pointCyl.z * (1/point.r + 1/pointCyl.R);
+            dHby->phi = gradCyl.dphi;
+            dHby->pr  = point.pr;
+            dHby->ptau= point.ptau / pow_2(pointCyl.R + point.r);
+            dHby->pphi= pointCyl.vphi / pointCyl.R;
+        }
+        return H;
     }
 };
 
@@ -155,12 +189,14 @@ public:
     */
     Mapping(const Actions &_acts,
         const potential::BasePotential &_potential, 
+        const PointTransformFit &_pointTrans,
         const BaseToyMapFit &_toyMapFit,
         const GenFncIndices &_indices,
         const double _lambda)
     :
         acts(_acts),
         potential(_potential),
+        pointTrans(_pointTrans),
         toyMapFit(_toyMapFit),
         indices(_indices),
         genFncFit(indices, acts, makeGridAngles(indices)),
@@ -222,8 +258,9 @@ public:
     
 private:
     const Actions acts;               ///< values of real actions on this torus
-    const potential::BasePotential& potential;  ///< real potential
-    const BaseToyMapFit& toyMapFit;   ///< map between toy action/angles and position/velocity
+    const potential::BasePotential &potential;  ///< real potential
+    const PointTransformFit &pointTrans;        ///< point transformation of coordinate/momentum
+    const BaseToyMapFit &toyMapFit;   ///< map between toy action/angles and position/velocity
     const GenFncIndices indices;      ///< indices of allowed terms in gen.fnc.
     const GenFncFit genFncFit;        ///< map between real and toy actions at a grid of angles
     const double lambda;              ///< regularization coefficient
@@ -267,7 +304,7 @@ private:
     */
     double computeHamiltonianAtPoint(const double params[], const unsigned int indPoint,
         Actions *dHdJ=NULL, double *derivGenFnc=NULL,
-        double *derivToyMap=NULL, coord::PosVelCyl *derivToyMapTmp=NULL) const;
+        double *derivToyMap=NULL, coord::PosVelSphMod *derivToyMapTmp=NULL) const;
 
     /** Compute the frequencies and the derivatives of generating function by real actions,
         used in angle mapping.
@@ -395,7 +432,7 @@ PtrMapping Mapping::expandMapping(const std::vector<double> &params) const
 
     // 4. create a new mapping
     assert(numadd>0);
-    return PtrMapping(new Mapping(acts, potential, toyMapFit, newIndices, lambda));
+    return PtrMapping(new Mapping(acts, potential, pointTrans, toyMapFit, newIndices, lambda));
 }
 
 // ----- private member functions of Mapping ----- //
@@ -405,21 +442,21 @@ PtrMapping Mapping::expandMapping(const std::vector<double> &params) const
     the first term on rhs is a covector of length 6 (the gradient dPhi/dx and the velocity),
     and the second term is a 6x3 matrix of partial derivs provided by the toy map.
 */
-static inline Actions dHbydJ(
-    const coord::VelCyl& vel, const coord::GradCyl& grad, const DerivAct& derivAct)
+static inline Actions dHbydJ(const coord::PosVelSphMod& dHby,
+    const DerivAct<coord::SphMod>& derivAct)
 {
     return Actions(
-        derivAct.dbyJr.R * grad.dR + derivAct.dbyJr.z * grad.dz + derivAct.dbyJr.phi * grad.dphi +
-        derivAct.dbyJr.vR * vel.vR + derivAct.dbyJr.vz * vel.vz + derivAct.dbyJr.vphi * vel.vphi,
-        derivAct.dbyJz.R * grad.dR + derivAct.dbyJz.z * grad.dz + derivAct.dbyJz.phi * grad.dphi +
-        derivAct.dbyJz.vR * vel.vR + derivAct.dbyJz.vz * vel.vz + derivAct.dbyJz.vphi * vel.vphi,
-        derivAct.dbyJphi.R * grad.dR + derivAct.dbyJphi.z * grad.dz + derivAct.dbyJphi.phi * grad.dphi +
-        derivAct.dbyJphi.vR * vel.vR + derivAct.dbyJphi.vz * vel.vz + derivAct.dbyJphi.vphi * vel.vphi);
+        derivAct.dbyJr.r * dHby.r + derivAct.dbyJr.tau * dHby.tau + derivAct.dbyJr.phi * dHby.phi +
+        derivAct.dbyJr.pr* dHby.pr+ derivAct.dbyJr.ptau* dHby.ptau+ derivAct.dbyJr.pphi* dHby.pphi,
+        derivAct.dbyJz.r * dHby.r + derivAct.dbyJz.tau * dHby.tau + derivAct.dbyJz.phi * dHby.phi +
+        derivAct.dbyJz.pr* dHby.pr+ derivAct.dbyJz.ptau* dHby.ptau+ derivAct.dbyJz.pphi* dHby.pphi,
+        derivAct.dbyJphi.r * dHby.r + derivAct.dbyJphi.tau * dHby.tau + derivAct.dbyJphi.phi * dHby.phi +
+        derivAct.dbyJphi.pr* dHby.pr+ derivAct.dbyJphi.ptau* dHby.ptau+ derivAct.dbyJphi.pphi* dHby.pphi);
 }
 
 double Mapping::computeHamiltonianAtPoint(const double params[], const unsigned int indPoint,
     Actions *dHdJ, double *derivGenFnc,
-    double *derivToyMap, coord::PosVelCyl *derivToyMapTmp) const
+    double *derivToyMap, coord::PosVelSphMod *derivToyMapTmp) const
 {
     // Generating function computes the toy actions from the real actions
     // at the given point in the grid of toy angles grid
@@ -428,36 +465,33 @@ double Mapping::computeHamiltonianAtPoint(const double params[], const unsigned 
     // do not allow to stray into forbidden region of negative actions
     if(toyAA.Jr<0 || toyAA.Jz<0)
         return NAN;
-
     // Toy map computes the position and velocity from the toy actions and angles,
     // and optionally their derivatives w.r.t. toy actions and toy map parameters,
-    DerivAct derivAct;
-    coord::PosVelCyl point = toyMapFit.mapDeriv(toyAA, params + offsetToyMapParam, 
+    DerivAct<coord::SphMod> derivAct;
+    coord::PosVelSphMod point = toyMapFit.map(toyAA, params + offsetToyMapParam, 
         derivGenFnc!=NULL ? &derivAct : NULL, derivToyMapTmp);
 
-    // obtain the value and gradient of real potential at the given point
-    coord::GradCyl grad;
-    double H;
-    potential.eval(point, &H, &grad);
-    H += 0.5 * (pow_2(point.vR) + pow_2(point.vz) + pow_2(point.vphi));
+    // obtain the value real potential at the given point and its derivatives w.r.t. coordinates/momenta
+    coord::PosVelSphMod dHbyCM;
+    double H = pointTrans.Hamiltonian(point, potential, derivToyMap || derivGenFnc ? &dHbyCM : NULL);
 
     // derivatives of Hamiltonian w.r.t. parameters of toy map
     if(derivToyMap) {
         assert(derivToyMapTmp);
         for(unsigned int p = 0; p<numParamsToyMap; p++)
             derivToyMap[p] =
-            grad.dR   * derivToyMapTmp[p].R   +
-            grad.dz   * derivToyMapTmp[p].z   +
-            grad.dphi * derivToyMapTmp[p].phi +
-            point.vR  * derivToyMapTmp[p].vR  +
-            point.vz  * derivToyMapTmp[p].vz  +
-            point.vphi* derivToyMapTmp[p].vphi;
+            dHbyCM.r   * derivToyMapTmp[p].r   +
+            dHbyCM.tau * derivToyMapTmp[p].tau +
+            dHbyCM.phi * derivToyMapTmp[p].phi +
+            dHbyCM.pr  * derivToyMapTmp[p].pr  +
+            dHbyCM.ptau* derivToyMapTmp[p].ptau+
+            dHbyCM.pphi* derivToyMapTmp[p].pphi;
     }
 
     // derivatives of Hamiltonian w.r.t. parameters of gen.fnc.
     if(derivGenFnc) {
         // derivative of Hamiltonian by toy actions
-        Actions dHby = dHbydJ(point, grad, derivAct);
+        Actions dHby = dHbydJ(dHbyCM, derivAct);
         if(dHdJ)
             *dHdJ = dHby;
         for(unsigned int p = 0; p<numParamsGenFnc; p++) {
@@ -468,7 +502,6 @@ double Mapping::computeHamiltonianAtPoint(const double params[], const unsigned 
             derivGenFnc[p] = dHdS;
         }
     }
-
     return H;
 }
 
@@ -482,8 +515,8 @@ void Mapping::evalDeriv(const double params[],
     double Havg = 0;  // accumulator for the average Hamiltonian
 
     // temp.storage for derivs of position/velocity by parameters of toy map: d(x,v)/dP
-    std::vector<coord::PosVelCyl> derivParam(numParamsToyMap);
-    coord::PosVelCyl* tmpp = dHdParams!=NULL ? &derivParam.front() : NULL;
+    std::vector<coord::PosVelSphMod> derivParam(numParamsToyMap);
+    coord::PosVelSphMod* tmpp = dHdParams!=NULL ? &derivParam.front() : NULL;
 
     // loop over grid of toy angles
     for(unsigned int indPoint=0; indPoint < numPoints; indPoint++) {
@@ -632,18 +665,24 @@ ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& poten
 {
     if(!isAxisymmetric(poten))
         throw std::invalid_argument("ActionMapperNewTorus only works for axisymmetric potentials");
+    if(acts.Jr<0 || acts.Jz<0)
+        throw std::invalid_argument("ActionMapperNewTorus: negative actions");
 
     // number of complete cycles of Levenberg-Marquardt fitting procedure
     const unsigned int maxNumCycles = 6;
 
     // instance of toy map to be used during the fit
     ToyMapFitIsochrone toyMapFit;
+    
+    // point transformation
+    const PointTransformFit* pointTransFit = new PointTransformFit();
+    pointTrans.reset(pointTransFit);
 
     // parameters of toy map and generating function obtained during the fit
     std::vector<double> params;
 
     // create a first approximation with default initial set of parameters
-    PtrMapping mapping(new Mapping(acts, poten, toyMapFit, makeGridIndices(4, 4), toler*1.));
+    PtrMapping mapping(new Mapping(acts, poten, *pointTransFit, toyMapFit, makeGridIndices(4, 4), toler*1.));
 
     // perform the first Levenberg-Marquardt least-square fit
     int numIter = mapping->fitTorus(params);
@@ -737,7 +776,7 @@ coord::PosVelCyl ActionMapperNewTorus::map(const ActionAngles& actAng, Frequenci
             "values of actions are different from those provided to the constructor");
     if(freq)
         *freq = freqs;
-    return toyMap->map(genFnc->map(actAng));
+    return pointTrans->map(toyMap->map(genFnc->map(actAng)));
 }
 
 }  // namespace actions

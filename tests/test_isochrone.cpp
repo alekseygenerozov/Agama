@@ -104,66 +104,65 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
             std::cout << aaT <<'\t' <<aaI << '\n';
 #endif
         // inverse transformation with derivs
-        coord::PosVelCyl pd[2];
-        actions::DerivAct ac;
-        actions::DerivAng an;
-        coord::PosVelCyl pp = actions::ToyMapIsochrone(M, b).mapDeriv(aaI, &frIinv, &ac, &an, pd);
-        reversible &= equalPosVel(pp, traj[i], epst) && 
+        coord::PosVelSphMod pd[2];
+        actions::DerivAct<coord::SphMod> ac;
+        coord::PosVelSphMod pp = actions::ToyMapIsochrone(M, b).map(aaI, &frIinv, &ac, NULL, pd);
+        reversible &= equalPosVel(toPosVelCyl(pp), traj[i], epst) && 
             math::fcmp(frI.Omegar, frIinv.Omegar, epst) == 0 &&
             math::fcmp(frI.Omegaz, frIinv.Omegaz, epst) == 0 &&
             math::fcmp(frI.Omegaphi, frIinv.Omegaphi, epst) == 0;
         // check derivs w.r.t. potential params
-        coord::PosVelCyl pM = actions::ToyMapIsochrone(M*(1+epsd), b).map(aaI);
-        coord::PosVelCyl pb = actions::ToyMapIsochrone(M, b*(1+epsd)).map(aaI);
-        pM.R    = (pM.R  - pp.R)   / (M*epsd);
-        pM.z    = (pM.z  - pp.z)   / (M*epsd);
-        pM.phi  = (pM.phi- pp.phi) / (M*epsd);
-        pM.vR   = (pM.vR - pp.vR)  / (M*epsd);
-        pM.vz   = (pM.vz - pp.vz)  / (M*epsd);
-        pM.vphi = (pM.vphi-pp.vphi)/ (M*epsd);
-        pb.R    = (pb.R  - pp.R)   / (b*epsd);
-        pb.z    = (pb.z  - pp.z)   / (b*epsd);
-        pb.phi  = (pb.phi- pp.phi) / (b*epsd);
-        pb.vR   = (pb.vR - pp.vR)  / (b*epsd);
-        pb.vz   = (pb.vz - pp.vz)  / (b*epsd);
-        pb.vphi = (pb.vphi-pp.vphi)/ (b*epsd);
-        if(!equalPosVel(pM, pd[0], 1e-5) && ++numWarnings<10) {
+        coord::PosVelSphMod pM = actions::ToyMapIsochrone(M*(1+epsd), b).map(aaI);
+        coord::PosVelSphMod pb = actions::ToyMapIsochrone(M, b*(1+epsd)).map(aaI);
+        pM.r   = (pM.r   - pp.r)   / (M*epsd);
+        pM.tau = (pM.tau - pp.tau) / (M*epsd);
+        pM.phi = (pM.phi - pp.phi) / (M*epsd);
+        pM.pr  = (pM.pr  - pp.pr)  / (M*epsd);
+        pM.ptau= (pM.ptau- pp.ptau)/ (M*epsd);
+        pM.pphi= (pM.pphi- pp.pphi)/ (M*epsd);
+        pb.r   = (pb.r   - pp.r)   / (b*epsd);
+        pb.tau = (pb.tau - pp.tau) / (b*epsd);
+        pb.phi = (pb.phi - pp.phi) / (b*epsd);
+        pb.pr  = (pb.pr  - pp.pr)  / (b*epsd);
+        pb.ptau= (pb.ptau- pp.ptau)/ (b*epsd);
+        pb.pphi= (pb.pphi- pp.pphi)/ (b*epsd);
+        if(!equalPosVel(pM, pd[0], 1e-4) && ++numWarnings<10) {
             deriv_ok = false;
             std::cout << "d/dM: " << pM << pd[0] << '\n';
         }
-        if(!equalPosVel(pb, pd[1], 1e-5) && ++numWarnings<10) {
+        if(!equalPosVel(pb, pd[1], 1e-4) && ++numWarnings<10) {
             deriv_ok = false;
             std::cout << "d/db: " << pb << pd[1] << '\n';
         }
         // check derivs w.r.t. actions
         actions::ActionAngles aaT = aaI; aaT.Jr += epsd;
-        coord::PosVelCyl pJr = mapIsochrone(M, b, aaT);
-        pJr.R   = (pJr.R   - pp.R)   / epsd;
-        pJr.z   = (pJr.z   - pp.z)   / epsd;
+        coord::PosVelSphMod pJr = actions::ToyMapIsochrone(M, b).map(aaT);
+        pJr.r   = (pJr.r   - pp.r)   / epsd;
+        pJr.tau = (pJr.tau - pp.tau) / epsd;
         pJr.phi = (pJr.phi - pp.phi) / epsd;
-        pJr.vR  = (pJr.vR  - pp.vR)  / epsd;
-        pJr.vz  = (pJr.vz  - pp.vz)  / epsd;
-        pJr.vphi= (pJr.vphi- pp.vphi)/ epsd;
+        pJr.pr  = (pJr.pr  - pp.pr)  / epsd;
+        pJr.ptau= (pJr.ptau- pp.ptau)/ epsd;
+        pJr.pphi= (pJr.pphi- pp.pphi)/ epsd;
         aaT = aaI; aaT.Jz += epsd;
-        coord::PosVelCyl pJz = mapIsochrone(M, b, aaT);
-        pJz.R   = (pJz.R   - pp.R)   / epsd;
-        pJz.z   = (pJz.z  - pp.z)  / epsd;
+        coord::PosVelSphMod pJz = actions::ToyMapIsochrone(M, b).map(aaT);
+        pJz.r   = (pJz.r   - pp.r)   / epsd;
+        pJz.tau = (pJz.tau - pp.tau) / epsd;
         pJz.phi = (pJz.phi - pp.phi) / epsd;
-        pJz.vR  = (pJz.vR  - pp.vR)  / epsd;
-        pJz.vz  = (pJz.vz - pp.vz) / epsd;
-        pJz.vphi= (pJz.vphi- pp.vphi)/ epsd;
+        pJz.pr  = (pJz.pr  - pp.pr)  / epsd;
+        pJz.ptau= (pJz.ptau- pp.ptau)/ epsd;
+        pJz.pphi= (pJz.pphi- pp.pphi)/ epsd;
         if(aaI.Jz==0) {
-            deriv_ok &= !math::isFinite(ac.dbyJz.z+ac.dbyJz.vz);  // should be infinite
-            pJz.z=pJz.vz=ac.dbyJz.z=ac.dbyJz.vz=0;  // exclude from comparison
+            deriv_ok &= !math::isFinite(ac.dbyJz.tau+ac.dbyJz.ptau);  // should be infinite
+            pJz.tau=pJz.ptau=ac.dbyJz.tau=ac.dbyJz.ptau=0;  // exclude from comparison
         }
         aaT = aaI; aaT.Jphi += epsd;
-        coord::PosVelCyl pJp = mapIsochrone(M, b, aaT);
-        pJp.R   = (pJp.R   - pp.R)   / epsd;
-        pJp.z   = (pJp.z   - pp.z)   / epsd;
+        coord::PosVelSphMod pJp = actions::ToyMapIsochrone(M, b).map(aaT);
+        pJp.r   = (pJp.r   - pp.r)   / epsd;
+        pJp.tau = (pJp.tau - pp.tau) / epsd;
         pJp.phi = (pJp.phi - pp.phi) / epsd;
-        pJp.vR  = (pJp.vR  - pp.vR)  / epsd;
-        pJp.vz  = (pJp.vz  - pp.vz)  / epsd;
-        pJp.vphi= (pJp.vphi- pp.vphi)/ epsd;
+        pJp.pr  = (pJp.pr  - pp.pr)  / epsd;
+        pJp.ptau= (pJp.ptau- pp.ptau)/ epsd;
+        pJp.pphi= (pJp.pphi- pp.pphi)/ epsd;
         if(!equalPosVel(pJr, ac.dbyJr, 1e-4) && ++numWarnings<10) {
             deriv_ok = false;
             std::cout << "d/dJr: " << pJr << ac.dbyJr << '\n';
@@ -172,13 +171,13 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
             deriv_ok = false;
             std::cout << "d/dJz: " << pJz << ac.dbyJz << '\n';
         }
-        if(!equalPosVel(pJp, ac.dbyJphi, 1e-4) && ++numWarnings<10) {
+        if(!equalPosVel(pJp, ac.dbyJphi, 1e-3) && ++numWarnings<10) {
             deriv_ok = false;
             std::cout << "d/dJphi: " << pJp << ac.dbyJphi << '\n';
         }
         if(output) {
             strm << i*timestep<<"   "<<traj[i].R<<" "<<traj[i].z<<" "<<traj[i].phi<<"  "<<
-                pp.R<<" "<<pp.z<<" "<<pp.phi<<"   "<<
+                toPosVelCyl(pp).R<<" "<<toPosVelCyl(pp).z<<" "<<pp.phi<<"   "<<
                 aaI.thetar<<" "<<aaI.thetaz<<" "<<aaI.thetaphi<<"  "<<
                 aaF.thetar<<" "<<aaF.thetaz<<" "<<aaF.thetaphi<<"  "<<
             "\n";

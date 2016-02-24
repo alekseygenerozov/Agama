@@ -43,40 +43,6 @@ The fundamental routines operating on these structures are the following:
 */
 namespace coord {
 
-/// \name   Primitive data types: coordinate systems
-///@{
-
-/// trivial coordinate systems don't have any parameters, 
-/// their class names are simply used as tags in the rest of the code
-
-/// cartesian coordinate system (galactocentric)
-struct Car{
-    static const char* name() { return "Cartesian"; }
-};
-
-/// cylindrical coordinate system (galactocentric)
-struct Cyl{
-    static const char* name() { return "Cylindrical"; }
-};
-
-/// spherical coordinate system (galactocentric)
-struct Sph{
-    static const char* name() { return "Spherical"; }
-};
-
-//  less trivial:
-/** prolate spheroidal coordinate system, defined by a single parameter 
-    delta>0 (squared interfocal distance).
-    The traditionally used two parameters alpha and gamma (e.g., de Zeeuw 1985) 
-    are not independent, so we define  delta = gamma - alpha.
-*/
-struct ProlSph{
-    const double delta;      ///< = gamma - alpha > 0
-    ProlSph(double _delta);  ///< delta is _squared_ interfocal distance
-    static const char* name() { return "Prolate spheroidal"; }
-};
-
-///@}
 /// \name   Primitive data types: symmetry in 3d space
 ///@{
     
@@ -152,6 +118,51 @@ inline bool isSpherical(const SymmetryType sym) {
 }
 
 ///@}
+/// \name   Primitive data types: coordinate systems
+///@{
+
+/// trivial coordinate systems don't have any parameters, 
+/// their class names are simply used as tags in the rest of the code
+
+/// cartesian coordinate system (galactocentric)
+struct Car{
+    static const char* name() { return "Cartesian"; }
+};
+
+/// cylindrical coordinate system (galactocentric)
+struct Cyl{
+    static const char* name() { return "Cylindrical"; }
+};
+
+/// spherical coordinate system (galactocentric)
+struct Sph{
+    static const char* name() { return "Spherical"; }
+};
+
+/// spherical coordinate system with modified polar angle variable
+struct SphMod{
+    static const char* name() { return "Modified spherical"; }
+};
+
+//  less trivial:
+/** prolate spheroidal coordinate system, defined by a single parameter 
+    delta>0 (squared interfocal distance).
+    The traditionally used two parameters alpha and gamma (e.g., de Zeeuw 1985) 
+    are not independent, so we define  delta = gamma - alpha.
+*/
+struct ProlSph{
+    const double delta;      ///< = gamma - alpha > 0
+    ProlSph(double _delta);  ///< delta is _squared_ interfocal distance
+    static const char* name() { return "Prolate spheroidal"; }
+};
+
+struct ProlMod{
+    const double d;
+    ProlMod(double _d) : d(_d) {};
+    static const char* name() { return "Modified prolate spheroidal"; }
+};
+
+///@}
 /// \name   Primitive data types: position in different coordinate systems
 ///@{
 
@@ -182,12 +193,23 @@ typedef struct PosT<Cyl> PosCyl;
 /// position in spherical coordinates
 template<> struct PosT<Sph>{
     double r;     ///< spherical radius
-    double theta; ///< polar angle [0:pi) - 0 means along z axis in positive direction, pi is along z in negative direction, pi/2 is in x-y plane
+    double theta; ///< polar angle [0:pi) - 0 means along z axis in positive direction,
+                  ///< pi is along z in negative direction, pi/2 is in x-y plane
     double phi;   ///< azimuthal angle in x-y plane [0:2pi)
     PosT<Sph>() {};
     PosT<Sph>(double _r, double _theta, double _phi) : r(_r), theta(_theta), phi(_phi) {};
 };
 typedef struct PosT<Sph> PosSph;
+
+/// position in modified spherical coordinates
+template<> struct PosT<SphMod>{
+    double r;   ///< spherical radius
+    double tau; ///< replacement for polar angle theta: tau = cos(theta) / (1 + sin(theta)); -1<=tau<=1
+    double phi; ///< azimuthal angle in x-y plane [0:2pi)
+    PosT<SphMod>() {};
+    PosT<SphMod>(double _r, double _tau, double _phi) : r(_r), tau(_tau), phi(_phi) {};
+};
+typedef struct PosT<SphMod> PosSphMod;
 
 /** position in prolate spheroidal coordinates.
     We use a somewhat different definition from de Zeeuw 1985, namely: 
@@ -202,6 +224,16 @@ template<> struct PosT<ProlSph>{
         lambda(_lambda), nu(_nu), phi(_phi), coordsys(_coordsys) {};
 };
 typedef struct PosT<ProlSph> PosProlSph;
+
+template<> struct PosT<ProlMod>{
+    double rho;  ///< lies in the range [0:infinity), analog of spherical radius
+    double tau;  ///< lies in the range [-1:1], analog of tau in SphMod coords
+    double phi;  ///< usual azimuthal angle
+    const ProlMod& coordsys;  ///< a point means nothing without specifying its coordinate system
+    PosT<ProlMod>(double _rho, double _tau, double _phi, const ProlMod& _coordsys):
+        rho(_rho), tau(_tau), phi(_phi), coordsys(_coordsys) {};
+};
+typedef struct PosT<ProlMod> PosProlMod;
 
 ///@}
 /// \name   Primitive data types: velocity in different coordinate systems
@@ -320,6 +352,17 @@ template<> struct PosVelT<Sph>: public PosSph, public VelSph {
         out[0]=r; out[1]=theta; out[2]=phi; out[3]=vr; out[4]=vtheta; out[5]=vphi; }
 };
 typedef struct PosVelT<Sph> PosVelSph;
+
+/// canonically conjugate coordinate and momenta in modified spherical coordinates
+template<> struct PosVelT<SphMod>: public PosSphMod {
+    double pr;   ///< p_r   = v_r = dr/dt
+    double ptau; ///< p_tau = -2 * r * v_theta / (1+tau^2)
+    double pphi; ///< p_phi = R * v_phi
+    PosVelT<SphMod>() {};
+    PosVelT<SphMod>(double _r, double _tau, double _phi, double _pr, double _ptau, double _pphi) :
+    PosSphMod(_r, _tau, _phi), pr(_pr), ptau(_ptau), pphi(_pphi) {};
+};
+typedef struct PosVelT<SphMod> PosVelSphMod;
 
 /// position and velocity in prolate spheroidal coordinates
 template<> struct PosVelT<ProlSph>: public PosProlSph{
@@ -698,6 +741,17 @@ void evalAndConvertTwoStep(const IScalarFunction<evalCS>& F,
 template<typename outputCS>
 void evalAndConvertSph(const math::IFunction& F,
     const PosT<outputCS>& pos, double* value=0, GradT<outputCS>* deriv=0, HessT<outputCS>* deriv2=0);
+
+/** Conversion of Hamiltonian and its derivatives:
+    if (Q,P) are the coordinates and momenta in the output coord system (outputCS),
+    and H(x,v) = Phi(x) + (1/2) v^2  is the Hamiltonian in another coord system (evalCS),
+    where it has a simple form composed of potential and quadratic velocity terms,
+    then this routine converts (Q,P) -> (x,v) and returns the value of Hamiltonian and
+    optionally its derivatives w.r.t the output coord/momenta ( dH / d{Q,P} ).
+*/
+template<typename evalCS, typename outputCS>
+double evalHamiltonian(const PosVelT<outputCS> &point,
+    const IScalarFunction<evalCS>& potential, PosVelT<outputCS> *dHby=0);
 
 ///@}
 

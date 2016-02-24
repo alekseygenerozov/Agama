@@ -275,7 +275,7 @@ template<>
 PosProlSph toPosDeriv(const PosCyl& from, const ProlSph& cs,
     PosDerivT<Cyl, ProlSph>* derivs, PosDeriv2T<Cyl, ProlSph>* derivs2)
 {
-    // lambda and mu are roots "t" of equation  R^2/(t-delta) + z^2/t = 1
+    // lambda and nu are roots "t" of equation  R^2/(t-delta) + z^2/t = 1
     double R2     = pow_2(from.R), z2 = pow_2(from.z);
     double signz  = from.z>=0 ? 1 : -1;   // nu will have the same sign as z
     double sum    = R2+z2+cs.delta;
@@ -318,6 +318,40 @@ PosProlSph toPosDeriv(const PosCyl& from, const ProlSph& cs,
         }
     }
     return PosProlSph(lambda, absnu*signz, from.phi, cs);
+}
+
+template<> 
+PosCyl toPos(const PosProlMod& p)
+{
+    double sinv = (1 - pow_2(p.tau)) / (1 + pow_2(p.tau));
+    double cosv = 2 * p.tau / (1 + pow_2(p.tau));
+    double fac  = 1 / (1 + 0.5 * p.coordsys.d / p.rho);
+    double dsinhu = (p.coordsys.d + p.rho) * fac;
+    double dcoshu =  p.coordsys.d + p.rho  * fac;
+    return PosCyl( dsinhu * sinv, dcoshu * cosv, p.phi);
+}
+
+template<>
+PosProlMod toPos(const PosCyl& from, const ProlMod& cs)
+{
+    double R2     = pow_2(from.R), z2 = pow_2(from.z), r2 = R2+z2, d2 = pow_2(cs.d);
+    double sum    = r2 + d2;
+    double dif    = r2 - d2;
+    double sqD    = sqrt(pow_2(dif) + 4*R2*d2);
+    if(z2==0) sqD = sum;
+    if(R2==0) sqD = fabs(dif);
+    double l, n;
+    if(dif >= 0) {
+        l = 0.5 * (sqD + dif);
+        n = R2>0 ? R2 * d2 / l : 0;
+    } else {
+        n = 0.5 * (sqD - dif);
+        l = R2 * d2 / n;
+    }
+    double drD = (1./M_SQRT2) * sqrt(sqD + r2 + d2);
+    double rho = 0.5 * (l / (cs.d + drD) + sqrt(l));
+    double tau = cs.d * from.z / ((cs.d + sqrt(n)) * drD);
+    return PosProlMod(rho, tau, from.phi, cs);
 }
 
 template PosCyl toPosDeriv(const PosCar&, PosDerivT<Car, Cyl>*, PosDeriv2T<Car, Cyl>*);
@@ -363,6 +397,23 @@ template<> PosVelCyl toPosVel(const PosVelSph& p) {
     const double vR=p.vr*sintheta+p.vtheta*costheta;
     const double vz=p.vr*costheta-p.vtheta*sintheta;
     return PosVelCyl(R, z, p.phi, vR, vz, p.vphi);
+}
+
+template<> PosVelCyl toPosVel(const PosVelSphMod& p) {
+    const double costheta = 2*p.tau / (1+pow_2(p.tau));
+    const double sintheta = (1-pow_2(p.tau)) / (1+pow_2(p.tau));
+    const double R  = p.r  * sintheta, z = p.r*costheta;
+    const double vR = p.pr * sintheta - p.ptau / p.r * p.tau;
+    const double vz = p.pr * costheta + p.ptau / p.r * (1-pow_2(p.tau)) * 0.5;
+    return PosVelCyl(R, z, p.phi, vR, vz, p.pphi!=0 ? p.pphi/R : 0);
+}
+
+template<> PosVelSphMod toPosVel(const PosVelCyl& p) {
+    const double r   = sqrt(pow_2(p.R) + pow_2(p.z));
+    const double tau = p.z / (p.R + r);
+    const double pr  = (p.R * p.vR + p.z * p.vz) / r;
+    const double ptau= (p.R * p.vz - p.z * p.vR) * (1 + p.R/r);
+    return PosVelSphMod(r, tau, p.phi, pr, ptau, p.vphi*p.R);
 }
 
 template<> PosVelSph toPosVel(const PosVelCar& p) {
@@ -794,5 +845,31 @@ template void evalAndConvertSph(const math::IFunction& F,
     const PosCyl& pos, double* value, GradCyl* deriv, HessCyl* deriv2);
 template void evalAndConvertSph(const math::IFunction& F,
     const PosSph& pos, double* value, GradSph* deriv, HessSph* deriv2);
-    
+
+template<>
+double evalHamiltonian(const coord::PosVelSphMod &point,
+    const IScalarFunction<Cyl>& potential, coord::PosVelSphMod *dHby)
+{
+    coord::PosVelCyl pointCyl(toPosVelCyl(point));
+    coord::GradCyl gradCyl;
+    double H;
+    potential.evalScalar(pointCyl, &H, &gradCyl);
+    H += 0.5 * (pow_2(pointCyl.vR) + pow_2(pointCyl.vz) + pow_2(pointCyl.vphi));
+    if(dHby != NULL) {
+        dHby->r   = (gradCyl.dR * pointCyl.R + gradCyl.dz * pointCyl.z
+            - pow_2(point.ptau / (pointCyl.R + point.r)) - pow_2(pointCyl.vphi)) / point.r;
+        dHby->tau = (-gradCyl.dR * pointCyl.z + gradCyl.dz * pointCyl.R) * (pointCyl.R / point.r + 1)
+            + point.ptau * (point.pr - pointCyl.vR - point.tau * pointCyl.vz) / point.r
+            + pow_2(pointCyl.vphi) * pointCyl.z * (1/point.r + 1/pointCyl.R);
+        dHby->phi = gradCyl.dphi;
+        dHby->pr  = point.pr;
+        dHby->ptau= point.ptau / pow_2(pointCyl.R + point.r);
+        dHby->pphi= pointCyl.vphi / pointCyl.R;
+    }
+    return H;
+}
+
+template double evalHamiltonian(const coord::PosVelSphMod &point,
+    const IScalarFunction<Cyl>& potential, coord::PosVelSphMod *dHby);
+
 }  // namespace coord
