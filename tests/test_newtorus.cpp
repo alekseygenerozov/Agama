@@ -22,27 +22,6 @@ const double EPSFREQ = 1e-2;
 const double EPSENER = 3e-3;
 std::ofstream strm;
 
-#if 0
-bool testSphMod(const coord::IScalarFunction<coord::Cyl>& pot, const coord::PosVelCyl& point)
-{
-    const double EPS=1e-8;
-    coord::PosVelSphMod p0 = coord::toPosVel<coord::Cyl, coord::SphMod>(point);
-    coord::PosVelSphMod dHa;  // deriv-analytic
-    double H0 = coord::evalHamiltonian(p0, pot, &dHa);
-    coord::PosVelSphMod dHf(  // deriv-finite-difference
-    (coord::evalHamiltonian(coord::PosVelSphMod(p0.r+EPS, p0.tau, p0.phi, p0.pr, p0.ptau, p0.pphi), pot)-H0)/EPS,
-    (coord::evalHamiltonian(coord::PosVelSphMod(p0.r, p0.tau+EPS, p0.phi, p0.pr, p0.ptau, p0.pphi), pot)-H0)/EPS,
-    (coord::evalHamiltonian(coord::PosVelSphMod(p0.r, p0.tau, p0.phi+EPS, p0.pr, p0.ptau, p0.pphi), pot)-H0)/EPS,
-    (coord::evalHamiltonian(coord::PosVelSphMod(p0.r, p0.tau, p0.phi, p0.pr+EPS, p0.ptau, p0.pphi), pot)-H0)/EPS,
-    (coord::evalHamiltonian(coord::PosVelSphMod(p0.r, p0.tau, p0.phi, p0.pr, p0.ptau+EPS, p0.pphi), pot)-H0)/EPS,
-    (coord::evalHamiltonian(coord::PosVelSphMod(p0.r, p0.tau, p0.phi, p0.pr, p0.ptau, p0.pphi+EPS), pot)-H0)/EPS);
-    //std::cout << "H0="<<H0<< p0 << "Analytic:"<<dHa<<"Finite-dif:"<<dHf<<"\n";
-    return equalPosVel(dHa, dHf, 1e-6);
-}
-const potential::Logarithmic logpot(1., 0.1, 0.7, 0.4);
-allok &= testSphMod(logpot, coord::PosVelCyl(1., 1.2, 0.5, 0.4, 0.3, 0.2));
-#endif
-
 bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVelCyl& point)
 {
     // obtain exact actions and frequencies corresponding to the given IC
@@ -119,7 +98,7 @@ bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVe
     double tstk = (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC;
 
     // output
-    /*std::ofstream strm("torus.dat");
+    std::ofstream strm("torus.orb");
     strm << "#t\tR z phi\ttorus_R z phi\ttorus_thetar thetaz thetaphi\t"
         "exact_thetar thetaz thetaphi\tJr Jz E\n";
     for(unsigned int i=0; i<NPOINTS; i++) {
@@ -130,7 +109,7 @@ bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVe
         aaStk  [i].thetar << ' ' << aaStk  [i].thetaz << ' ' << aaStk  [i].thetaphi << '\t' <<
         aaStk[i].Jr << ' ' << aaStk[i].Jz << ' ' << totalEnergy(pot, trajTorus[i]) << '\n';
     }
-    strm.close();*/
+    strm.close();
     
     // summarize
     statAct.finish();

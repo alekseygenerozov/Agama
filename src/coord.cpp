@@ -273,7 +273,7 @@ PosCyl toPosDeriv(const PosProlSph& p, PosDerivT<ProlSph, Cyl>* deriv, PosDeriv2
 
 template<>
 PosProlSph toPosDeriv(const PosCyl& from, const ProlSph& cs,
-    PosDerivT<Cyl, ProlSph>* derivs, PosDeriv2T<Cyl, ProlSph>* derivs2)
+    PosDerivT<Cyl, ProlSph>* deriv, PosDeriv2T<Cyl, ProlSph>* deriv2)
 {
     // lambda and nu are roots "t" of equation  R^2/(t-delta) + z^2/t = 1
     double R2     = pow_2(from.R), z2 = pow_2(from.z);
@@ -297,60 +297,86 @@ PosProlSph toPosDeriv(const PosCyl& from, const ProlSph& cs,
         absnu     = cs.delta - dmn;    // avoid roundoff errors when delta-|nu| is small
     else
         dmn       = cs.delta - absnu;  // same in the opposite case, when |nu| is small
-    if(derivs!=NULL || derivs2!=NULL) {
+    if(deriv!=NULL || deriv2!=NULL) {
         if(sqD==0)
             throw std::runtime_error("Error in coordinate conversion Cyl=>ProlSph: "
                 "the special case lambda = nu = delta is not implemented");
-        if(derivs!=NULL) {  // accurate expressions valid for arbitrary large/small values (no cancellations)
-            derivs->dlambdadR = from.R * 2*lambda / sqD;
-            derivs->dlambdadz = from.z * 2*lmd    / sqD;
-            derivs->dnudR     = from.R * 2*-absnu / sqD * signz;
-            derivs->dnudz     = from.z * 2*dmn    / sqD * signz;
+        if(deriv!=NULL) {  // accurate expressions valid for arbitrary large/small values (no cancellations)
+            deriv->dlambdadR = from.R * 2*lambda / sqD;
+            deriv->dlambdadz = from.z * 2*lmd    / sqD;
+            deriv->dnudR     = from.R * 2*-absnu / sqD * signz;
+            deriv->dnudz     = from.z * 2*dmn    / sqD * signz;
         }
-        if(derivs2!=NULL) {  // here no attempts were made to avoid cancellation errors
+        if(deriv2!=NULL) {  // here no attempts were made to avoid cancellation errors
             double common = 8 * cs.delta * R2 * z2 / pow_3(sqD);
-            derivs2->d2lambdadR2 = 1 + sum/sqD - common;
-            derivs2->d2lambdadz2 = 1 + dif/sqD + common;
-            derivs2->d2nudR2     =(1 - sum/sqD + common) * signz;
-            derivs2->d2nudz2     =(1 - dif/sqD - common) * signz;
-            derivs2->d2lambdadRdz= 2 * from.R * from.z * (1 - sum * dif / pow_2(sqD)) / sqD;
-            derivs2->d2nudRdz    = -derivs2->d2lambdadRdz * signz;
+            deriv2->d2lambdadR2 = 1 + sum/sqD - common;
+            deriv2->d2lambdadz2 = 1 + dif/sqD + common;
+            deriv2->d2nudR2     =(1 - sum/sqD + common) * signz;
+            deriv2->d2nudz2     =(1 - dif/sqD - common) * signz;
+            deriv2->d2lambdadRdz= 2 * from.R * from.z * (1 - sum * dif / pow_2(sqD)) / sqD;
+            deriv2->d2nudRdz    = -deriv2->d2lambdadRdz * signz;
         }
     }
     return PosProlSph(lambda, absnu*signz, from.phi, cs);
 }
 
 template<> 
-PosCyl toPos(const PosProlMod& p)
+PosCyl toPosDeriv(const PosProlMod& p, PosDerivT<ProlMod, Cyl>* deriv, PosDeriv2T<ProlMod, Cyl>* deriv2)
 {
-    double sinv = (1 - pow_2(p.tau)) / (1 + pow_2(p.tau));
-    double cosv = 2 * p.tau / (1 + pow_2(p.tau));
-    double fac  = 1 / (1 + 0.5 * p.coordsys.d / p.rho);
-    double dsinhu = (p.coordsys.d + p.rho) * fac;
-    double dcoshu =  p.coordsys.d + p.rho  * fac;
-    return PosCyl( dsinhu * sinv, dcoshu * cosv, p.phi);
+    double sinv   = (1 - pow_2(p.tau)) / (1 + pow_2(p.tau));
+    double cosv   = 2 * p.tau / (1 + pow_2(p.tau));
+    double fac    = p.coordsys.D!=0 ? 1 / (1 + 0.5 * p.coordsys.D / p.rho) : 1;
+    double Dsinhu = (p.coordsys.D + p.rho) * fac;
+    double Dcoshu =  p.coordsys.D + p.rho  * fac;
+    if(deriv) {
+        double facrho = 1 / (p.rho + 0.5 * p.coordsys.D);
+        deriv->dRdrho =  facrho  * (Dcoshu * sinv);
+        deriv->dRdtau =-(1+sinv) * (Dsinhu * cosv);
+        deriv->dzdrho =  facrho  * (Dsinhu * cosv);
+        deriv->dzdtau = (1+sinv) * (Dcoshu * sinv);
+    }
+    if(deriv2) {
+        throw std::runtime_error("Deriv2 ProlMod=>Cyl not implemented");
+    }
+    return PosCyl( Dsinhu * sinv, Dcoshu * cosv, p.phi);
 }
 
 template<>
-PosProlMod toPos(const PosCyl& from, const ProlMod& cs)
+PosProlMod toPosDeriv(const PosCyl& from, const ProlMod& cs,
+    PosDerivT<Cyl, ProlMod>* deriv, PosDeriv2T<Cyl, ProlMod>* deriv2)
 {
-    double R2     = pow_2(from.R), z2 = pow_2(from.z), r2 = R2+z2, d2 = pow_2(cs.d);
-    double sum    = r2 + d2;
-    double dif    = r2 - d2;
-    double sqD    = sqrt(pow_2(dif) + 4*R2*d2);
-    if(z2==0) sqD = sum;
-    if(R2==0) sqD = fabs(dif);
+    double R2     = pow_2(from.R), z2 = pow_2(from.z), r2 = R2+z2, D2 = pow_2(cs.D);
+    double sum    = r2 + D2;
+    double dif    = r2 - D2;
+    double det    = sqrt(pow_2(dif) + 4*R2*D2);
+    if(z2==0) det = sum;
+    if(R2==0) det = fabs(dif);
     double l, n;
     if(dif >= 0) {
-        l = 0.5 * (sqD + dif);
-        n = R2>0 ? R2 * d2 / l : 0;
+        l = 0.5 * (det + dif);
+        n = R2>0 ? R2 / l : 0;
     } else {
-        n = 0.5 * (sqD - dif);
-        l = R2 * d2 / n;
+        n = 0.5 * (det - dif) / D2;
+        l = R2 / n;
     }
-    double drD = (1./M_SQRT2) * sqrt(sqD + r2 + d2);
-    double rho = 0.5 * (l / (cs.d + drD) + sqrt(l));
-    double tau = cs.d * from.z / ((cs.d + sqrt(n)) * drD);
+    double drD = (1./M_SQRT2) * sqrt(det + r2 + D2);
+    double rho = 0.5 * (l / (cs.D + drD) + sqrt(l));
+    double tau = from.z / ((1 + sqrt(n)) * drD);
+    if(deriv) {
+        double sinv   = (1 - pow_2(tau)) / (1 + pow_2(tau));
+        double cosv   = 2 * tau / (1 + pow_2(tau));
+        double fac    = cs.D!=0 ? 1 / (1 + 0.5 * cs.D / rho) : 1;
+        double Dsinhu = (cs.D + rho) * fac;
+        double Dcoshu =  cs.D + rho  * fac;
+        double invdet = 1 / (pow_2(Dsinhu) + pow_2(cs.D * sinv));
+        deriv->drhodR = invdet * Dcoshu * sinv * (rho + 0.5*cs.D);
+        deriv->drhodz = invdet * Dsinhu * cosv * (rho + 0.5*cs.D);
+        deriv->dtaudR =-invdet * Dsinhu * cosv / (1 + sinv);
+        deriv->dtaudz = invdet * Dcoshu * sinv / (1 + sinv);
+    }
+    if(deriv2) {
+        throw std::runtime_error("Deriv2 Cyl=>ProlMod not implemented");
+    }
     return PosProlMod(rho, tau, from.phi, cs);
 }
 
@@ -454,6 +480,29 @@ template<> PosVelProlSph toPosVel(const PosVelCyl& from, const ProlSph& cs) {
     return PosVelProlSph(pprol, lambdadot, nudot, phidot);
 }
 
+template<> PosVelProlMod toPosVel(const PosVelCyl& from, const ProlMod& cs) {
+    const PosProlMod pprol = toPosDeriv<Cyl, ProlMod>(from, cs, NULL);
+    PosDerivT<ProlMod, Cyl> derivs;
+    toPosDeriv<ProlMod, Cyl>(pprol, &derivs);  // need derivs of _inverse_ transformation
+    double prho = derivs.dRdrho*from.vR + derivs.dzdrho*from.vz;
+    double ptau = derivs.dRdtau*from.vR + derivs.dzdtau*from.vz;
+    double pphi = from.vphi*from.R;
+    return PosVelProlMod(pprol, prho, ptau, pphi);
+}
+
+template<> PosVelCyl toPosVel(const PosVelProlMod& p) {
+    double sinv   = (1 - pow_2(p.tau)) / (1 + pow_2(p.tau));
+    double cosv   = 2 * p.tau / (1 + pow_2(p.tau));
+    double fac    = p.coordsys.D!=0 ? 1 / (1 + 0.5 * p.coordsys.D / p.rho) : 1;
+    double Dsinhu = (p.coordsys.D + p.rho) * fac;
+    double Dcoshu =  p.coordsys.D + p.rho  * fac;
+    double invdet = 1 / (pow_2(Dsinhu) + pow_2(p.coordsys.D * sinv));
+    return PosVelCyl(Dsinhu * sinv, Dcoshu * cosv, p.phi,
+        invdet * (p.prho * Dcoshu * sinv * (p.rho + 0.5*p.coordsys.D) - p.ptau * Dsinhu * cosv / (1 + sinv)),
+        invdet * (p.prho * Dsinhu * cosv * (p.rho + 0.5*p.coordsys.D) + p.ptau * Dcoshu * sinv / (1 + sinv)),
+        p.pphi / (Dsinhu * sinv));
+}
+
 template PosVelCar toPosVel(const PosVelCyl&);
 template PosVelCar toPosVel(const PosVelCyl&);
 template PosVelCyl toPosVel(const PosVelCar&);
@@ -534,6 +583,24 @@ GradProlSph toGrad(const GradCyl& src, const PosDerivT<ProlSph, Cyl>& deriv) {
     dest.dlambda = src.dR*deriv.dRdlambda + src.dz*deriv.dzdlambda;
     dest.dnu     = src.dR*deriv.dRdnu     + src.dz*deriv.dzdnu;
     dest.dphi    = src.dphi;
+    return dest;
+}
+
+template<>
+GradCyl toGrad(const GradProlMod& src, const PosDerivT<Cyl, ProlMod>& deriv) {
+    GradCyl dest;
+    dest.dR   = src.drho*deriv.drhodR + src.dtau*deriv.dtaudR;
+    dest.dz   = src.drho*deriv.drhodz + src.dtau*deriv.dtaudz;
+    dest.dphi = src.dphi;
+    return dest;
+}
+
+template<>
+GradProlMod toGrad(const GradCyl& src, const PosDerivT<ProlMod, Cyl>& deriv) {
+    GradProlMod dest;
+    dest.drho = src.dR*deriv.dRdrho + src.dz*deriv.dzdrho;
+    dest.dtau = src.dR*deriv.dRdtau + src.dz*deriv.dzdtau;
+    dest.dphi = src.dphi;
     return dest;
 }
 
@@ -847,29 +914,30 @@ template void evalAndConvertSph(const math::IFunction& F,
     const PosSph& pos, double* value, GradSph* deriv, HessSph* deriv2);
 
 template<>
-double evalHamiltonian(const coord::PosVelSphMod &point,
-    const IScalarFunction<Cyl>& potential, coord::PosVelSphMod *dHby)
+double Ekin(const coord::PosVelProlMod &p, coord::PosVelProlMod *dHby)
 {
-    coord::PosVelCyl pointCyl(toPosVelCyl(point));
-    coord::GradCyl gradCyl;
-    double H;
-    potential.evalScalar(pointCyl, &H, &gradCyl);
-    H += 0.5 * (pow_2(pointCyl.vR) + pow_2(pointCyl.vz) + pow_2(pointCyl.vphi));
-    if(dHby != NULL) {
-        dHby->r   = (gradCyl.dR * pointCyl.R + gradCyl.dz * pointCyl.z
-            - pow_2(point.ptau / (pointCyl.R + point.r)) - pow_2(pointCyl.vphi)) / point.r;
-        dHby->tau = (-gradCyl.dR * pointCyl.z + gradCyl.dz * pointCyl.R) * (pointCyl.R / point.r + 1)
-            + point.ptau * (point.pr - pointCyl.vR - point.tau * pointCyl.vz) / point.r
-            + pow_2(pointCyl.vphi) * pointCyl.z * (1/point.r + 1/pointCyl.R);
-        dHby->phi = gradCyl.dphi;
-        dHby->pr  = point.pr;
-        dHby->ptau= point.ptau / pow_2(pointCyl.R + point.r);
-        dHby->pphi= pointCyl.vphi / pointCyl.R;
+    double D      = p.coordsys.D;
+    double rhoD   = p.rho + 0.5*D;    // = d rho / d u
+    double fac    = D!=0 ? p.rho / rhoD : 1;
+    double Dsinhu = (D + p.rho) * fac;
+    double Dcoshu =  D + p.rho  * fac;
+    double sinv   = (1 - pow_2(p.tau)) / (1 + pow_2(p.tau));
+    double cosv   = 2 * p.tau / (1 + pow_2(p.tau));
+    double invdet = 1 / (pow_2(Dsinhu) + pow_2(D*sinv));
+    double invRsq = 1 /  pow_2(Dsinhu * sinv);
+    double Huv    = 0.5 * invdet * (pow_2(p.prho * rhoD) + pow_2(p.ptau / (1+sinv)) );
+    double Hphi   = sinv!=0 ? 0.5 * invRsq *  pow_2(p.pphi) : 0;
+    if(dHby) {
+        dHby->rho = pow_2(p.prho) * invdet * rhoD 
+                  - 2 * (Huv * invdet * Dsinhu   + Hphi / Dsinhu) * Dcoshu / rhoD;
+        dHby->tau = pow_2(p.ptau) * invdet * 0.5 * p.tau * (1 + pow_2(p.tau))
+                  + 2 * (Huv * invdet * D*D*sinv + Hphi /  sinv ) *  cosv  * (1+sinv);
+        dHby->phi = 0;
+        dHby->prho= p.prho * invdet * pow_2(rhoD);
+        dHby->ptau= p.ptau * invdet / pow_2(1+sinv);
+        dHby->pphi= p.pphi * invRsq;
     }
-    return H;
+    return Huv + Hphi;
 }
-
-template double evalHamiltonian(const coord::PosVelSphMod &point,
-    const IScalarFunction<Cyl>& potential, coord::PosVelSphMod *dHby);
 
 }  // namespace coord

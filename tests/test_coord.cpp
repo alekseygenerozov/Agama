@@ -239,16 +239,61 @@ bool test_prol2(const coord::PosCyl& src) {
 }
 
 bool test_prolmod() {
+    // gradient conversion
     const coord::ProlMod cs(1.23456);
-    const double rho = cs.d+1e-15, tau = 1.;
+    const double rho = cs.D-1e-1, tau = .5;
     const coord::PosProlMod pp(rho, tau, 0, cs);
-    const coord::PosCyl pc=coord::toPosCyl(pp);
-    const coord::PosProlMod ppnew=coord::toPos<coord::Cyl,coord::ProlMod>(pc, cs);
+    coord::PosDerivT<coord::ProlMod, coord::Cyl> derivPtoC;
+    const coord::PosCyl pc=coord::toPosDeriv<coord::ProlMod, coord::Cyl>(pp, &derivPtoC);
+    coord::PosDerivT<coord::Cyl, coord::ProlMod> derivCtoP;
+    const coord::PosProlMod ppnew=coord::toPosDeriv<coord::Cyl,coord::ProlMod>(pc, cs, &derivCtoP);
+    coord::GradCyl gradC;
+    gradC.dR = 0.1234; gradC.dz = 1.2345; gradC.dphi = -2.3456;
+    coord::GradProlMod gradP = coord::toGrad<coord::Cyl, coord::ProlMod> (gradC, derivPtoC);
+    coord::GradCyl  gradCnew = coord::toGrad<coord::ProlMod, coord::Cyl> (gradP, derivCtoP);
+    bool samepos  = fabs(pp.rho-ppnew.rho)<1e-15 && fabs(pp.tau-ppnew.tau)<1e-15;
+    bool samegrad = coord::equalGrad(gradC, gradCnew, eps);
+    // velocity conversion
+    coord::PosVelCyl pvc(1.234, -0.2356, 4.568, 2.0846, -1.3563, 3.4531);
+    coord::PosVelProlMod pvp(coord::toPosVel<coord::Cyl, coord::ProlMod>(pvc, cs));
+    coord::PosVelCyl pvc1(coord::toPosVelCyl(pvp));
+    bool samepv = coord::equalPosVel(pvc, pvc1, eps);
+    // sph.mod.
     coord::PosVelSphMod psm(1.765432,0.3456,3.76543,0.213456,-2.123456,0.76543);
     coord::PosVelCyl pcy = toPosVelCyl(psm);
     coord::PosVelSphMod psm1 = coord::toPosVel<coord::Cyl, coord::SphMod>(pcy);
-    return fabs(ppnew.rho-rho)<1e-15 && fabs(ppnew.tau-tau)<1e-15 && equalPosVel(psm, psm1, 1e-12);
+    return samepos && samegrad && samepv && equalPosVel(psm, psm1, 1e-12);
 }
+
+// compare derivatives of kinetic energy obtained analytically and using finite differences
+bool testEkin(double D, double rho, double tau, double phi, double prho, double ptau, double pphi) {
+    bool ok = true;
+    const coord::ProlMod cs(D);
+    coord::PosVelProlMod p0(coord::PosProlMod(rho, tau, phi, cs), prho, ptau, pphi);
+    coord::PosVelProlMod dH(p0), p1(p0);
+    // deriv-analytic
+    double H0 = coord::Ekin(p0, &dH);
+    // deriv-finite-difference
+    const double EPS=1e-8;
+    p1.rho += EPS;
+    ok &= math::fcmp( dH.rho, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
+    p1.rho = p0.rho;
+    p1.tau += EPS;
+    ok &= math::fcmp( dH.tau, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
+    p1.tau = p0.tau;
+    p1.phi += EPS;
+    ok &= math::fcmp( dH.phi, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
+    p1.phi = p0.phi;
+    p1.prho += EPS;
+    ok &= math::fcmp( dH.prho, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
+    p1.prho = p0.prho;
+    p1.ptau += EPS;
+    ok &= math::fcmp( dH.ptau, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
+    p1.ptau = p0.ptau;
+    p1.pphi += EPS;
+    ok &= math::fcmp( dH.pphi, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
+    return ok;
+}    
 
 /// define test suite in terms of points for various coord systems
 const int numtestpoints=5;
@@ -278,6 +323,10 @@ int main() {
     passed &= test_prol2(coord::PosCyl(1.2,-2.3,3.4));  // testing negative z
     if(!passed) std::cout << "ProlSph => Cyl => ProlSph failed for z<0\n";
     passed &= test_prolmod();
+    if(!passed) std::cout << "ProlMod <=> Cyl failed\n";
+    passed &= testEkin(1.23456, 2.5367, -0.5728, 0.9326, 1.6452, 2.9320, 3.4953);
+    passed &= testEkin(0, 2.5367, -0.5728, 0.9326, 1.6452, 2.9320, 3.4953);
+    if(!passed) std::cout << "ProlMod energy derivatives failed\n";
 
     std::cout << " ======= Testing conversion of position/velocity points =======\n";
     for(int n=0; n<numtestpoints; n++) {

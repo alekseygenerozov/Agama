@@ -157,8 +157,8 @@ struct ProlSph{
 };
 
 struct ProlMod{
-    const double d;
-    ProlMod(double _d) : d(_d) {};
+    const double D;
+    ProlMod(double _D) : D(_D) {};
     static const char* name() { return "Modified prolate spheroidal"; }
 };
 
@@ -373,7 +373,15 @@ template<> struct PosVelT<ProlSph>: public PosProlSph{
         out[0]=lambda; out[1]=nu; out[2]=phi; out[3]=lambdadot; out[4]=nudot; out[5]=phidot; }
 };
 typedef struct PosVelT<ProlSph> PosVelProlSph;
-    
+
+/// canonically conjugate coordinate and momenta in modified prolate spherical coordinates
+template<> struct PosVelT<ProlMod>: public PosProlMod {
+    double prho, ptau, pphi;
+    PosVelT<ProlMod>(const PosProlMod& pos, double _prho, double _ptau, double _pphi) :
+        PosProlMod(pos), prho(_prho), ptau(_ptau), pphi(_pphi) {};
+};
+typedef struct PosVelT<ProlMod> PosVelProlMod;
+
 ///@}
 /// \name   Primitive data types: gradient of a scalar function in different coordinate systems
 ///@{
@@ -406,6 +414,11 @@ template<> struct GradT<ProlSph>{
 };
 typedef struct GradT<ProlSph> GradProlSph;
 
+template<> struct GradT<ProlMod>{
+    double drho, dtau, dphi;
+};
+typedef struct GradT<ProlMod> GradProlMod;
+    
 ///@}
 /// \name   Primitive data types: hessian of a scalar function in different coordinate systems
 ///@{
@@ -488,9 +501,15 @@ template<> struct PosDerivT<Cyl, ProlSph> {
     double dlambdadR, dlambdadz, dnudR, dnudz;
 };
 template<> struct PosDerivT<ProlSph, Cyl> {
-    double dRdlambda, dzdlambda, dRdnu, dzdnu;
+    double dRdlambda, dRdnu, dzdlambda, dzdnu;
 };
-    
+template<> struct PosDerivT<Cyl, ProlMod> {
+    double drhodR, drhodz, dtaudR, dtaudz;
+};
+template<> struct PosDerivT<ProlMod, Cyl> {
+    double dRdrho, dRdtau, dzdrho, dzdtau;
+};
+
 
 /** second derivatives of coordinate transformation from source to destination 
     coordinate systems (srcCS=>destCS): d^2(dest_coord)/d(source_coord1)d(source_coord2) */
@@ -525,7 +544,9 @@ template<> struct PosDeriv2T<Cyl, ProlSph> {
 template<> struct PosDeriv2T<ProlSph, Cyl> {
     double d2Rdlambda2, d2Rdlambdadnu, d2Rdnu2, d2zdlambda2, d2zdlambdadnu, d2zdnu2;
 };
-    
+template<> struct PosDeriv2T<ProlMod, Cyl>{};
+template<> struct PosDeriv2T<Cyl, ProlMod>{};
+
 ///@}
 /// \name   Routines for conversion between position/velocity in different coordinate systems
 ///@{
@@ -742,21 +763,16 @@ template<typename outputCS>
 void evalAndConvertSph(const math::IFunction& F,
     const PosT<outputCS>& pos, double* value=0, GradT<outputCS>* deriv=0, HessT<outputCS>* deriv2=0);
 
-/** Conversion of Hamiltonian and its derivatives:
-    if (Q,P) are the coordinates and momenta in the output coord system (outputCS),
-    and H(x,v) = Phi(x) + (1/2) v^2  is the Hamiltonian in another coord system (evalCS),
-    where it has a simple form composed of potential and quadratic velocity terms,
-    then this routine converts (Q,P) -> (x,v) and returns the value of Hamiltonian and
-    optionally its derivatives w.r.t the output coord/momenta ( dH / d{Q,P} ).
-*/
-template<typename evalCS, typename outputCS>
-double evalHamiltonian(const PosVelT<outputCS> &point,
-    const IScalarFunction<evalCS>& potential, PosVelT<outputCS> *dHby=0);
-
 ///@}
 
 /// convenience functions to extract the value of angular momentum and its z-component
-template<typename coordT> double Ltotal(const PosVelT<coordT>& p);
-template<typename coordT> double Lz(const PosVelT<coordT>& p);
+template<typename coordT> double Ltotal(const PosVelT<coordT> &p);
+template<typename coordT> double Lz(const PosVelT<coordT> &p);
 
+/** evaluate the kinetic energy from position/momentum in the given coordinate system;
+    optionally also output its derivative w.r.t each coordinate/momentum in the second argument
+*/
+template<typename coordT>
+double Ekin(const PosVelT<coordT> &p, coord::PosVelT<coordT> *dEby=0);
+    
 }  // namespace coord

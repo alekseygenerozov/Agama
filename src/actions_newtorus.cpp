@@ -93,31 +93,39 @@ public:
 */
 class PointTransformFit: public BasePointTransform<coord::SphMod> {
 public:
-    virtual coord::PosVelCyl map(const coord::PosVelSphMod &point) const
+    PointTransformFit(double _D=0) : D(_D) {};
+    virtual coord::PosVelCyl map(const coord::PosVelSphMod &ps) const
     {
-        return toPosVelCyl(point);
+        coord::ProlMod cs(D);
+        coord::PosVelProlMod pp(coord::PosProlMod(ps.r, ps.tau, ps.phi, cs), ps.pr, ps.ptau, ps.pphi);
+        return toPosVelCyl(pp);
     }
-    double Hamiltonian(const coord::PosVelSphMod &point,
+    double Hamiltonian(const coord::PosVelSphMod &ps,
         const potential::BasePotential& potential, coord::PosVelSphMod *dHby=NULL) const
     {
-        coord::PosVelCyl pointCyl(toPosVelCyl(point));
-        coord::GradCyl gradCyl;
-        double H;
-        potential.eval(pointCyl, &H, &gradCyl);
-        H += 0.5 * (pow_2(pointCyl.vR) + pow_2(pointCyl.vz) + pow_2(pointCyl.vphi));
-        if(dHby != NULL) {
-            dHby->r   = (gradCyl.dR * pointCyl.R + gradCyl.dz * pointCyl.z
-                - pow_2(point.ptau / (pointCyl.R + point.r)) - pow_2(pointCyl.vphi)) / point.r;
-            dHby->tau = (-gradCyl.dR * pointCyl.z + gradCyl.dz * pointCyl.R) * (pointCyl.R / point.r + 1)
-                + point.ptau * (point.pr - pointCyl.vR - point.tau * pointCyl.vz) / point.r
-                + pow_2(pointCyl.vphi) * pointCyl.z * (1/point.r + 1/pointCyl.R);
-            dHby->phi = gradCyl.dphi;
-            dHby->pr  = point.pr;
-            dHby->ptau= point.ptau / pow_2(pointCyl.R + point.r);
-            dHby->pphi= pointCyl.vphi / pointCyl.R;
+        coord::ProlMod cs(D);
+        coord::PosVelProlMod pp(coord::PosProlMod(ps.r, ps.tau, ps.phi, cs), ps.pr, ps.ptau, ps.pphi);
+        if(dHby) {
+            coord::PosDerivT<coord::ProlMod, coord::Cyl> der;
+            coord::GradCyl grad;
+            double H;
+            potential.eval(toPosDeriv(pp, &der), &H, &grad);
+            coord::PosVelProlMod dHp(pp);
+            H += coord::Ekin(pp, &dHp);
+            dHby->r   = dHp.rho + grad.dR * der.dRdrho + grad.dz * der.dzdrho;
+            dHby->tau = dHp.tau + grad.dR * der.dRdtau + grad.dz * der.dzdtau;
+            dHby->phi = dHp.phi + grad.dphi;
+            dHby->pr  = dHp.prho;
+            dHby->ptau= dHp.ptau;
+            dHby->pphi= dHp.pphi;
+            return H;
+        } else {
+            return potential.value(coord::toPosDeriv<coord::ProlMod, coord::Cyl>(pp, NULL))
+            + coord::Ekin(pp);
         }
-        return H;
     }
+private:
+    const double D;  ///< parameter of coordinate transformation (interfocal distance)
 };
 
 // ----- A few auxiliary routines ----- //
@@ -158,6 +166,37 @@ static GenFncIndices makeGridIndices(int irmax, int izmax)
         for(int iz=-izmax; iz<=(ir==0?-2:izmax); iz+=2)
             indices.push_back(GenFncIndex(ir, iz, 0));
     return indices;
+}
+
+/// return the absolute value of an element in a map, or zero if it doesn't exist
+static inline double absvalue(const std::map< std::pair<int,int>, double >& indPairs, int ir, int iz)
+{
+    if(indPairs.find(std::make_pair(ir, iz)) != indPairs.end())
+        return fabs(indPairs.find(std::make_pair(ir, iz))->second);
+    else
+        return 0;
+}
+
+/// debugging: print a 2d table (mr,mz) of gen.fnc.coefs (log magnitude)
+static void printoutGenFncCoefs(const GenFncIndices& indices, const double values[])
+{   /// NOTE: axisymmetric case only!
+    std::map< std::pair<int,int>, double > indPairs;
+    // 1. determine the extent of existing grid in (mr,mz)
+    int maxmr=0, minmz=0, maxmz=0;
+    for(unsigned int i=0; i<indices.size(); i++) {
+        indPairs[std::make_pair(indices[i].mr, indices[i].mz)] = values[i];
+        maxmr = std::max<int>(maxmr, indices[i].mr);
+        maxmz = std::max<int>(maxmz, indices[i].mz);
+        minmz = std::min<int>(minmz, indices[i].mz);
+    }
+    for(int iz=minmz; iz<=maxmz; iz+=2) {
+        std::cout << utils::pp(iz,3);
+        for(int ir=0; ir<=maxmr; ir++) {
+            double val = absvalue(indPairs, ir, iz);
+            std::cout << ' ' << (val>0 ? utils::pp(int(-10.*log10(val)),3) : " - ");
+        }
+        std::cout << '\n';
+    }
 }
 
 // ----- The class that performs torus fitting ----- //
@@ -255,7 +294,10 @@ public:
         \return  a new Mapping class.
     */
     PtrMapping expandMapping(const std::vector<double> &params) const;
-    
+
+    /** Debugging: export the torus with the given transformation parameters to a text file */
+    void printoutTorus(const char* filename, const double params[]) const;
+
 private:
     const Actions acts;               ///< values of real actions on this torus
     const potential::BasePotential &potential;  ///< real potential
@@ -371,15 +413,6 @@ double Mapping::computeHamiltonianDisp(const std::vector<double> &params) const
     return Havg.disp();    
 }
 
-/// return the absolute value of an element in a map, or zero if it doesn't exist
-static inline double absvalue(const std::map< std::pair<int,int>, double >& indPairs, int ir, int iz)
-{
-    if(indPairs.find(std::make_pair(ir, iz)) != indPairs.end())
-        return fabs(indPairs.find(std::make_pair(ir, iz))->second);
-    else
-        return 0;
-}
-
 PtrMapping Mapping::expandMapping(const std::vector<double> &params) const
 {   /// NOTE: here we specialize for the case of axisymmetric systems!
     assert(params.size() == numParams);
@@ -435,6 +468,35 @@ PtrMapping Mapping::expandMapping(const std::vector<double> &params) const
     return PtrMapping(new Mapping(acts, potential, pointTrans, toyMapFit, newIndices, lambda));
 }
 
+void Mapping::printoutTorus(const char* filename, const double params[]) const
+{
+    std::ofstream strm(filename);
+    GenFncDerivs derivs;
+    Frequencies freqs;
+    fitAngleMap(&params[0], freqs, derivs);
+    GenFnc genFnc(indices, &params[offsetGenFncParam], &derivs[0]);
+    const int NR=32, NZ=64;
+    for(int iR=0; iR<=NR; iR++) {
+        double thetar = M_PI * iR / NR;
+        for(int iz=0; iz<=NZ; iz++) {
+            double thetaz = 2*M_PI * iz / NZ;
+            ActionAngles toyAA = genFnc.map(ActionAngles(acts, Angles(thetar, thetaz, 0)));
+            if(toyAA.thetar>M_PI*1.5)
+                toyAA.thetar-=2*M_PI;
+            coord::PosVelSphMod ps = toyMapFit.map(toyAA, params + offsetToyMapParam);
+            coord::PosVelCyl pc = pointTrans.map(ps);
+            double H = totalEnergy(potential, pc);
+            //double H = pointTrans.Hamiltonian(ps, potential, NULL);
+            strm << thetar << ' ' << thetaz << '\t' <<
+            toyAA.thetar << ' ' << toyAA.thetaz << '\t' <<
+            toyAA.Jr << ' ' << toyAA.Jz << '\t' <<
+            ps.r << ' ' << ps.tau << '\t' <<
+            pc.R << ' ' << pc.z << '\t' << H << '\n';
+        }
+        strm << '\n';
+    }
+}
+    
 // ----- private member functions of Mapping ----- //
 
 /** Compute the derivative of Hamiltonian by toy actions:
@@ -617,46 +679,6 @@ double Mapping::fitAngleMap(const double params[],
     return Havg.disp();
 }
 
-#if 0
-/// debugging: print a 2d table (mr,mz) of gen.fnc.coefs (log magnitude)
-static void printoutGenFncCoefs(const GenFncIndices& indices, const double values[])
-{   /// NOTE: axisymmetric case only!
-    std::map< std::pair<int,int>, double > indPairs;
-    // 1. determine the extent of existing grid in (mr,mz)
-    int maxmr=0, minmz=0, maxmz=0;
-    for(unsigned int i=0; i<indices.size(); i++) {
-        indPairs[std::make_pair(indices[i].mr, indices[i].mz)] = values[i];
-        maxmr = std::max<int>(maxmr, indices[i].mr);
-        maxmz = std::max<int>(maxmz, indices[i].mz);
-        minmz = std::min<int>(minmz, indices[i].mz);
-    }
-    for(int iz=minmz; iz<=maxmz; iz+=2) {
-        std::cout << utils::pp(iz,3);
-        for(int ir=0; ir<=maxmr; ir++) {
-            double val = absvalue(indPairs, ir, iz);
-            std::cout << ' ' << (val>0 ? utils::pp(int(-10.*log10(val)),3) : " - ");
-        }
-        std::cout << '\n';
-    }
-}
-
-///DEBUGGING!!!
-static void printoutTorus(const potential::BasePotential& pot, const Actions& acts,
-    const std::vector<Angles>& angs, const BaseToyMapFit& toyMap, const double toyMapParams[],
-    const GenFncIndices& indices, const double genFncParams[], const GenFncDerivs& derivs)
-{
-    std::ofstream strm("torus.dat");
-    GenFnc genFnc(indices, genFncParams, &derivs[0]);
-    for(unsigned int k=0; k<angs.size(); k++) {
-        ActionAngles toyAA = genFnc.map(ActionAngles(acts, angs[k]));
-        coord::PosVelCyl point = toyMap.mapDeriv(toyAA, toyMapParams);
-        double H = totalEnergy(pot, point);
-        strm << angs[k].thetar << ' ' << angs[k].thetaz << ' ' << angs[k].thetaphi << '\t' <<
-        toyAA.thetar << ' ' << toyAA.thetaz << ' ' << toyAA.thetaphi << '\t' <<
-        point.R << ' ' << point.z << '\t' << H << '\n';
-    }
-}
-#endif
 }  // internal namespace
 
 ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& poten,
@@ -675,7 +697,7 @@ ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& poten
     ToyMapFitIsochrone toyMapFit;
     
     // point transformation
-    const PointTransformFit* pointTransFit = new PointTransformFit();
+    const PointTransformFit* pointTransFit = new PointTransformFit(0);
     pointTrans.reset(pointTransFit);
 
     // parameters of toy map and generating function obtained during the fit
@@ -759,6 +781,8 @@ ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& poten
             std::cout << " *";
         }
     }
+    if(numCycles==42)
+        bestMapping->printoutTorus("torus.dat", &bestParams[0]);
 
     // redo the angle fitting if the process took more than one cycle
     if(needToConstruct)
