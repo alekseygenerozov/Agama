@@ -76,7 +76,10 @@ double estimateInterfocalDistanceShellOrbit(
 
 
 /** Class that provides a faster evaluation of interfocal distance via smooth interpolation 
-    over pre-computed grid in energy (E) and z-component of angular momentum (L_z) plane. */
+    over pre-computed grid in energy (E) and z-component of angular momentum (L_z) plane;
+    as a by-product, it also provides the interpolated value of radius R of a thin (shell) orbit
+    with given E and Lz.
+*/
 class InterfocalDistanceFinder {
 public:
     /// Initialize the internal interpolation table (the potential is not used thereafter)
@@ -86,10 +89,15 @@ public:
     /// Return an estimate of interfocal distance for the given point, based on the values of E and L_z
     double value(double E, double Lz) const;
 
+    /// Return the location of a thin orbit with given E and L_z (radius R at which it crosses z=0 plane)
+    double Rthin(double E, double Lz) const;
+
 private:
     const potential::InterpLcirc interpLcirc;   ///< interpolator for Lcirc(E)
     /// 2d interpolator for interfocal distance on the grid in E, Lz/Lcirc(E) plane
-    math::LinearInterpolator2d interp;
+    math::LinearInterpolator2d interpD;
+    /// 2d interpolator for the radius (in the equatorial plane) of a thin (shell) orbit
+    math::LinearInterpolator2d interpR;
 };
 
 }  // namespace actions

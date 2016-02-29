@@ -1,5 +1,6 @@
 #include "actions_spherical.h"
 #include "actions_interfocal_distance_finder.h"
+#include "potential_utils.h"
 #include "math_core.h"
 #include <stdexcept>
 #include <cassert>
@@ -7,11 +8,61 @@
 
 namespace actions{
 
+namespace {
+/// required tolerance on the value of Jr(E)
+const double ACCURACY_JR = 1e-6;
+    
+/// helper class to find the energy corresponding to the given radial action
+class HamiltonianFinderFnc: public math::IFunctionNoDeriv {
+public:
+    HamiltonianFinderFnc(const potential::BasePotential& p,
+        double _Jr, double _L, double _Emin, double _Emax) :
+        potential(p), Jr(_Jr), L(_L), Emin(_Emin), Emax(_Emax) {};
+    /// report the difference between target Jr and the one computed at the given energy
+    virtual double value(const double E) const {
+        // first two calls in root-finder are for the boundary points, we already know the answer
+        if(E==Emin)
+            return -Jr;
+        if(E==Emax)
+            return Jr+1e-10;  // at r==infinity should return some positive value
+        double R1, R2, JrE;
+        findPlanarOrbitExtent(potential, E, L, R1, R2, &JrE);
+        return JrE - Jr;
+    }
+private:
+    const potential::BasePotential& potential;
+    const double Jr, L;
+    const double Emin, Emax;
+};
+
+}  // internal namespace
+
+double computeHamiltonianSpherical(const potential::BasePotential& potential, const Actions& acts)
+{
+    if(!isSpherical(potential))
+        throw std::invalid_argument("computeHamiltonianSpherical: potential must be spherically symmetric");
+    if(acts.Jr<0 || acts.Jz<0)
+        throw std::invalid_argument("computeHamiltonianSpherical: input actions are negative");
+    // total angular momentum
+    double L     = acts.Jz + fabs(acts.Jphi);
+    // radius of a circular orbit with this angular momentum
+    double rcirc = R_from_Lz(potential, L);
+    // initial guess (more precisely, lower bound) for Hamiltonian
+    double Ecirc = potential.value(coord::PosSph(rcirc, 0, 0)) + (L>0 ? 0.5 * pow_2(L/rcirc) : 0);
+    // upper bound for Hamiltonian
+    double Einf  = potential.value(coord::PosSph(INFINITY, 0, 0));
+    if(!math::isFinite(Einf) && Einf != INFINITY)  // some potentials may return NAN for r=infinity
+        Einf = 0;  // assume the default value for potential at infinity
+    // find E such that Jr(E, L) equals the target value
+    HamiltonianFinderFnc fnc(potential, acts.Jr, L, Ecirc, Einf);
+    return math::findRoot(fnc, Ecirc, Einf, ACCURACY_JR);
+}
+
 Actions actionsSpherical(const potential::BasePotential& potential,
     const coord::PosVelCyl& point)
 {
     if(!isSpherical(potential))
-        throw std::invalid_argument("This routine only can deal with actions in a spherical potential");
+        throw std::invalid_argument("actionsSpherical only can deal with actions in a spherical potential");
     Actions acts;
     double Etot = totalEnergy(potential, point);
     double Ltot = Ltotal(point);
@@ -28,11 +79,12 @@ Actions actionsSpherical(const potential::BasePotential& potential,
 ActionAngles actionAnglesSpherical(const potential::BasePotential& potential,
     const coord::PosVelCyl& point, Frequencies* Freq)
 {
-    throw std::runtime_error("Angle determination not implemented");
+    throw std::runtime_error("actionAnglesSpherical: angle determination not implemented");
 }
 
-// interpolated action finder
+namespace {
 
+// interpolated action finder
 static const math::LinearInterpolator2d createInterpJr(
     const potential::BasePotential& potential,
     const unsigned int gridSizeE,
@@ -80,13 +132,15 @@ static const math::LinearInterpolator2d createInterpJr(
     return math::LinearInterpolator2d(gridE, gridLrel, grid2d);
 }
 
+}  //internal namespace
+
 ActionFinderSpherical::ActionFinderSpherical(
     const potential::PtrPotential& _potential, const unsigned int gridSizeE) :
     potential(_potential), interpLcirc(*potential),
     interpJr(createInterpJr(*potential, gridSizeE, interpLcirc))
 {
     if(!isSpherical(*potential))
-        throw std::invalid_argument("Potential is not spherically-symmetric");
+        throw std::invalid_argument("ActionFinderSpherical: potential is not spherically-symmetric");
 }
 
 Actions ActionFinderSpherical::actions(const coord::PosVelCyl& point) const
@@ -103,7 +157,7 @@ Actions ActionFinderSpherical::actions(const coord::PosVelCyl& point) const
 
 ActionAngles ActionFinderSpherical::actionAngles(const coord::PosVelCyl& point, Frequencies* freq) const
 {
-    throw std::runtime_error("Angle determination not implemented");
+    throw std::runtime_error("ActionFinderSpherical: angle determination not implemented");
 }
 
 }  // namespace actions

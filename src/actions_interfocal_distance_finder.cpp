@@ -513,25 +513,39 @@ InterfocalDistanceFinder::InterfocalDistanceFinder(
         gridLzrel[i] = (i+0.01) / (gridSizeLzrel-0.98);
 
     // fill a 2d grid in (E, Lz/Lcirc(E) )
-    math::Matrix<double> grid2d(gridE.size(), gridLzrel.size());
+    math::Matrix<double> grid2dD(gridE.size(), gridLzrel.size());  // 2d grid for interfocal distance
+    math::Matrix<double> grid2dR(gridE.size(), gridLzrel.size());  // 2d grid for Rthin
     for(unsigned int iE=0; iE<gridE.size(); iE++) {
-        const double Lc = L_circ(potential, gridE[iE]); //interpLcirc(gridE[iE]);
+        double Rc = R_circ(potential, gridE[iE]);
+        double Lc = Rc * v_circ(potential, Rc);  // almost the same as interpLcirc(gridE[iE]);
         for(unsigned int iL=0; iL<gridLzrel.size(); iL++) {
             double Lz = gridLzrel[iL] * Lc;
-            grid2d(iE, iL) = estimateInterfocalDistanceShellOrbit(potential, gridE[iE], Lz);
+            double Rthin;
+            grid2dD(iE, iL) = estimateInterfocalDistanceShellOrbit(potential, gridE[iE], Lz, &Rthin);
+            grid2dR(iE, iL) = Rthin / Rc;
         }
     }
 
-    // create a 2d interpolator
-    interp = math::LinearInterpolator2d(gridE, gridLzrel, grid2d);
+    // create 2d interpolators
+    interpD = math::LinearInterpolator2d(gridE, gridLzrel, grid2dD);
+    interpR = math::LinearInterpolator2d(gridE, gridLzrel, grid2dR);
 }
 
 double InterfocalDistanceFinder::value(double E, double Lz) const
 {
-    E = fmin(fmax(E, interp.xmin()), interp.xmax());
-    double Lc = interpLcirc(E);
-    double Lzrel = fmin(fmax(fabs(Lz)/Lc, interp.ymin()), interp.ymax());
-    return interp.value(E, Lzrel);
+    E = fmin(fmax(E, interpD.xmin()), interpD.xmax());
+    double Lc = interpLcirc.value(E);
+    double Lzrel = fmin(fmax(fabs(Lz)/Lc, interpD.ymin()), interpD.ymax());
+    return interpD.value(E, Lzrel);
+}
+
+double InterfocalDistanceFinder::Rthin(double E, double Lz) const
+{
+    E = fmin(fmax(E, interpR.xmin()), interpR.xmax());
+    double Lc = interpLcirc.value(E);
+    double Rc = interpLcirc.Rcirc(E);
+    double Lzrel = fmin(fmax(fabs(Lz)/Lc, interpR.ymin()), interpR.ymax());
+    return fmax(interpR.value(E, Lzrel), 0) * Rc;
 }
 
 }  // namespace actions

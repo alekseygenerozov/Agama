@@ -470,6 +470,7 @@ PtrMapping Mapping::expandMapping(const std::vector<double> &params) const
 
 void Mapping::printoutTorus(const char* filename, const double params[]) const
 {
+    printoutGenFncCoefs(indices, params+numParamsGenFnc);
     std::ofstream strm(filename);
     GenFncDerivs derivs;
     Frequencies freqs;
@@ -486,12 +487,17 @@ void Mapping::printoutTorus(const char* filename, const double params[]) const
             coord::PosVelSphMod ps = toyMapFit.map(toyAA, params + offsetToyMapParam);
             coord::PosVelCyl pc = pointTrans.map(ps);
             double H = totalEnergy(potential, pc);
-            //double H = pointTrans.Hamiltonian(ps, potential, NULL);
+            //double H1= pointTrans.Hamiltonian(ps, potential, NULL);
+            double Phi = potential.value(pc);
+            double Ekin= H-Phi;
             strm << thetar << ' ' << thetaz << '\t' <<
             toyAA.thetar << ' ' << toyAA.thetaz << '\t' <<
             toyAA.Jr << ' ' << toyAA.Jz << '\t' <<
             ps.r << ' ' << ps.tau << '\t' <<
-            pc.R << ' ' << pc.z << '\t' << H << '\n';
+            pc.R << ' ' << pc.z << '\t' << H << ' ' <<Phi<<' '<<Ekin<< '\t' << 
+            ps.r*(1-ps.tau*ps.tau)/(1+ps.tau*ps.tau) << ' ' << ps.r*2*ps.tau/(1+ps.tau*ps.tau) << '\t' <<
+            (-exp(params[0])/(exp(params[1])+sqrt(ps.r*ps.r+exp(2*params[1])))) << ' ' <<
+            0.5*(pow_2(ps.pr)+pow_2((1+ps.tau*ps.tau)/ps.r)*(0.25*pow_2(ps.ptau)+pow_2(ps.pphi/(1-ps.tau*ps.tau)))) << '\n';
         }
         strm << '\n';
     }
@@ -603,13 +609,14 @@ void Mapping::evalDeriv(const double params[],
             for(unsigned int indReg=0; indReg < numParams; indReg++)
                 deltaHvalues[indReg + numPoints] = 
                 lambda * params[indReg];
-     //   std::cout << "M="<<exp(params[0])<<", b="<<exp(params[1])<<
-     //   "; Havg="<<Havg<<", dH/H="<<sqrt(disp/numPoints)<<"\n";
+        //std::cout << "M="<<exp(params[0])<<", b="<<exp(params[1])<<
+        //"; Havg="<<Havg<<", dH/H="<<sqrt(disp/numPoints)<<"\n";
         /*for(unsigned int i=0; i<numParamsGenFnc; i++)
             std::cout<<indices[i].mr<<','<<indices[i].mz<<'='<<params[i+offsetGenFncParam]<<' ';
         std::cout<<'\n';*/
     }
-
+    //if(params[0]==42)
+    //    printoutTorus("bla", params);
     // convert derivatives:  d(deltaH_k) / dP_p = (1/<H>) dH_k / dP_p - (H_k / <H>^2) d<H> / dP_p
     if(dHdParams) {
         std::vector<double> dHavgdP(numPoints);

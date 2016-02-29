@@ -212,20 +212,23 @@ InterpLcirc::InterpLcirc(const BasePotential& potential)
             "that tend to zero as r->infinity");
     else Eout = 0;
     const unsigned int gridSize = 100;
-    std::vector<double> gridE(gridSize), gridL(gridSize);
+    std::vector<double> gridE(gridSize), gridL(gridSize), gridR(gridSize);
     for(unsigned int i=0; i<gridSize; i++) {
         double frac = i==0 ? 1e-3 : i==1 ? 2e-3 :   // refinement at the ends of interval
             i==gridSize-2 ? 1-2e-3 : i==gridSize-1 ? 1-1e-3 : (i-1)*1.0/(gridSize-3);
         gridE[i] = Ein + (Eout-Ein) * frac;
-        gridL[i] = L_circ(potential, gridE[i]);
+        double R = R_circ(potential, gridE[i]);
+        double L = R * v_circ(potential, R);
         // scaling transformation
         gridE[i] = log(1/Ein-1/gridE[i]);
-        gridL[i] = log(gridL[i]);
+        gridR[i] = log(R);
+        gridL[i] = log(L);
     }
     double derivIn = NAN;  // in principle could compute a reasonable value for extrapolation to r->0
     double derivOut= 0.5;  // extrapolation to large r assumes a Keplerian potential
-    // fill a 1d interpolator for Lcirc(E)
-    interp = math::CubicSpline(gridE, gridL, derivIn, derivOut);
+    // construct 1d interpolators for Lcirc(E) and Rcirc(E)
+    interpL = math::CubicSpline(gridE, gridL, derivIn, derivOut);
+    interpR = math::CubicSpline(gridE, gridR);
 }
 
 void InterpLcirc::evalDeriv(const double E, double* val, double* der, double* der2) const
@@ -240,7 +243,7 @@ void InterpLcirc::evalDeriv(const double E, double* val, double* der, double* de
     double scaledE = log(1/Ein-1/E);
     double scaledEder = 1/E/(E/Ein-1);  // d(scaledE)/dE
     double splVal, splDer;
-    interp.evalDeriv(scaledE, &splVal, der!=0?&splDer:0);
+    interpL.evalDeriv(scaledE, &splVal, der!=0?&splDer:0);
     double Lcirc = exp(splVal);
     if(val)
         *val = Lcirc;
@@ -248,6 +251,16 @@ void InterpLcirc::evalDeriv(const double E, double* val, double* der, double* de
         *der = splDer * scaledEder * Lcirc;
     if(der2)
         *der2= NAN;
+}
+
+double InterpLcirc::Rcirc(double E) const
+{
+    if(E<Ein || E>=Eout)
+        throw std::invalid_argument("InterpLcirc: energy outside allowed range");
+    if(E==Ein)
+        return 0;
+    double scaledE = log(1/Ein-1/E);
+    return exp(interpR.value(scaledE));
 }
 
 }  // namespace potential

@@ -50,7 +50,7 @@ private:
 };
 
 
-/** Interpolator class for faster evaluation of L_circ(E) */
+/** Interpolator class for faster evaluation of L_circ(E) and R_circ(E) */
 class InterpLcirc: public math::IFunction {
 public:
     /** The potential passed as parameter is only used to initialize the internal
@@ -58,12 +58,16 @@ public:
         when interpolation is needed. */
     explicit InterpLcirc(const BasePotential& potential);
 
-    /// return L_circ(E)
+    /// return L_circ(E) and optionally its first derivative
     virtual void evalDeriv(const double E, double* value=0, double* deriv=0, double* deriv2=0) const;
     virtual unsigned int numDerivs() const { return 1; }
+
+    /// return R_circ(E)
+    double Rcirc(const double E) const;
 private:
-    math::CubicSpline interp;  ///< spline-interpolated scaled function
-    double Ein, Eout;          ///< boundaries of energy interval
+    double Ein, Eout;           ///< boundaries of energy interval
+    math::CubicSpline interpL;  ///< spline-interpolated scaled function for L_circ
+    math::CubicSpline interpR;  ///< spline-interpolated scaled function for R_circ
 };
 
 }  // namespace potential

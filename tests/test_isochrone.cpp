@@ -31,7 +31,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     const double b = 0.6;      // scale radius of Isochrone potential
     const double total_time=50;// integration time
     const double timestep=1./8;// sampling rate of trajectory
-    std::cout << "\033[1;32m"<<title<<"\033[0m\n";
+    std::cout << "\033[1;39m"<<title<<"\033[0m\n";
     std::vector<coord::PosVelCyl > traj;
     potential::Isochrone pot(M, b);
     orbit::integrate(pot, initial_conditions, total_time, timestep, traj, 1e-10);
@@ -39,7 +39,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     actions::ActionAngles aaI, aaF;
     actions::Actions acS;
     actions::Frequencies frI, frF, frIinv;
-    math::Averager statfrIr, statfrIz;
+    math::Averager statfrIr, statfrIz, statH;
     actions::Angles aoldF(0,0,0), aoldI(0,0,0);
     bool anglesMonotonic = true;  // check that angle determination is reasonable
     bool reversible = true;       // check that forward-reverse transform gives the original point
@@ -63,6 +63,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
         aaI = actions::actionAnglesIsochrone(M, b,  traj[i], &frI);
         aaF = actions::actionAnglesAxisymFudge(pot, traj[i], ifd, &frF);
         acS = actions::actionsSpherical(pot, traj[i]);
+        statH.add(actions::computeHamiltonianSpherical(pot, aaI));  // find H(J)
         statI.add(aaI);
         statF.add(aaF);
         statS.add(acS);
@@ -194,6 +195,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
           && fabs(statI.avg.Jz-statF.avg.Jz)<epsr
           && fabs(statI.avg.Jphi-statF.avg.Jphi)<epsd;
     bool freq_ok = statfrIr.disp() < epsf*epsf && statfrIz.disp() < epsf*epsf;
+    bool HofJ_ok = statH.disp() < pow_2(epsf*statH.mean());
     std::cout << "Isochrone"
     ":  Jr="  <<statI.avg.Jr  <<" +- "<<statI.rms.Jr<<
     ",  Jz="  <<statI.avg.Jz  <<" +- "<<statI.rms.Jz<<
@@ -210,9 +212,11 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     (reversible?"":" \033[1;31mNOT INVERTIBLE\033[0m ")<<
     (freq_ok?"":" \033[1;31mFREQS NOT CONST\033[0m ")<<
     (deriv_ok?"":" \033[1;31mDERIVS INCONSISTENT\033[0m ")<<
-    (anglesMonotonic?"":" \033[1;31mANGLES NON-MONOTONIC\033[0m ")<<'\n';
+    (anglesMonotonic?"":" \033[1;31mANGLES NON-MONOTONIC\033[0m ")<<
+    "\nHamiltonian H(J)="<<statH.mean()<<" +- "<<sqrt(statH.disp())<<
+    (HofJ_ok?"":" \033[1;31m**\033[0m") <<'\n';
     return dispI_ok && dispS_ok && dispF_ok && compareIF
-        && freq_ok && reversible && deriv_ok && anglesMonotonic;
+        && freq_ok && reversible && deriv_ok && anglesMonotonic && HofJ_ok;
 }
 
 int main()

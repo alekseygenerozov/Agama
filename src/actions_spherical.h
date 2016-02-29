@@ -28,6 +28,17 @@ ActionAngles actionAnglesSpherical(
     const coord::PosVelCyl& point,
     Frequencies* freq=0);
 
+
+/** Compute the total energy for an orbit in a spherical potential from the given values of actions.
+    \param[in]  potential  is the arbitrary spherical potential;
+    \param[in]  acts       are the actions;
+    \return     the value of Hamiltonian (total energy) corresponding to the given actions;
+    \throw      std::invalid_argument exception if the potential is not spherical
+    or Jr/Jz actions are negative.
+*/
+double computeHamiltonianSpherical(const potential::BasePotential& potential, const Actions& acts);
+
+
 /** Fast computation of actions in any spherical potential by using
     2d interpolation of radial action as a function of E and L.
 */

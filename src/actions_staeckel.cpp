@@ -1,5 +1,6 @@
 #include "actions_staeckel.h"
 #include "math_core.h"
+#include "math_fit.h"
 #include <stdexcept>
 #include <cassert>
 #include <cmath>
@@ -24,6 +25,11 @@ const double MINIMUM_RANGE = 1e-12;
     (shared between Staeckel and Fudge action finders). */
 struct AxisymIntLimits {
     double lambda_min, lambda_max, nu_min, nu_max;
+};
+
+/** Derivatives of actions by integrals of motion */
+struct AxisymActionDerivatives {
+    double dJrdE, dJrdI3, dJrdLz, dJzdE, dJzdI3, dJzdLz;
 };
 
 /** Derivatives of integrals of motion over actions (do not depend on angles).
@@ -65,8 +71,8 @@ public:
     SPECIALIZED for the Axisymmetric Staeckel action finder */
 class AxisymFunctionStaeckel: public AxisymFunctionBase {
 public:
-    const double I3;                        ///< third integral
-    const math::IFunction& fncG;       ///< single-variable function of a Staeckel potential
+    const double I3;              ///< third integral
+    const math::IFunction& fncG;  ///< single-variable function of a Staeckel potential
     AxisymFunctionStaeckel(const coord::PosVelProlSph& _point, double _E, double _Lz,
         double _I3, const math::IFunction& _fncG) :
         AxisymFunctionBase(_point, _E, _Lz), I3(_I3), fncG(_fncG) {};
@@ -97,8 +103,7 @@ AxisymFunctionStaeckel findIntegralsOfMotionOblatePerfectEllipsoid(
         I3 = 0.5 * pow_2(point.vz) * (pow_2(point.R) + coordsys.delta);
     else   // general case: eq.3 in Sanders(2012)
         I3 = fmax(0,
-            pprol.lambda * 
-            (E - pow_2(Lz) / 2 / (pprol.lambda - coordsys.delta) + Glambda) -
+            pprol.lambda * (E - pow_2(Lz) / 2 / (pprol.lambda - coordsys.delta) + Glambda) -
             pow_2( pprol.lambdadot * (pprol.lambda - fabs(pprol.nu)) ) / 
             (8 * (pprol.lambda - coordsys.delta) * pprol.lambda) );
     return AxisymFunctionStaeckel(pprol, E, Lz, I3, potential);
@@ -112,7 +117,7 @@ void AxisymFunctionStaeckel::evalDeriv(const double tau,
 {
     assert(tau>=0);
     double G, dG, d2G;
-    fncG.evalDeriv(tau, &G, der || der2? &dG : NULL, der2? &d2G : NULL);
+    fncG.evalDeriv(tau, &G, der || der2 ? &dG : NULL, der2 ? &d2G : NULL);
     const double tauminusdelta = tau - point.coordsys.delta;
     if(val)
         *val = ( (E + G) * tau - I3 ) * tauminusdelta - Lz*Lz/2 * tau;
@@ -434,7 +439,7 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
         || fabs(fnc.point.nu) > lim.nu_max
         || fnc.point.lambda < lim.lambda_min
         || fnc.point.lambda > lim.lambda_max)
-        throw std::invalid_argument("findLimits failed");
+        throw std::invalid_argument("findIntegrationLimitsAxisym failed");
 
     // ignore extremely small intervals
     if(lim.nu_max < delta * MINIMUM_RANGE)
@@ -445,12 +450,12 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
     return lim;
 }
 
-/** Compute the derivatives of integrals of motion (E, Lz, I3) over actions (Jr, Jz, Jphi),
-    using the expressions A4-A9 in Sanders(2012).  These quantities are independent of angles,
-    and in particular, the derivatives of energy w.r.t. the three actions are the frequencies. */
-AxisymIntDerivatives computeIntDerivatives(
+/** Compute the derivatives of actions (Jr, Jz, Jphi) over integrals of motion (E, Lz, I3),
+    using the expressions A4-A9 in Sanders(2012). */
+AxisymActionDerivatives computeActionDerivatives(
     const AxisymFunctionBase& fnc, const AxisymIntLimits& lim)
 {
+    AxisymActionDerivatives der;
     AxisymIntegrand integrand(fnc);
     math::ScaledIntegrandEndpointSing transf_l(integrand, lim.lambda_min, lim.lambda_max);
     math::ScaledIntegrandEndpointSing transf_n(integrand, lim.nu_min, lim.nu_max);
@@ -458,40 +463,49 @@ AxisymIntDerivatives computeIntDerivatives(
     // derivatives w.r.t. E
     integrand.a = AxisymIntegrand::aminus1;
     integrand.c = AxisymIntegrand::czero;
-    double dJrdE = (lim.lambda_min==lim.lambda_max ? 
+    der.dJrdE = (lim.lambda_min==lim.lambda_max ? 
         integrand.limitingIntegralValue(lim.lambda_min) :
         math::integrateGL(transf_l, 0, 1, INTEGR_ORDER) ) / (4*M_PI);
-    double dJzdE = math::integrateGL(transf_n, 0, 1, INTEGR_ORDER) / (2*M_PI);
+    der.dJzdE = math::integrateGL(transf_n, 0, 1, INTEGR_ORDER) / (2*M_PI);
     // derivatives w.r.t. I3
     integrand.a = AxisymIntegrand::aminus1;
     integrand.c = AxisymIntegrand::cminus1;
-    double dJrdI3 = - (lim.lambda_min==lim.lambda_max ? 
+    der.dJrdI3 = - (lim.lambda_min==lim.lambda_max ? 
         integrand.limitingIntegralValue(lim.lambda_min) :
         math::integrateGL(transf_l, 0, 1, INTEGR_ORDER) ) / (4*M_PI);
-    double dJzdI3 = -math::integrateGL(transf_n, 0, 1, INTEGR_ORDER) / (2*M_PI);
+    der.dJzdI3 = -math::integrateGL(transf_n, 0, 1, INTEGR_ORDER) / (2*M_PI);
     // derivatives w.r.t. Lz
     integrand.a = AxisymIntegrand::aminus2;
     integrand.c = AxisymIntegrand::czero;
-    double dJrdLz = -fnc.Lz * (lim.lambda_min==lim.lambda_max ? 
+    der.dJrdLz = -fnc.Lz * (lim.lambda_min==lim.lambda_max ? 
         integrand.limitingIntegralValue(lim.lambda_min) :
         math::integrateGL(transf_l, 0, 1, INTEGR_ORDER) ) / (4*M_PI);
-    double dJzdLz = -fnc.Lz * math::integrateGL(transf_n, 0, 1, INTEGR_ORDER) / (2*M_PI);
+    der.dJzdLz = -fnc.Lz * math::integrateGL(transf_n, 0, 1, INTEGR_ORDER) / (2*M_PI);
+    return der;
+}
 
+/** Compute the derivatives of integrals of motion (E, Lz, I3) over actions (Jr, Jz, Jphi), inverting
+    the matrix of action derivatives by integrals.  These quantities are independent of angles,
+    and in particular, the derivatives of energy w.r.t. the three actions are the frequencies. */    
+AxisymIntDerivatives computeIntDerivatives(
+    const AxisymFunctionBase& fnc, const AxisymIntLimits& lim)
+{
+    AxisymActionDerivatives dJ = computeActionDerivatives(fnc, lim);
     AxisymIntDerivatives der;
     // invert the matrix of derivatives
-    double det  = dJrdE*dJzdI3-dJrdI3*dJzdE;
+    double det  = dJ.dJrdE * dJ.dJzdI3 - dJ.dJrdI3 * dJ.dJzdE;
     if(lim.nu_min==lim.nu_max || det==0) {
         // special case z==0: motion in z is irrelevant, but we could not compute dJzdI3 which is not zero
-        der.Omegar   = 1/dJrdE;
-        der.Omegaphi =-dJrdLz/dJrdE;
+        der.Omegar   = 1 / dJ.dJrdE;
+        der.Omegaphi =-dJ.dJrdLz / dJ.dJrdE;
         der.dI3dJr   = der.dI3dJz = der.dI3dJphi = der.Omegaz = 0;
     } else {  // everything as normal
-        der.Omegar   = dJzdI3/det;  // dE/dJr
-        der.Omegaz   =-dJrdI3/det;  // dE/dJz
-        der.Omegaphi = (dJrdI3*dJzdLz-dJrdLz*dJzdI3)/det;  // dE/dJphi
-        der.dI3dJr   =-dJzdE/det;
-        der.dI3dJz   = dJrdE/det;
-        der.dI3dJphi =-(dJrdE*dJzdLz-dJrdLz*dJzdE)/det;
+        der.Omegar   = dJ.dJzdI3 / det;  // dE/dJr
+        der.Omegaz   =-dJ.dJrdI3 / det;  // dE/dJz
+        der.Omegaphi = (dJ.dJrdI3 * dJ.dJzdLz - dJ.dJrdLz * dJ.dJzdI3) / det;  // dE/dJphi
+        der.dI3dJr   =-dJ.dJzdE / det;
+        der.dI3dJz   = dJ.dJrdE / det;
+        der.dI3dJphi =-(dJ.dJrdE * dJ.dJzdLz - dJ.dJrdLz * dJ.dJzdE) / det;
     }
     der.dLzdJr  = 0;
     der.dLzdJz  = 0;
@@ -569,7 +583,7 @@ Angles computeAngles(const AxisymIntDerivatives& derI, const AxisymGenFuncDeriva
 /** The sequence of operations needed to compute both actions and angles.
     Note that for a given orbit, only the derivatives of the generating function depend 
     on the angles (assuming that the actions are constant); in principle, this may be used 
-    to skip the computation of the derivatives matrix of integrals (not presently implemented).
+    to skip the computation of the matrix of integral derivatives (not presently implemented).
     \param[in]  fnc  is the instance of `AxisymFunctionStaeckel` or `AxisymFunctionFudge`;
     \param[in]  lim  are the limits of motion in auxiliary coordinate system;
     \param[out] freq if not NULL, store frequencies of motion in this variable
@@ -634,6 +648,77 @@ ActionAngles actionAnglesAxisymFudge(const potential::BasePotential& potential,
         return ActionAngles(Actions(NAN, NAN, fnc.Lz), Angles(NAN, NAN, NAN));
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
     return computeActionAngles(fnc, lim, freq);
+}
+
+
+/// Inverse transformation: obtain integrals of motion (E,I3,Lz) from actions (Jr,Jz,Jphi)
+namespace {
+
+class IntegralsOfMotionFinder: public math::IFunctionNdimDeriv {
+public:
+    IntegralsOfMotionFinder(
+        const potential::OblatePerfectEllipsoid& p,
+        const InterfocalDistanceFinder& f, const Actions& a) :
+        potential(p), finder(f), acts(a) {}
+
+    virtual void evalDeriv(const double vars[], double values[], double *derivs=0) const
+    {
+        double E = vars[0];
+        double I3= vars[1];
+        // cylindrical radius in the equatorial plane of a thin shell orbit (Jr=0)
+        double Rthin = finder.Rthin(E, acts.Jphi);
+        coord::PosVelProlSph pos = coord::toPosVel<coord::Cyl, coord::ProlSph>(
+            coord::PosVelCyl(Rthin, 0, 0, 0, 0, acts.Jphi!=0 ? acts.Jphi/Rthin : 0), potential.coordsys());
+        AxisymFunctionStaeckel fnc(pos, E, acts.Jphi, I3, potential);
+        const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
+        if(values) {
+            Actions trialActs = computeActions(fnc, lim);
+            values[0] = trialActs.Jr - acts.Jr;
+            if(numValues()==2)
+                values[1] = trialActs.Jz - acts.Jz;
+        }
+        if(derivs) {
+            AxisymActionDerivatives der = computeActionDerivatives(fnc, lim);
+            derivs[0] = der.dJrdE;
+            if(numValues()==2) {
+                derivs[1] = der.dJrdI3;
+                derivs[2] = der.dJzdE;
+                derivs[3] = der.dJzdI3;
+            }
+        }
+    }
+    virtual unsigned int numVars() const { return acts.Jz==0 ? 1 : 2; }
+    virtual unsigned int numValues() const { return acts.Jz==0 ? 1 : 2; }
+private:
+    const potential::OblatePerfectEllipsoid& potential;
+    const InterfocalDistanceFinder& finder;
+    const Actions acts;
+};
+
+} // namespace
+
+void computeIntegralsStaeckel(
+    const potential::OblatePerfectEllipsoid& potential, 
+    const InterfocalDistanceFinder& finder,
+    const Actions& acts,
+    double &H, double &I3)
+{
+    // initial guess on the point lying within the orbit extent in the meridional plane
+    double Rcirc = R_from_Lz(potential, acts.Jphi);
+    double kappa, nu, Omega;
+    epicycleFreqs(potential, Rcirc, kappa, nu, Omega);
+    // initial guess for total energy E and third integral I3
+    double initVars[2];
+    potential.eval(coord::PosCyl(Rcirc, 0, 0), initVars);
+    if(acts.Jphi!=0)
+        initVars[0] += 0.5 * pow_2(acts.Jphi/Rcirc);
+    initVars[0] += kappa * acts.Jr + nu * acts.Jz;
+    initVars[1] = nu * acts.Jz * (pow_2(Rcirc) + potential.coordsys().delta);
+    double results[2];
+    IntegralsOfMotionFinder fnc(potential, finder, acts);
+    math::findRootNdimDeriv(fnc, initVars, 1e-6, 10, results);
+    H = results[0];
+    I3= acts.Jz==0 ? 0 : results[1];
 }
 
 }  // namespace actions

@@ -79,6 +79,23 @@ ActionAngles actionAnglesAxisymFudge(
     double interfocalDistance, 
     Frequencies* freq=0);
 
+    
+/** Compute the total energy and the third integral for an orbit in a Staeckel potential
+    from the given values of actions.
+    \param[in]  potential  is the arbitrary Staeckel potential, separable in spheroidal coordinates;
+    \param[in]  ifdfinder  is the instance of interpolator used here to compute the radius
+    of shell orbit as a function of E and Lz;
+    \param[in]  acts       are the actions;
+    \param[out] H          is the value of Hamiltonian (total energy);
+    \param[out] I3         is the value of the third integral corresponding to the given actions;
+    \throw      std::invalid_argument if Jr/Jz actions are negative, or some other error occurs.
+*/
+void computeIntegralsStaeckel(
+    const potential::OblatePerfectEllipsoid& potential,
+    const InterfocalDistanceFinder& ifdfinder,
+    const Actions& acts,
+    double &H, double &I3);
+
 ///@}
 /// \name  ------- Class interface to action/angle finders  -------
 ///@{

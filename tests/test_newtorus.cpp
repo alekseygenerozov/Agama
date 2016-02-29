@@ -4,6 +4,7 @@
 
 */
 #include "potential_perfect_ellipsoid.h"
+#include "potential_analytic.h"
 #include "actions_staeckel.h"
 #include "actions_newtorus.h"
 #include "actions_torus.h"
@@ -15,18 +16,19 @@
 #include <cmath>
 #include <ctime>
 
-const double axis_a=1.6, axis_c=1.0; // axes of perfect ellipsoid
+const double AXIS_A  = 1.6, AXIS_C = 1.0; // axes of perfect ellipsoid
+const double CS_DELTA= sqrt(pow_2(AXIS_A)-pow_2(AXIS_C));
 const double EPSACT  = 3e-2;
 const double EPSANG  = 5e-2;
 const double EPSFREQ = 1e-2;
 const double EPSENER = 3e-3;
 std::ofstream strm;
 
-bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVelCyl& point)
+bool test_torus(const potential::BasePotential& pot, const coord::PosVelCyl& point)
 {
     // obtain exact actions and frequencies corresponding to the given IC
     actions::Frequencies frOrig;
-    actions::ActionAngles aaOrig = actions::actionAnglesAxisymStaeckel(pot, point, &frOrig);
+    actions::ActionAngles aaOrig = actions::actionAnglesAxisymFudge(pot, point, CS_DELTA, &frOrig);
     std::cout << "\033[1;39m" << (actions::Actions(aaOrig)) << "\033[0m\n";
 
     // numerically compute the orbit
@@ -69,7 +71,7 @@ bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVe
     for(unsigned int i=0; i<NPOINTS; i++) {
         // compute a/a from p/v using exact expressions for Staeckel potential
         actions::Frequencies frS;
-        aaStk[i] = actions::actionAnglesAxisymStaeckel(pot, trajTorus[i], &frS);
+        aaStk[i] = actions::actionAnglesAxisymFudge(pot, trajTorus[i], CS_DELTA, &frS);
         if(!math::isFinite(aaStk[i].thetar) && math::isFinite(aaStk[i].Jr))
             continue;  // subtle error in action/angle finder, not relevant to Torus
         // collect statistics
@@ -102,12 +104,17 @@ bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVe
     strm << "#t\tR z phi\ttorus_R z phi\ttorus_thetar thetaz thetaphi\t"
         "exact_thetar thetaz thetaphi\tJr Jz E\n";
     for(unsigned int i=0; i<NPOINTS; i++) {
+        coord::ProlMod cm(CS_DELTA);
+        coord::PosVelProlMod pm(coord::toPosVel<coord::Cyl,coord::ProlMod>(trajOrig[i], cm));
         strm << (i*timeStep) << '\t' <<
         trajOrig [i].R << ' ' << trajOrig [i].z << ' ' << math::wrapAngle(trajOrig [i].phi) << '\t' <<
         trajTorus[i].R << ' ' << trajTorus[i].z << ' ' << trajTorus[i].phi << '\t' <<
         aaTorus[i].thetar << ' ' << aaTorus[i].thetaz << ' ' << aaTorus[i].thetaphi << '\t' <<
         aaStk  [i].thetar << ' ' << aaStk  [i].thetaz << ' ' << aaStk  [i].thetaphi << '\t' <<
-        aaStk[i].Jr << ' ' << aaStk[i].Jz << ' ' << totalEnergy(pot, trajTorus[i]) << '\n';
+        aaStk[i].Jr << ' ' << aaStk[i].Jz << ' ' << totalEnergy(pot, trajTorus[i]) << '\t' <<
+        pot.value(trajOrig[i]) << ' ' << 
+        0.5*(pow_2(trajOrig[i].vR)+pow_2(trajOrig[i].vz)+pow_2(trajOrig[i].vphi)) << '\t'<<
+        pm.rho << ' ' << pm.tau << ' ' << pm.prho << ' ' << pm.ptau << '\n';
     }
     strm.close();
     
@@ -153,13 +160,15 @@ bool test_torus(const potential::OblatePerfectEllipsoid& pot, const coord::PosVe
 int main()
 {
     strm.open("torus.stat");
-    const potential::OblatePerfectEllipsoid potential(1.0, axis_a, axis_c);
+    const potential::OblatePerfectEllipsoid potential(1.0, AXIS_A, AXIS_C);
+    //const potential::Isochrone potential(1.0, 1.0);
     bool allok=true;
     allok &= test_torus(potential, coord::PosVelCyl(2.0000000, 0, 0, 0, 0.24, 0.5));
     allok &= test_torus(potential, coord::PosVelCyl(4.4444444, 0, 0, 0, 0.40, 0.225));
     allok &= test_torus(potential, coord::PosVelCyl(1.4142136, 0, 0, 0, 0.30, 0.7071068));
     allok &= test_torus(potential, coord::PosVelCyl(1.2000000, 0, 0, 0, 0.80, 0.083333333));
     allok &= test_torus(potential, coord::PosVelCyl(3.2000000, 0, 0, 0, 0.54, 0.3125));
+    allok &= test_torus(potential, coord::PosVelCyl(1.0000000, 0, 0, 0, 0.446,0.1));
     for(int p=0; p<100; p++) {
         double m = math::random();
         double r = pow(1/sqrt(m)-1, -2./3);
