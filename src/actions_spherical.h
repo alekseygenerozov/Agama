@@ -1,7 +1,7 @@
 /** \file    actions_spherical.h
     \brief   Action-angle finders for a generic spherical potential
     \author  Eugene Vasiliev
-    \date    2015
+    \date    2015-2016
 */
 #pragma once
 #include "actions_base.h"
@@ -22,7 +22,14 @@ Actions actionsSpherical(
     const potential::BasePotential& potential,
     const coord::PosVelCyl& point);
 
-/** Compute actions, angles and frequencies in a spherical potential (not implemented) */
+/** Compute actions, angles and frequencies in a spherical potential.
+    \param[in]  potential is the arbitrary spherical potential;
+    \param[in]  point     is the position/velocity point;
+    \param[out] freq      if not NULL, output the frequencies in this variable;
+    \return     actions and angles for the given point, or Jr=NAN if the energy is positive;
+    \throw      std::invalid_argument exception if the potential is not spherical
+    or some other error occurs.
+*/ 
 ActionAngles actionAnglesSpherical(
     const potential::BasePotential& potential,
     const coord::PosVelCyl& point,
@@ -37,6 +44,17 @@ ActionAngles actionAnglesSpherical(
     or Jr/Jz actions are negative.
 */
 double computeHamiltonianSpherical(const potential::BasePotential& potential, const Actions& acts);
+
+
+/** Compute position/velocity from actions/angles in an arbitrary spherical potential.
+    \param[in]  potential   is the instance of a spherical potential;
+    \param[in]  actAng  is the action/angle point
+    \param[out] freq    if not NULL, store the frequencies for these actions.
+    \return     position and velocity point
+*/
+coord::PosVelCyl mapSpherical(
+    const potential::BasePotential &potential,
+    const ActionAngles &actAng, Frequencies* freq=0);
 
 
 /** Fast computation of actions in any spherical potential by using

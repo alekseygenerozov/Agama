@@ -96,7 +96,7 @@ public:
     const BasePotential& potential;
     double E;
     double Lz2;
-    enum { FIND_RMIN, FIND_RMAX, FIND_JR } mode;
+    enum { FIND_RMIN, FIND_RMAX, CALC_JR } mode;
     OrbitSizeFunction(const BasePotential& p, double _E, double _Lz) :
         potential(p), E(_E), Lz2(_Lz*_Lz), mode(FIND_RMIN) {};
     virtual unsigned int numDerivs() const { return 2; }
@@ -137,7 +137,7 @@ public:
                 *deriv = -grad.dR + (Lz2>0 ? Lz2/(R*R*R) : 0);
             if(deriv2)
                 *deriv2 = -hess.dR2 - (Lz2>0 ? 3*Lz2/(R*R*R*R) : 0);
-        } else if(mode == FIND_JR) {  // f(R) = v_R
+        } else if(mode == CALC_JR) {  // f(R) = v_R
             *val = sqrt(fmax(0, 2*(E-Phi) - (Lz2>0 ? Lz2/(R*R) : 0) ) );
         } else
             assert("Invalid operation mode in OrbitSizeFunction"==0);
@@ -315,8 +315,10 @@ void findPlanarOrbitExtent(const BasePotential& poten, double E, double Lz,
     }   // else Rmax=Rinit
 //!!!    assert(Rmin>=0 && Rmin<=Rinit && Rinit<=Rmax);
     if(Jr!=NULL) {  // compute radial action
-        fnc.mode = OrbitSizeFunction::FIND_JR;
-        *Jr = math::integrateGL(fnc, Rmin, Rmax, 10) / M_PI;
+        fnc.mode = OrbitSizeFunction::CALC_JR;
+        // more precise computation using scaled radial coordinate
+        math::ScaledIntegrandEndpointSing transf(fnc, Rmin, Rmax);
+        *Jr = math::integrateGL(transf, 0, 1, 10) / M_PI;
     }
 }
 

@@ -2,7 +2,8 @@
     \author  Eugene Vasiliev
     \date    February 2016
 
-    This test checks the correctness of (exact) action-angle determination for Isochrone potential.
+    This test checks the correctness of (exact) action-angle determination for Isochrone potential
+    (and additionally for an arbitrary spherical potential)
 */
 #include "potential_analytic.h"
 #include "actions_isochrone.h"
@@ -23,9 +24,10 @@
 bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* title)
 {
     const bool output = false; // whether to write a text file
-    const double epsr = 5e-4;  // accuracy of comparison for radial action found with different methods
+    const double epsr = 2e-4;  // accuracy of comparison for radial action found with different methods
     const double epsd = 1e-7;  // accuracy of action conservation along the orbit for each method
-    const double epst = 1e-9;  // accuracy of reverse transformation (pv=>aa=>pv)
+    const double epst = 1e-9;  // accuracy of reverse transformation (pv=>aa=>pv) for isochrone
+    const double epss = 2e-4;  // accuracy of reverse transformation for spherical a/a mapping
     const double epsf = 1e-6;  // accuracy of frequency determination
     const double M = 2.7;      // mass and
     const double b = 0.6;      // scale radius of Isochrone potential
@@ -36,14 +38,14 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     potential::Isochrone pot(M, b);
     orbit::integrate(pot, initial_conditions, total_time, timestep, traj, 1e-10);
     actions::ActionStat statI, statS, statF;
-    actions::ActionAngles aaI, aaF;
-    actions::Actions acS;
-    actions::Frequencies frI, frF, frIinv;
+    actions::ActionAngles aaI, aaF, aaS;
+    actions::Frequencies frI, frF, frS, frIinv, frSinv;
     math::Averager statfrIr, statfrIz, statH;
-    actions::Angles aoldF(0,0,0), aoldI(0,0,0);
-    bool anglesMonotonic = true;  // check that angle determination is reasonable
-    bool reversible = true;       // check that forward-reverse transform gives the original point
-    bool deriv_ok = true;         // check that finite-difference derivs agree with analytic ones
+    actions::Angles aoldF(0,0,0), aoldI(0,0,0), aoldS(0,0,0);
+    bool anglesMonotonic = true;  // angle determination is reasonable
+    bool reversible_iso = true;   // forward-reverse transform for isochrone gives the original point
+    bool reversible_sph = true;   // same for spherical a/a finder/mapper
+    bool deriv_ok = true;         // finite-difference derivs agree with analytic ones
     std::ofstream strm;
     if(output) {
         strm.open("test_isochrone.dat");
@@ -62,27 +64,34 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
         traj[i].phi = math::wrapAngle(traj[i].phi);
         aaI = actions::actionAnglesIsochrone(M, b,  traj[i], &frI);
         aaF = actions::actionAnglesAxisymFudge(pot, traj[i], ifd, &frF);
-        acS = actions::actionsSpherical(pot, traj[i]);
+        aaS = actions::actionAnglesSpherical(pot, traj[i], &frS);
         statH.add(actions::computeHamiltonianSpherical(pot, aaI));  // find H(J)
         statI.add(aaI);
         statF.add(aaF);
-        statS.add(acS);
+        statS.add(aaS);
         statfrIr.add(frI.Omegar);
         statfrIz.add(frI.Omegaz);
-        actions::Angles anewF, anewI;
+        actions::Angles anewF, anewI, anewS;
         anewF.thetar   = math::unwrapAngle(aaF.thetar,   aoldF.thetar);
         anewF.thetaz   = math::unwrapAngle(aaF.thetaz,   aoldF.thetaz);
         anewF.thetaphi = math::unwrapAngle(aaF.thetaphi, aoldF.thetaphi);
         anewI.thetar   = math::unwrapAngle(aaI.thetar,   aoldI.thetar);
         anewI.thetaz   = math::unwrapAngle(aaI.thetaz,   aoldI.thetaz);
         anewI.thetaphi = math::unwrapAngle(aaI.thetaphi, aoldI.thetaphi);
+        anewS.thetar   = math::unwrapAngle(aaS.thetar,   aoldS.thetar);
+        anewS.thetaz   = math::unwrapAngle(aaS.thetaz,   aoldS.thetaz);
+        anewS.thetaphi = math::unwrapAngle(aaS.thetaphi, aoldS.thetaphi);
         anglesMonotonic &= i==0 || (
-            anewI.thetar   >= aoldI.thetar && ( anewF.thetar   >= aoldF.thetar || aaF.Jr<1e-10 ) &&
-            anewI.thetaz   >= aoldI.thetaz   && anewF.thetaz   >= aoldF.thetaz &&
+            anewI.thetar >= aoldI.thetar && anewS.thetar >= aoldS.thetar &&
+           (anewF.thetar >= aoldF.thetar || aaF.Jr<1e-10) &&
+            anewI.thetaz >= aoldI.thetaz && anewS.thetaz >= aoldS.thetaz &&
+            anewF.thetaz >= aoldF.thetaz &&
             math::sign(aaI.Jphi) * anewI.thetaphi >= math::sign(aaI.Jphi) * aoldI.thetaphi &&
+            math::sign(aaS.Jphi) * anewS.thetaphi >= math::sign(aaS.Jphi) * aoldS.thetaphi &&
             math::sign(aaF.Jphi) * anewF.thetaphi >= math::sign(aaF.Jphi) * aoldF.thetaphi);
-        aoldF = anewF;
         aoldI = anewI;
+        aoldS = anewS;
+        aoldF = anewF;
 #ifdef TEST_OLD_TORUS
         coord::PosVelSph ps(toPosVelSph(traj[i]));
         Torus::PSPT pvs;
@@ -90,25 +99,32 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
         pvs[3]=ps.vr; pvs[4]=-ps.vtheta*ps.r; pvs[5]=ps.vphi*traj[i].R;
         Torus::PSPT aaT = toy.Backward3D(pvs); // (J_r,J_z,J_phi,theta_r,theta_z,theta_phi)
         Torus::PSPT pvi = toy.Forward3D(aaT);
-        reversible &= 
+        reversible_iso &= 
             math::fcmp(pvs[0], pvi[0], eps) == 0 && math::fcmp(pvs[1], pvi[1], eps) == 0 &&
             math::fcmp(pvs[2], pvi[2], eps) == 0 && math::fcmp(pvs[3]+1, pvi[3]+1, eps) == 0 &&
             math::fcmp(pvs[4]+1, pvi[4]+1, eps) == 0 && math::fcmp(pvs[5]+1, pvi[5]+1, eps) == 0;
-        reversible &=
+        reversible_iso &=
             math::fcmp(aaT[0]+1, aaI.Jr+1, eps) == 0 &&  // ok when Jr<<1
             math::fcmp(aaT[1], aaI.Jz, eps) == 0 &&
             math::fcmp(aaT[2], aaI.Jphi, eps) == 0 &&
             (aaI.Jr<epsd || math::fcmp(aaT[3], aaI.thetar, eps) == 0) &&
             (aaI.Jz==0 || math::fcmp(math::wrapAngle(aaT[4]+1), math::wrapAngle(aaI.thetaz+1), eps) == 0) &&
             math::fcmp(aaT[5], aaI.thetaphi, eps) == 0;
-        if(!reversible)
+        if(!reversible_iso)
             std::cout << aaT <<'\t' <<aaI << '\n';
 #endif
-        // inverse transformation with derivs
+        // inverse transformation for spherical potential
+        coord::PosVelCyl pinv = actions::mapSpherical(pot, aaS, &frSinv);
+        reversible_sph &= equalPosVel(pinv, traj[i], epss) && 
+            math::fcmp(frS.Omegar, frSinv.Omegar, epss) == 0 &&
+            math::fcmp(frS.Omegaz, frSinv.Omegaz, epss) == 0 &&
+            math::fcmp(frS.Omegaphi, frSinv.Omegaphi, epss) == 0;
+
+        // inverse transformation for Isochrone with derivs
         coord::PosVelSphMod pd[2];
         actions::DerivAct<coord::SphMod> ac;
         coord::PosVelSphMod pp = actions::ToyMapIsochrone(M, b).map(aaI, &frIinv, &ac, NULL, pd);
-        reversible &= equalPosVel(toPosVelCyl(pp), traj[i], epst) && 
+        reversible_iso &= equalPosVel(toPosVelCyl(pp), traj[i], epst) && 
             math::fcmp(frI.Omegar, frIinv.Omegar, epst) == 0 &&
             math::fcmp(frI.Omegaz, frIinv.Omegaz, epst) == 0 &&
             math::fcmp(frI.Omegaphi, frIinv.Omegaphi, epst) == 0;
@@ -180,6 +196,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
             strm << i*timestep<<"   "<<traj[i].R<<" "<<traj[i].z<<" "<<traj[i].phi<<"  "<<
                 toPosVelCyl(pp).R<<" "<<toPosVelCyl(pp).z<<" "<<pp.phi<<"   "<<
                 aaI.thetar<<" "<<aaI.thetaz<<" "<<aaI.thetaphi<<"  "<<
+                aaS.thetar<<" "<<aaS.thetaz<<" "<<aaS.thetaphi<<"  "<<
                 aaF.thetar<<" "<<aaF.thetaz<<" "<<aaF.thetaphi<<"  "<<
             "\n";
         }
@@ -200,23 +217,24 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     ":  Jr="  <<statI.avg.Jr  <<" +- "<<statI.rms.Jr<<
     ",  Jz="  <<statI.avg.Jz  <<" +- "<<statI.rms.Jz<<
     ",  Jphi="<<statI.avg.Jphi<<" +- "<<statI.rms.Jphi<< (dispI_ok?"":" \033[1;31m**\033[0m")<<
+    (reversible_iso?"":" \033[1;31mNOT INVERTIBLE\033[0m ")<<
+    (deriv_ok?"":" \033[1;31mDERIVS INCONSISTENT\033[0m ")<<
     "\nSpherical"
     ":  Jr="  <<statS.avg.Jr  <<" +- "<<statS.rms.Jr<<
     ",  Jz="  <<statS.avg.Jz  <<" +- "<<statS.rms.Jz<<
     ",  Jphi="<<statS.avg.Jphi<<" +- "<<statS.rms.Jphi<< (dispS_ok?"":" \033[1;31m**\033[0m")<<
+    (reversible_sph?"":" \033[1;31mNOT INVERTIBLE\033[0m ")<<
     "\nAxi.Fudge"
     ":  Jr="  <<statF.avg.Jr  <<" +- "<<statF.rms.Jr<<
     ",  Jz="  <<statF.avg.Jz  <<" +- "<<statF.rms.Jz<<
     ",  Jphi="<<statF.avg.Jphi<<" +- "<<statF.rms.Jphi<< (dispF_ok?"":" \033[1;31m**\033[0m")<<
     (compareIF?"":" \033[1;31mNOT EQUAL\033[0m ")<<
-    (reversible?"":" \033[1;31mNOT INVERTIBLE\033[0m ")<<
     (freq_ok?"":" \033[1;31mFREQS NOT CONST\033[0m ")<<
-    (deriv_ok?"":" \033[1;31mDERIVS INCONSISTENT\033[0m ")<<
     (anglesMonotonic?"":" \033[1;31mANGLES NON-MONOTONIC\033[0m ")<<
     "\nHamiltonian H(J)="<<statH.mean()<<" +- "<<sqrt(statH.disp())<<
     (HofJ_ok?"":" \033[1;31m**\033[0m") <<'\n';
     return dispI_ok && dispS_ok && dispF_ok && compareIF
-        && freq_ok && reversible && deriv_ok && anglesMonotonic && HofJ_ok;
+        && freq_ok && reversible_iso && reversible_sph && deriv_ok && anglesMonotonic && HofJ_ok;
 }
 
 int main()

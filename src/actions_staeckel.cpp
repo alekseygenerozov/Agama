@@ -64,7 +64,6 @@ public:
         point(_point), E(_E), Lz(_Lz) {};
 };
 
-
 // ------ SPECIALIZED functions for Staeckel action finder -------
 
 /** parameters of potential, integrals of motion, and prolate spheroidal coordinates 
@@ -654,23 +653,45 @@ ActionAngles actionAnglesAxisymFudge(const potential::BasePotential& potential,
 /// Inverse transformation: obtain integrals of motion (E,I3,Lz) from actions (Jr,Jz,Jphi)
 namespace {
 
+class OrbitCenterFinder: public math::IFunctionNoDeriv {
+public:
+    OrbitCenterFinder(const potential::OblatePerfectEllipsoid& p,
+        double _Lz, double _I3) : potential(p), Lz2(_Lz*_Lz), I3(_I3) {}
+    virtual double value(const double R) const
+    {
+        coord::GradCyl grad;
+        potential.eval(coord::PosCyl(R, 0, 0), NULL, &grad);
+        return -grad.dR + Lz2/pow_3(R) + 2*R*I3/pow_2(R*R+potential.coordsys().delta);
+    }
+private:
+    const potential::OblatePerfectEllipsoid& potential;
+    const double Lz2, I3;
+};
+
 class IntegralsOfMotionFinder: public math::IFunctionNdimDeriv {
 public:
     IntegralsOfMotionFinder(
         const potential::OblatePerfectEllipsoid& p,
-        const InterfocalDistanceFinder& f, const Actions& a) :
-        potential(p), finder(f), acts(a) {}
+        const Actions& a, AxisymIntLimits &l) :
+        potential(p), acts(a), lim(l) {}
 
-    virtual void evalDeriv(const double vars[], double values[], double *derivs=0) const
+    AxisymFunctionStaeckel makefnc(const double vars[]) const
     {
         double E = vars[0];
         double I3= vars[1];
-        // cylindrical radius in the equatorial plane of a thin shell orbit (Jr=0)
-        double Rthin = finder.Rthin(E, acts.Jphi);
+        // find a plausible cylindrical radius in the equatorial plane lying inside the orbit
+        OrbitCenterFinder f(potential, acts.Jphi, I3);
+        double R0 = math::findRoot(f, 1e-5, 1e5, 1e-10);  ///!!!!!! boundaries????
         coord::PosVelProlSph pos = coord::toPosVel<coord::Cyl, coord::ProlSph>(
-            coord::PosVelCyl(Rthin, 0, 0, 0, 0, acts.Jphi!=0 ? acts.Jphi/Rthin : 0), potential.coordsys());
-        AxisymFunctionStaeckel fnc(pos, E, acts.Jphi, I3, potential);
-        const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
+            coord::PosVelCyl(R0, 0, 0, 0, 0, acts.Jphi!=0 ? acts.Jphi/R0 : 0), potential.coordsys());
+        return AxisymFunctionStaeckel(pos, E, acts.Jphi, I3, potential);
+    }
+    virtual void evalDeriv(const double vars[], double values[], double *derivs=0) const
+    {
+        const AxisymFunctionStaeckel fnc = makefnc(vars);
+        // store the limits in the external variable,
+        // so that the best-match values will be available after findRootNdim finishes
+        lim = findIntegrationLimitsAxisym(fnc);
         if(values) {
             Actions trialActs = computeActions(fnc, lim);
             values[0] = trialActs.Jr - acts.Jr;
@@ -691,34 +712,145 @@ public:
     virtual unsigned int numValues() const { return acts.Jz==0 ? 1 : 2; }
 private:
     const potential::OblatePerfectEllipsoid& potential;
-    const InterfocalDistanceFinder& finder;
     const Actions acts;
+    AxisymIntLimits &lim;
 };
+
+class ToyEtaFinder: public math::IFunctionNoDeriv {
+public:
+    ToyEtaFinder(const double _ecc, const double _rhs) :
+        ecc(_ecc), rhs(_rhs) {}
+    virtual double value(const double eta) const {
+        double lhs = eta + ecc * sin(eta)
+            - 2 * sqrt(1-ecc*ecc) * atan( sqrt( (1+ecc) / (1-ecc) ) * tan(eta*0.5) );
+        return lhs - rhs;
+    }
+private:
+    const double ecc, rhs;
+};
+
+class ToyTauFinder: public math::IFunctionNoDeriv {
+public:
+    ToyTauFinder(const double _cosi, const double _rhs) :
+    cosi(_cosi), rhs(_rhs) {}
+    virtual double value(const double t) const {
+        double xtmp = 2*t / sqrt(fmax( pow_2(1-t*t) - pow_2(cosi * (1+t*t)), 0) );
+        double lhs  = atan(xtmp) - cosi * atan(xtmp * cosi);
+        return lhs  - rhs;
+    }
+private:
+    const double cosi, rhs;
+};
+
+math::PtrFunction createRadialCoordMapping(const AxisymFunctionBase& fnc, const AxisymIntLimits& lim, double L) 
+{
+    AxisymIntegrand integrand(fnc);
+    math::ScaledIntegrandEndpointSing transf(integrand, lim.lambda_min, lim.lambda_max);
+    integrand.n = AxisymIntegrand::nplus1;
+    integrand.a = AxisymIntegrand::azero;
+    integrand.c = AxisymIntegrand::czero;
+    const int NSUB = 48;
+    std::vector<double> rho(NSUB+1), subint(NSUB+1), toyr(NSUB+1);
+    rho[0] = 0.5 * (sqrt(lim.lambda_min) + sqrt(lim.lambda_min - fnc.point.coordsys.delta) - sqrt(fnc.point.coordsys.delta));
+    for(int s=1; s<=NSUB; s++) {
+        double la1 = (lim.lambda_max-lim.lambda_min) * ((s-1.)/NSUB) + lim.lambda_min;
+        double la2 = (lim.lambda_max-lim.lambda_min) * ((s+0.)/NSUB) + lim.lambda_min;
+        subint[s]  = subint[s-1] +
+            math::integrateGL(transf, transf.y_from_x(la1), transf.y_from_x(la2), INTEGR_ORDER);
+        rho[s] = 0.5 * (sqrt(la2) + sqrt(la2 - fnc.point.coordsys.delta) - sqrt(fnc.point.coordsys.delta));
+    }
+    // now the last element of subint is the value of Jr times 1/Pi
+    double J   = subint.back() / M_PI + L;  // J = Jr+L = sqrt(a),  where a is semimajor axis
+    double ecc = sqrt(1 - pow_2(L/J));
+    // for each value of rho of the real coord.sys.,
+    // we find the corresponding r_toy of the toy coordinate system from the equation
+    //   eta + ecc sin(eta) - 2 sqrt(1-ecc^2) arctan( sqrt((1+ecc)/(1-ecc)) tan(eta/2) ) = subint(rho) / J,
+    // where  r_toy = a (1 - ecc cos(eta) )
+    for(int s=0; s<=NSUB; s++) {
+        ToyEtaFinder f(ecc, subint[s] / J);
+        double eta = s==0 ? 0 : s==NSUB ? M_PI : math::findRoot(f, 0, M_PI, ACCURACY_RANGE);
+        toyr[s] = J*J * (1 - ecc * cos(eta));
+    }
+    // add point at zero
+    toyr.insert(toyr.begin(), 0);
+    rho.insert(rho.begin(), 0);
+    // create an interpolator
+    return math::PtrFunction(new math::CubicSpline(toyr, rho));
+}
+
+math::PtrFunction createVerticalCoordMapping(const AxisymFunctionBase& fnc, const AxisymIntLimits& lim) 
+{
+    AxisymIntegrand integrand(fnc);
+    math::ScaledIntegrandEndpointSing transf(integrand, lim.nu_min, lim.nu_max);
+    integrand.n = AxisymIntegrand::nplus1;
+    integrand.a = AxisymIntegrand::azero;
+    integrand.c = AxisymIntegrand::czero;
+    const int NSUB = 48;
+    std::vector<double> tau(NSUB+1), subint(NSUB+1), toytau(NSUB+1);
+    for(int s=1; s<=NSUB; s++) {
+        double nu1 = lim.nu_max * ((s-1.)/NSUB);  // limits of integration over sub-interval
+        double nu2 = lim.nu_max * ((s+0.)/NSUB);
+        subint[s]  = subint[s-1] +
+        math::integrateGL(transf, transf.y_from_x(nu1), transf.y_from_x(nu2), INTEGR_ORDER);
+        double cosv2 = sqrt(nu2 / fnc.point.coordsys.delta);
+        tau[s] = cosv2 / (sqrt(1-pow_2(cosv2)) + 1);
+    }
+    // now the last element of subint is the value of Jz times 2/Pi
+    double L = subint.back() * (2/M_PI) + fabs(fnc.Lz);
+    double cosi = fabs(fnc.Lz) / L;
+    // for each value of tau of the real coord.sys.,
+    // we find the corresponding tau_toy of the toy coordinate system from the equation
+    //   arctan(x) - cos(i) arctan(x cos(i)) = subint(tau) / L,  where
+    //   x = cos(theta) / sqrt(sin(i)^2 - cos(theta)^2),  and  tau_toy = cos(theta) / (1+sin(theta))
+    toytau.back() = sqrt(1 - pow_2(cosi)) / (1 + cosi);
+    for(int s=1; s<NSUB; s++) {
+        ToyTauFinder f(cosi, subint[s] / L);
+        toytau[s] = math::findRoot(f, toytau.front(), toytau.back(), ACCURACY_RANGE);
+    }
+    // add the end point for extrapolation
+    if(cosi>0) {
+        toytau.push_back(1.);
+        tau.push_back(1.);
+    }
+    // add a symmetric branch at negative tau
+    assert(toytau.size() == tau.size());
+    toytau.insert(toytau.begin(), toytau.size()-1, 0);
+    tau.insert(tau.begin(), tau.size()-1, 0);
+    for(int s=0; s<tau.size()/2; s++) {
+        tau[s] = -tau[tau.size()-1-s];
+        toytau[s] = -toytau[toytau.size()-1-s];
+    }
+    // create an interpolator
+    return math::PtrFunction(new math::CubicSpline(toytau, tau));
+}
 
 } // namespace
 
 void computeIntegralsStaeckel(
     const potential::OblatePerfectEllipsoid& potential, 
-    const InterfocalDistanceFinder& finder,
     const Actions& acts,
-    double &H, double &I3)
+    math::PtrFunction &rad, math::PtrFunction &ver)
 {
     // initial guess on the point lying within the orbit extent in the meridional plane
-    double Rcirc = R_from_Lz(potential, acts.Jphi);
+    double Rcirc = R_from_Lz(potential, fabs(acts.Jphi)+acts.Jr+acts.Jz);
     double kappa, nu, Omega;
     epicycleFreqs(potential, Rcirc, kappa, nu, Omega);
     // initial guess for total energy E and third integral I3
-    double initVars[2];
+    double initVars[2] = {0,0};
     potential.eval(coord::PosCyl(Rcirc, 0, 0), initVars);
     if(acts.Jphi!=0)
         initVars[0] += 0.5 * pow_2(acts.Jphi/Rcirc);
     initVars[0] += kappa * acts.Jr + nu * acts.Jz;
     initVars[1] = nu * acts.Jz * (pow_2(Rcirc) + potential.coordsys().delta);
-    double results[2];
-    IntegralsOfMotionFinder fnc(potential, finder, acts);
-    math::findRootNdimDeriv(fnc, initVars, 1e-6, 10, results);
-    H = results[0];
-    I3= acts.Jz==0 ? 0 : results[1];
+    double results[2] = {0,0};
+    // find the integrals of motion that result in the required actions,
+    // and as a by-product store the limits of oscillation in both lambda and nu directions
+    AxisymIntLimits lim;
+    IntegralsOfMotionFinder f(potential, acts, lim);
+    math::findRootNdimDeriv(f, initVars, 1e-6, 32, results);
+    const AxisymFunctionStaeckel fnc = f.makefnc(results);
+    rad = createRadialCoordMapping(fnc, lim, acts.Jz+fabs(acts.Jphi));
+    ver = createVerticalCoordMapping(fnc, lim);
 }
 
 }  // namespace actions
