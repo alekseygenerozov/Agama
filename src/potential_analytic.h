@@ -36,11 +36,11 @@ public:
     virtual const char* name() const { return myName(); }
     static const char* myName() { return "Isochrone"; }
     virtual double totalMass() const { return mass; }
-    virtual void evalDeriv(double r,
-        double* potential, double* deriv, double* deriv2) const;
 private:
     const double mass;         ///< total mass  (M)
     const double scaleRadius;  ///< scale radius of the Isochrone model  (b)
+    virtual void evalDeriv(double r,
+        double* potential, double* deriv, double* deriv2) const;
 };
 
 /** Spherical Navarro-Frenk-White potential:
@@ -48,7 +48,7 @@ private:
 class NFW: public BasePotentialSphericallySymmetric{
 public:
     NFW(double _mass, double _scaleRadius) :
-    BasePotentialSphericallySymmetric(), mass(_mass), scaleRadius(_scaleRadius) {}
+        BasePotentialSphericallySymmetric(), mass(_mass), scaleRadius(_scaleRadius) {}
     virtual const char* name() const { return myName(); }
     static const char* myName() { return "NFW"; }
     virtual double totalMass() const { return INFINITY; }

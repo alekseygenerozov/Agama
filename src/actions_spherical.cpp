@@ -49,7 +49,7 @@ public:
     AngleIntegrand(const potential::BasePotential& p, double _E, double _L) :
         potential(p), E(_E), L(_L) {};
     virtual double value(const double r) const {
-        double Phi = potential.value(coord::PosSph(r, M_PI_2, 0));
+        double Phi = potential.value(coord::PosCyl(r, 0, 0));
         double vr2 = 2*(E-Phi) - (L!=0 ? pow_2(L/r) : 0);
         return vr2<0 ? 0 : (denomr2 ? L/(r*r) : 1) / sqrt(vr2);
     }
@@ -133,12 +133,10 @@ static ActionAngles actionAnglesFrequencies(
     return aa;
 }
 
-coord::PosVelCyl mapPointFromActions(
+coord::PosVelSphMod mapPointFromActions(
     const potential::BasePotential &potential,
     const ActionAngles &aa, Frequencies& freq)
 {
-    if(!isSpherical(potential))
-        throw std::invalid_argument("mapSpherical: potential must be spherically symmetric");
     if(aa.Jr<0 || aa.Jz<0)
         throw std::invalid_argument("mapSpherical: input actions are negative");
     double L = aa.Jz + fabs(aa.Jphi);  // total angular momentum
@@ -163,7 +161,7 @@ coord::PosVelCyl mapPointFromActions(
     double rsc = math::findRoot(finder, 0, 1, ACCURACY_JR);
     double r   = transf_r.x_from_y(rsc);
     double vr  = (phase_r<=1 ? 1 : -1) *   // phase_r>1 means moving inwards from apo to pericenter
-        sqrt(fmax(0, 2 * (E - potential.value(coord::PosSph(r, M_PI_2, 0))) - (L>0 ? pow_2(L/r) : 0) ));
+        sqrt(fmax(0, 2 * (E - potential.value(coord::PosCyl(r, 0, 0))) - (L>0 ? pow_2(L/r) : 0) ));
     // find other auxiliary angles
     double thr = phase_r<=1 ? aa.thetar : aa.thetar - 2*M_PI;
     double thz = math::integrateGL(transf_z, 0, rsc, INTEGR_ORDER) * (phase_r<=1 ? 1 : -1);
@@ -174,20 +172,19 @@ coord::PosVelCyl mapPointFromActions(
     double sini     = sqrt(1 - pow_2(aa.Jphi / L)); // inclination angle of the orbital plane
     double costheta = sini * sinpsi;                // z/r
     double sintheta = sqrt(1 - pow_2(costheta));    // R/r is always non-negative
-    double vtheta   = L * sini * cospsi / (r * sintheta);
     // finally, output position/velocity
-    coord::PosVelCyl point;
-    point.R    = r * sintheta;
-    point.z    = r * costheta;
-    point.vR   = vr * sintheta - vtheta * costheta;
-    point.vz   = vr * costheta + vtheta * sintheta;
+    coord::PosVelSphMod point;
+    point.r    = r;
+    point.pr   = vr;
+    point.tau  = costheta / (1+sintheta);
+    point.ptau = L * sini * cospsi * (1/sintheta + 1);
     point.phi  = math::wrapAngle(aa.thetaphi + (chi-aa.thetaz) * math::sign(aa.Jphi));
-    point.vphi = aa.Jphi!=0 ? aa.Jphi / point.R : 0;
+    point.pphi = aa.Jphi;
     return point;
 }
 
 
-/// interpolated action finder
+/// construction of interpolated action finder
 static const math::LinearInterpolator2d createInterpJr(
     const potential::BasePotential& potential,
     const unsigned int gridSizeE,
@@ -239,7 +236,7 @@ static const math::LinearInterpolator2d createInterpJr(
 
 double computeHamiltonianSpherical(const potential::BasePotential& potential, const Actions& acts)
 {
-    if(!isSpherical(potential))
+    if(!isAxisymmetric(potential))   ///!!!!!
         throw std::invalid_argument("computeHamiltonianSpherical: potential must be spherically symmetric");
     if(acts.Jr<0 || acts.Jz<0)
         throw std::invalid_argument("computeHamiltonianSpherical: input actions are negative");
@@ -247,9 +244,9 @@ double computeHamiltonianSpherical(const potential::BasePotential& potential, co
     // radius of a circular orbit with this angular momentum
     double rcirc = R_from_Lz(potential, L);
     // initial guess (more precisely, lower bound) for Hamiltonian
-    double Ecirc = potential.value(coord::PosSph(rcirc, M_PI_2, 0)) + (L>0 ? 0.5 * pow_2(L/rcirc) : 0);
+    double Ecirc = potential.value(coord::PosCyl(rcirc, 0, 0)) + (L>0 ? 0.5 * pow_2(L/rcirc) : 0);
     // upper bound for Hamiltonian
-    double Einf  = potential.value(coord::PosSph(INFINITY, 0, 0));
+    double Einf  = potential.value(coord::PosCyl(INFINITY, 0, 0));
     if(!math::isFinite(Einf) && Einf != INFINITY)  // some potentials may return NAN for r=infinity
         Einf = 0;  // assume the default value for potential at infinity
     // find E such that Jr(E, L) equals the target value
@@ -261,8 +258,10 @@ coord::PosVelCyl mapSpherical(
     const potential::BasePotential &potential,
     const ActionAngles &aa, Frequencies* freq)
 {
+    if(!isSpherical(potential))
+        throw std::invalid_argument("mapSpherical: potential must be spherically symmetric");
     Frequencies tmp;  // temp.storage, ignored if not requested for output
-    return mapPointFromActions(potential, aa, freq? *freq : tmp);
+    return toPosVelCyl(mapPointFromActions(potential, aa, freq? *freq : tmp));
 }
 
 
@@ -305,6 +304,45 @@ Actions ActionFinderSpherical::actions(const coord::PosVelCyl& point) const
 ActionAngles ActionFinderSpherical::actionAngles(const coord::PosVelCyl& , Frequencies* ) const
 {
     throw std::runtime_error("ActionFinderSpherical: angle determination not implemented");
+}
+
+coord::PosVelSphMod ToyMapSpherical::map(
+    const ActionAngles& aa,
+    Frequencies* freq,
+    DerivAct<coord::SphMod>* derivAct,
+    DerivAng<coord::SphMod>*,
+    coord::PosVelSphMod*) const
+{
+    Frequencies tmp;  // temp.storage, ignored if not requested for output
+    coord::PosVelSphMod p0 = mapPointFromActions(potential, aa, freq? *freq : tmp);
+    if(derivAct) {
+        const double EPS=1e-8;
+        ActionAngles aa1(Actions(aa.Jr+EPS, aa.Jz, aa.Jphi), aa);
+        ActionAngles aa2(Actions(aa.Jr, aa.Jz+EPS, aa.Jphi), aa);
+        ActionAngles aa3(Actions(aa.Jr, aa.Jz, aa.Jphi+EPS), aa);
+        coord::PosVelSphMod p1 = mapPointFromActions(potential, aa1, tmp);
+        coord::PosVelSphMod p2 = mapPointFromActions(potential, aa2, tmp);
+        coord::PosVelSphMod p3 = mapPointFromActions(potential, aa3, tmp);
+        derivAct->dbyJr.r   = (p1.r   - p0.r   )/EPS;
+        derivAct->dbyJr.pr  = (p1.pr  - p0.pr  )/EPS;
+        derivAct->dbyJr.tau = (p1.tau - p0.tau )/EPS;
+        derivAct->dbyJr.ptau= (p1.ptau- p0.ptau)/EPS;
+        derivAct->dbyJr.phi = (p1.phi - p0.phi )/EPS;
+        derivAct->dbyJr.pphi= (p1.pphi- p0.pphi)/EPS;
+        derivAct->dbyJz.r   = (p2.r   - p0.r   )/EPS;
+        derivAct->dbyJz.pr  = (p2.pr  - p0.pr  )/EPS;
+        derivAct->dbyJz.tau = (p2.tau - p0.tau )/EPS;
+        derivAct->dbyJz.ptau= (p2.ptau- p0.ptau)/EPS;
+        derivAct->dbyJz.phi = (p2.phi - p0.phi )/EPS;
+        derivAct->dbyJz.pphi= (p2.pphi- p0.pphi)/EPS;
+        derivAct->dbyJphi.r   = (p3.r   - p0.r   )/EPS;
+        derivAct->dbyJphi.pr  = (p3.pr  - p0.pr  )/EPS;
+        derivAct->dbyJphi.tau = (p3.tau - p0.tau )/EPS;
+        derivAct->dbyJphi.ptau= (p3.ptau- p0.ptau)/EPS;
+        derivAct->dbyJphi.phi = (p3.phi - p0.phi )/EPS;
+        derivAct->dbyJphi.pphi= (p3.pphi- p0.pphi)/EPS;
+    }
+    return p0;
 }
 
 }  // namespace actions

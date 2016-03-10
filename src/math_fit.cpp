@@ -116,8 +116,8 @@ struct EigenFncWrapper {
                     for(unsigned int j=0; j<F.numVars(); j++)
                         f[j] = 1e10;
                     return 0;
-                    error = "Function is not finite";
-                    return -1;
+                    /*error = "Function is not finite";
+                    return -1;*/
                 }
             return 0;
         }
@@ -131,11 +131,11 @@ struct EigenFncWrapper {
     int df(const Eigen::VectorXd &x, Eigen::MatrixXd &df) const {
         try{
             F.evalDeriv(x.data(), NULL, df.data());
-            for(unsigned int i=0; i<F.numVars()*F.numValues(); i++)
+            /*for(unsigned int i=0; i<F.numVars()*F.numValues(); i++)
                 if(!isFinite(df.data()[i])) {
                     error = "Derivative is not finite";
                     return -1;
-                }
+                }*/
             return 0;
         }
         catch(std::exception& e){

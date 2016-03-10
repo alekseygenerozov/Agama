@@ -154,8 +154,9 @@ void getNormalRandomNumbers(double& num1, double& num2) {
 // if f(x) is exactly zero at one of the endpoints, and we want to locate the root inside the interval,
 // then we need to shift slightly the endpoint to ensure that f(x) is strictly positive (or negative).
 
-PointNeighborhood::PointNeighborhood(const IFunction& fnc, double x0)
+PointNeighborhood::PointNeighborhood(const IFunction& fnc, double _x0) : x0(_x0)
 {
+    // small offset used in computing numerical derivatives, if the analytic ones are not available
     double delta = fmax(fabs(x0) * GSL_ROOT3_DBL_EPSILON, 16*GSL_DBL_EPSILON);
     // we assume that the function can be computed at all points, but the derivatives not necessarily can
     double fplusd = NAN, fderplusd = NAN, fminusd = NAN;
@@ -189,7 +190,9 @@ double PointNeighborhood::dxToPosneg(double sgn) const
     // safety factor to make sure we overshoot in finding the value of opposite sign
     double s0 = sgn*f0 * 1.1;
     double sder = sgn*fder, sder2 = sgn*fder2;
-    const double delta = fmin(fabs(fder/fder2)*0.5, GSL_SQRT_DBL_EPSILON);
+    // offset should be no larger than the scale of variation of the function,
+    // but no smaller than the minimum resolvable distance between floating point numbers
+    const double delta = fmin(fabs(fder/fder2)*0.5, 16*GSL_DBL_EPSILON*fabs(x0));
     if(s0>0)
         return 0;  // already there
     if(sder==0) {

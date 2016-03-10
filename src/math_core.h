@@ -149,6 +149,7 @@ double findMin(const IFunction& F, double x1, double x2, double xinit, double re
 */
 class PointNeighborhood {
 public:
+    double x0;               ///< the coordinate of the given point
     double f0, fder, fder2;  ///< the value, first and second derivative at the given point
     PointNeighborhood(const IFunction& fnc, double x0);
 

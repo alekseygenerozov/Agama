@@ -167,10 +167,9 @@ int main()
 {
     strm.open("torus.stat");
     const potential::OblatePerfectEllipsoid potential(1.0, AXIS_A, AXIS_C);
-    //const potential::Isochrone potential(1.0, 1.0);
     bool allok=true;
-    allok &= test_torus(potential, coord::PosVelCyl(2.0000000, 0, 0, 0, 0.01, 0.5));
-    //allok &= test_torus(potential, coord::PosVelCyl(1.0000000, 0, 0, 0, 0.446,0.1));
+    allok &= test_torus(potential, coord::PosVelCyl(1.0000000, 0, 0, 0, 0.45/*0.446*/,0.1));
+    //allok &= test_torus(potential, coord::PosVelCyl(2.0000000, 0, 0, 0, 0.01, 0.5));
     allok &= test_torus(potential, coord::PosVelCyl(2.0000000, 0, 0, 0, 0.24, 0.5));
     allok &= test_torus(potential, coord::PosVelCyl(4.4444444, 0, 0, 0, 0.40, 0.225));
     allok &= test_torus(potential, coord::PosVelCyl(1.4142136, 0, 0, 0, 0.30, 0.7071068));

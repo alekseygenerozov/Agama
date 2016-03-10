@@ -1,5 +1,5 @@
 #include "actions_newtorus.h"
-#include "actions_isochrone.h"
+#include "actions_spherical.h"
 #include "actions_staeckel.h"
 #include "actions_genfnc.h"
 #include "potential_utils.h"
@@ -35,11 +35,14 @@ public:
         double &drho_dtoyr, double &dtau_dtoytau) const
     {
         double rho, tau;
-        rhomap->evalDeriv(ps.r, &rho, &drho_dtoyr);
+        rho=ps.r; drho_dtoyr=1;  //!!!
+        tau=ps.tau; dtau_dtoytau=1;
+        //rhomap->evalDeriv(ps.r, &rho, &drho_dtoyr);
         taumap->evalDeriv(ps.tau, &tau, &dtau_dtoytau);
         double prho = ps.pr / drho_dtoyr;
         double ptau = ps.ptau / dtau_dtoytau;
-        return coord::PosVelProlMod(coord::PosProlMod(rho, tau, ps.phi, cs), prho, ptau, ps.pphi);
+        return coord::PosVelProlMod(
+            coord::PosProlMod(rho, tau, ps.phi, cs), coord::VelProlMod(prho, ptau, ps.pphi));
     }
     virtual coord::PosVelCyl map(const coord::PosVelSphMod &ps) const
     {
@@ -56,14 +59,15 @@ public:
             coord::GradCyl grad;
             double H;
             potential.eval(toPosDeriv(pp, &der), &H, &grad);
-            coord::PosVelProlMod dHp(pp);
-            H += coord::Ekin(pp, &dHp);
-            dHby->r   =(dHp.rho + grad.dR * der.dRdrho + grad.dz * der.dzdrho) * drho_dtoyr;
-            dHby->tau =(dHp.tau + grad.dR * der.dRdtau + grad.dz * der.dzdtau) * dtau_dtoytau;
-            dHby->phi = dHp.phi + grad.dphi;
-            dHby->pr  = dHp.prho / drho_dtoyr;
-            dHby->ptau= dHp.ptau / dtau_dtoytau;
-            dHby->pphi= dHp.pphi;
+            coord::GradProlMod dHp;
+            coord::VelProlMod dHv;
+            H += coord::Ekin(pp, &dHp, &dHv);
+            dHby->r   =(dHp.drho + grad.dR * der.dRdrho + grad.dz * der.dzdrho) * drho_dtoyr;
+            dHby->tau =(dHp.dtau + grad.dR * der.dRdtau + grad.dz * der.dzdtau) * dtau_dtoytau;
+            dHby->phi = dHp.dphi + grad.dphi;
+            dHby->pr  = dHv.prho / drho_dtoyr;
+            dHby->ptau= dHv.ptau / dtau_dtoytau;
+            dHby->pphi= dHv.pphi;
             return H;
         } else {
             return potential.value(coord::toPosDeriv<coord::ProlMod, coord::Cyl>(pp, NULL))
@@ -607,7 +611,7 @@ double Mapping::fitAngleMap(const double params[],
 
 ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& poten,
     const Actions& _acts, double toler) :
-    acts(_acts), toyMap(new ToyMapIsochrone(1, 0))
+    acts(_acts), toyMap(new ToyMapSpherical(poten))
 {
     if(!isAxisymmetric(poten))
         throw std::invalid_argument("ActionMapperNewTorus only works for axisymmetric potentials");
@@ -645,7 +649,7 @@ ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& poten
         throw std::runtime_error("Error in Torus: first fit attempt failed");
 
     converged = dispH <= dispHmax;
-    if(1||converged) {
+    if(converged) {
         std::cout << " \033[1;32mCONVERGED INSTANTLY\033[0m\n";
         return;
     }

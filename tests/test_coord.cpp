@@ -269,31 +269,27 @@ bool test_prolmod() {
 bool testEkin(double D, double rho, double tau, double phi, double prho, double ptau, double pphi) {
     bool ok = true;
     const coord::ProlMod cs(D);
-    coord::PosVelProlMod p0(coord::PosProlMod(rho, tau, phi, cs), prho, ptau, pphi);
-    coord::PosVelProlMod dH(p0), p1(p0);
+    coord::PosVelProlMod p0(coord::PosProlMod(rho, tau, phi, cs), coord::VelProlMod(prho, ptau, pphi));
     // deriv-analytic
-    double H0 = coord::Ekin(p0, &dH);
+    coord::GradProlMod dHp;
+    coord::VelProlMod  dHv;
+    double H0 = coord::Ekin(p0, &dHp, &dHv);
     // deriv-finite-difference
     const double EPS=1e-8;
-    p1.rho += EPS;
-    ok &= math::fcmp( dH.rho, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
-    p1.rho = p0.rho;
-    p1.tau += EPS;
-    ok &= math::fcmp( dH.tau, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
-    p1.tau = p0.tau;
-    p1.phi += EPS;
-    ok &= math::fcmp( dH.phi, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
-    p1.phi = p0.phi;
-    p1.prho += EPS;
-    ok &= math::fcmp( dH.prho, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
-    p1.prho = p0.prho;
-    p1.ptau += EPS;
-    ok &= math::fcmp( dH.ptau, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
-    p1.ptau = p0.ptau;
-    p1.pphi += EPS;
-    ok &= math::fcmp( dH.pphi, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
+    coord::PosVelProlMod p1(coord::PosProlMod(rho+EPS, tau, phi, cs), coord::VelProlMod(prho, ptau, pphi));
+    ok &= math::fcmp( dHp.drho, (coord::Ekin(p1) - H0) / EPS, 1e-6) == 0;
+    coord::PosVelProlMod p2(coord::PosProlMod(rho, tau+EPS, phi, cs), coord::VelProlMod(prho, ptau, pphi));
+    ok &= math::fcmp( dHp.dtau, (coord::Ekin(p2) - H0) / EPS, 1e-6) == 0;
+    coord::PosVelProlMod p3(coord::PosProlMod(rho, tau, phi+EPS, cs), coord::VelProlMod(prho, ptau, pphi));
+    ok &= math::fcmp( dHp.dphi, (coord::Ekin(p3) - H0) / EPS, 1e-6) == 0;
+    coord::PosVelProlMod p4(coord::PosProlMod(rho, tau, phi, cs), coord::VelProlMod(prho+EPS, ptau, pphi));
+    ok &= math::fcmp( dHv.prho, (coord::Ekin(p4) - H0) / EPS, 1e-6) == 0;
+    coord::PosVelProlMod p5(coord::PosProlMod(rho, tau, phi, cs), coord::VelProlMod(prho, ptau+EPS, pphi));
+    ok &= math::fcmp( dHv.ptau, (coord::Ekin(p5) - H0) / EPS, 1e-6) == 0;
+    coord::PosVelProlMod p6(coord::PosProlMod(rho, tau, phi, cs), coord::VelProlMod(prho, ptau, pphi+EPS));
+    ok &= math::fcmp( dHv.pphi, (coord::Ekin(p6) - H0) / EPS, 1e-6) == 0;
     return ok;
-}    
+}
 
 /// define test suite in terms of points for various coord systems
 const int numtestpoints=5;

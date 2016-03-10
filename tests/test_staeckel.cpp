@@ -41,7 +41,6 @@ bool test_oblate_staeckel(const potential::OblatePerfectEllipsoid& potential,
     orbit::integrate(potential, initial_conditions, total_time, timestep, traj, integr_eps);
     actions::ActionStat stats, statf;
     actions::Angles angf;
-    math::Averager statH;
     bool ex_afs=false, ex_aff=false;
     std::ofstream strm;
     if(output) {
@@ -61,9 +60,6 @@ bool test_oblate_staeckel(const potential::OblatePerfectEllipsoid& potential,
         try {
             actions::ActionAngles a = actions::actionAnglesAxisymStaeckel(potential, p);
             stats.add(a);
-            double H, I3;
-            actions::computeIntegralsStaeckel(potential, ifdfinder, a, H, I3);
-            statH.add(H);
         }
         catch(std::exception &e) {
             if(!ex_afs) std::cout << "Exception in Staeckel at i="<<i<<": "<<e.what()<<"\n";
@@ -100,19 +96,16 @@ bool test_oblate_staeckel(const potential::OblatePerfectEllipsoid& potential,
           && fabs(stats.avg.Jr-statf.avg.Jr)<eps
           && fabs(stats.avg.Jz-statf.avg.Jz)<eps
           && fabs(stats.avg.Jphi-statf.avg.Jphi)<eps
-          && statH.disp() < pow_2(statH.mean()*eps)
           && (stats.avg.Jz==0 || fabs(ifd_p - ifd_i)<1e-5);
     std::cout << coordSysT::name() << ", Exact"
     ":  Jr="  <<stats.avg.Jr  <<" +- "<<stats.rms.Jr<<
     ",  Jz="  <<stats.avg.Jz  <<" +- "<<stats.rms.Jz<<
     ",  Jphi="<<stats.avg.Jphi<<" +- "<<stats.rms.Jphi<<
-    ",  H="<<statH.mean()<<" +- "<<sqrt(statH.disp())<<
     (ex_afs ? ",  \033[1;33mCAUGHT EXCEPTION\033[0m\n":"\n");
     std::cout << coordSysT::name() << ", Fudge"
     ":  Jr="  <<statf.avg.Jr  <<" +- "<<statf.rms.Jr<<
     ",  Jz="  <<statf.avg.Jz  <<" +- "<<statf.rms.Jz<<
     ",  Jphi="<<statf.avg.Jphi<<" +- "<<statf.rms.Jphi<<
-    //",  IFD(traj)="<<ifd_p<<", interp="<<ifd_i<<
     (ok?"":" \033[1;31m**\033[0m")<<
     (ex_aff ? ",  \033[1;33mCAUGHT EXCEPTION\033[0m\n":"\n");
     return ok;

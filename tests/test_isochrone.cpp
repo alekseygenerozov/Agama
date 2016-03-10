@@ -27,8 +27,8 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     const double epsr = 2e-4;  // accuracy of comparison for radial action found with different methods
     const double epsd = 1e-7;  // accuracy of action conservation along the orbit for each method
     const double epst = 1e-9;  // accuracy of reverse transformation (pv=>aa=>pv) for isochrone
-    const double epss = 2e-4;  // accuracy of reverse transformation for spherical a/a mapping
-    const double epsf = 1e-6;  // accuracy of frequency determination
+    const double epss = 1e-7;  // accuracy of reverse transformation for spherical a/a mapping
+    const double epsf = 1e-7;  // accuracy of frequency determination
     const double M = 2.7;      // mass and
     const double b = 0.6;      // scale radius of Isochrone potential
     const double total_time=50;// integration time
@@ -51,7 +51,7 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
         strm.open("test_isochrone.dat");
         strm << std::setprecision(12);
     }
-    double ifd = 1e-4;
+    double ifd = 1e-5;
     int numWarnings = 0;
 #ifdef TEST_OLD_TORUS
     Torus::IsoPar toypar;

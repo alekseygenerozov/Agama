@@ -74,4 +74,20 @@ private:
     const math::LinearInterpolator2d interpJr; ///< 2d interpolator for Jr(E,L)
 };
 
+
+/** Class for performing action/angle to coordinate/momentum transformation for 
+    an arbitrary spherical potential, using modified spherical coordinates for output */
+class ToyMapSpherical: public BaseToyMap<coord::SphMod>{
+public:
+    ToyMapSpherical(const potential::BasePotential& p) : potential(p) {};
+    virtual coord::PosVelSphMod map(
+        const ActionAngles& actAng,
+        Frequencies* freq=0,
+        DerivAct<coord::SphMod>* derivAct=0,
+        DerivAng<coord::SphMod>* derivAng=0,
+        coord::PosVelSphMod* derivParam=0) const;
+private:
+    const potential::BasePotential& potential;  ///< !!!!! need to use a smart pointer here
+};
+
 }  // namespace actions

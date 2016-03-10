@@ -225,13 +225,24 @@ template<> struct PosT<ProlSph>{
 };
 typedef struct PosT<ProlSph> PosProlSph;
 
+/** position in prolate spheroidal coordinates (alternative version).
+    The original formulation in terms of u and v variables, such that the cylindrical coordinates
+    are given by  R = D sinh(u) sin(v), z = D cosh(u) cos(v),
+    is replaced by  rho = D sinh(u), tau = cos(v) / (1 + sin(v)).
+    Here D is the interfocal distance of the coordinate system, which may even be zero.
+    An auxiliary variable chi is set equal to D cosh(u) = sqrt(D^2 + rho^2);
+    as all member variables are declared const, this assignment may not be accidentally changed.
+*/
 template<> struct PosT<ProlMod>{
-    double rho;  ///< lies in the range [0:infinity), analog of spherical radius
-    double tau;  ///< lies in the range [-1:1], analog of tau in SphMod coords
-    double phi;  ///< usual azimuthal angle
-    const ProlMod& coordsys;  ///< a point means nothing without specifying its coordinate system
-    PosT<ProlMod>(double _rho, double _tau, double _phi, const ProlMod& _coordsys):
-        rho(_rho), tau(_tau), phi(_phi), coordsys(_coordsys) {};
+    const double rho;  ///< lies in the range [0:infinity), equal to cylindrical radius when z=0
+    const double tau;  ///< lies in the range [-1:1], analog of tau in SphMod coords
+    const double phi;  ///< usual azimuthal angle
+    const double chi;  ///< equal to sqrt(rho^2 + D^2), where D is the interfocal distance of coord.sys.
+    PosT<ProlMod>(double _rho, double _tau, double _phi) : 
+        rho(_rho), tau(_tau), phi(_phi), chi(_rho) {};
+    PosT<ProlMod>(double _rho, double _tau, double _phi, double _chi) : 
+        rho(_rho), tau(_tau), phi(_phi), chi(_chi) {};
+    PosT<ProlMod>(double _rho, double _tau, double _phi, const ProlMod& coordsys);
 };
 typedef struct PosT<ProlMod> PosProlMod;
 
@@ -268,6 +279,14 @@ template<> struct VelT<Sph> {
     VelT<Sph>(double _vr, double _vtheta, double _vphi) : vr(_vr), vtheta(_vtheta), vphi(_vphi) {};
 };
 typedef struct VelT<Sph> VelSph;
+
+/// momentum in prolate spheroidal coordinates, canonically conjugate to the position
+template<> struct VelT<ProlMod> {
+    double prho, ptau, pphi;
+    VelT<ProlMod>() {};
+    VelT<ProlMod>(double _prho, double _ptau, double _pphi) : prho(_prho), ptau(_ptau), pphi(_pphi) {};
+};
+typedef struct VelT<ProlMod> VelProlMod;
 
 ///@}
 /// \name   Primitive data types: second moments of velocity in different coordinate systems
@@ -375,10 +394,8 @@ template<> struct PosVelT<ProlSph>: public PosProlSph{
 typedef struct PosVelT<ProlSph> PosVelProlSph;
 
 /// canonically conjugate coordinate and momenta in modified prolate spherical coordinates
-template<> struct PosVelT<ProlMod>: public PosProlMod {
-    double prho, ptau, pphi;
-    PosVelT<ProlMod>(const PosProlMod& pos, double _prho, double _ptau, double _pphi) :
-        PosProlMod(pos), prho(_prho), ptau(_ptau), pphi(_pphi) {};
+template<> struct PosVelT<ProlMod>: public PosProlMod, public VelProlMod {
+    PosVelT<ProlMod>(const PosProlMod& pos, const VelProlMod& vel) : PosProlMod(pos), VelProlMod(vel) {}
 };
 typedef struct PosVelT<ProlMod> PosVelProlMod;
 
@@ -449,6 +466,12 @@ template<> struct HessT<ProlSph>{
     double dlambda2, dnu2, dlambdadnu;  ///< note: derivatives by phi are assumed to be zero
 };
 typedef struct HessT<ProlSph> HessProlSph;
+
+/// Hessian of scalar function in modified prolate spheroidal coordinates
+template<> struct HessT<ProlMod>{
+    double drho2, dtau2, drhodtau;  ///< note: derivatives by phi are assumed to be zero
+};
+typedef struct HessT<ProlMod> HessProlMod;
 
 ///@}
 /// \name   Abstract interface classes for scalar functions
@@ -544,8 +567,12 @@ template<> struct PosDeriv2T<Cyl, ProlSph> {
 template<> struct PosDeriv2T<ProlSph, Cyl> {
     double d2Rdlambda2, d2Rdlambdadnu, d2Rdnu2, d2zdlambda2, d2zdlambdadnu, d2zdnu2;
 };
-template<> struct PosDeriv2T<ProlMod, Cyl>{};
-template<> struct PosDeriv2T<Cyl, ProlMod>{};
+template<> struct PosDeriv2T<ProlMod, Cyl>{
+    double d2Rdrho2, d2Rdrhodtau, d2Rdtau2, d2zdrho2, d2zdrhodtau, d2zdtau2;
+};
+template<> struct PosDeriv2T<Cyl, ProlMod>{
+    double d2rhodR2, d2rhodRdz, d2rhodz2, d2taudR2, d2taudRdz, d2taudz2;
+};
 
 ///@}
 /// \name   Routines for conversion between position/velocity in different coordinate systems
@@ -773,6 +800,6 @@ template<typename coordT> double Lz(const PosVelT<coordT> &p);
     optionally also output its derivative w.r.t each coordinate/momentum in the second argument
 */
 template<typename coordT>
-double Ekin(const PosVelT<coordT> &p, coord::PosVelT<coordT> *dEby=0);
+double Ekin(const PosVelT<coordT> &p, coord::GradT<coordT> *dEbyPos=0, coord::VelT<coordT> *dEbyVel=0);
     
 }  // namespace coord
