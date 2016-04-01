@@ -254,7 +254,7 @@ int main()
 
     exact = 2.274454287;
     result = math::integrate(test2(), -1, 2./3, toler, &error, &numEval);
-    std::cout << "Int1: naive="<<result<<" +- "<<error<<" (delta="<<(result-exact)<<", neval="<<numEval;
+    std::cout << "Int2: naive="<<result<<" +- "<<error<<" (delta="<<(result-exact)<<", neval="<<numEval;
     ok &= fabs(1-result/exact)<2e-2 && fabs(result-exact)<error;
     result = math::integrateAdaptive(test2(), -1, 2./3, toler*15, &error, &numEval);
     std::cout << "), adaptive="<<result<<" +- "<<error<<" (delta="<<(result-exact)<<", neval="<<numEval;

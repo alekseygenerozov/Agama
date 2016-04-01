@@ -65,8 +65,8 @@ PseudoIsothermalParam() :  ///< set default values for all fields
 */
 class PseudoIsothermal: public BaseDistributionFunction{
 private:
-    const PseudoIsothermalParam par;            ///< parameters of DF
-    const potential::InterpEpicycleFreqs freq;  ///< interface providing the epicyclic frequencies
+    const PseudoIsothermalParam par;     ///< parameters of DF
+    const potential::Interpolator freq;  ///< interface providing the epicyclic frequencies
 public:
     /** Create an instance of pseudo-isothermal distribution function with given parameters
         \param[in] params  are the parameters of DF;
@@ -81,7 +81,7 @@ public:
         which could be different from the one that was employed at construction.
         \throws std::invalid_argument exception if parameters are nonsense
     */
-    PseudoIsothermal(const PseudoIsothermalParam& params, const potential::InterpEpicycleFreqs& freqs);
+    PseudoIsothermal(const PseudoIsothermalParam& params, const potential::Interpolator& freqs);
 
     /** return value of DF for the given set of actions
         \param[in] J are the actions  */

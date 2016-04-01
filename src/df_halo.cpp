@@ -1,5 +1,4 @@
 #include "df_halo.h"
-//#include "math_specfunc.h"
 #include <cmath>
 #include <stdexcept>
 
@@ -24,7 +23,6 @@ BaseDoublePowerLaw::BaseDoublePowerLaw(const DoublePowerLawParam &inparams) :
         throw std::invalid_argument(
             "DoublePowerLaw DF: mass diverges at J->0 (inner slope alpha must be < 3)");
     par.norm /= pow_3(2*M_PI); 
-    //   * math::gamma(3-par.alpha) * math::gamma(par.beta-3) / math::gamma(par.beta-par.alpha);
 }
 
 double BaseDoublePowerLaw::value(const actions::Actions &J) const {
@@ -59,7 +57,7 @@ double DoublePowerLaw::g(const actions::Actions &J) const {
 }
 
 DoublePowerLawSph::DoublePowerLawSph(const DoublePowerLawParam &inparams,
-    const potential::InterpEpicycleFreqs& freqs) :
+    const potential::Interpolator& freqs) :
     BaseDoublePowerLaw(inparams), freq(freqs)
 {
     if( par.b<=0 )
@@ -70,7 +68,7 @@ DoublePowerLawSph::DoublePowerLawSph(const DoublePowerLawParam &inparams,
 double DoublePowerLawSph::h(const actions::Actions &J) const {
     double Jsum = J.Jr + J.Jz + fabs(J.Jphi);
     double kappa, nu, Omega;   // characteristic epicyclic freqs
-    freq.eval(Jsum, kappa, nu, Omega);
+    freq.epicycleFreqs(freq.R_from_Lz(Jsum), kappa, nu, Omega);
     double s = par.b==1 ? 0 : (par.b-1)/2 * pow_2(tanh(1 - J.Jr/Jsum));
     double A = (par.b+1)/2 + s, B = (par.b+1)/2 - s;
     return J.Jr / A + Omega/kappa * (Jsum-J.Jr) / B;

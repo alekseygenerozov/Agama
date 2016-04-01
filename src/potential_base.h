@@ -307,6 +307,18 @@ class BasePotentialSphericallySymmetric: public BasePotential, math::IFunction{
     virtual unsigned int numDerivs() const { return 2; }
 };
 
+/** A wrapper class that converts an arbitrary function of radius into a full-fledged
+    spherically-symmetric potential */
+class SphericalWrapper: public BasePotentialSphericallySymmetric{
+public:
+    SphericalWrapper(const math::IFunction &f) : fnc(f) {}
+private:
+    const math::IFunction &fnc;  ///< function representing the radial dependence of potential
+    virtual const char* name() const { return "SphericalWrapper"; }
+    virtual void evalDeriv(double r, double* val, double* deriv, double* deriv2) const {
+        fnc.evalDeriv(r, val, deriv, deriv2); }
+};
+
 ///@}
 /// \name   Non-member functions for all potential classes
 ///@{

@@ -71,6 +71,15 @@ unsigned int binSearch(const double x, const double arr[], const unsigned int si
 inline double linearInterp(double x, double x1, double x2, double y1, double y2) {
     return ((x-x1)*y2 + (x2-x)*y1) / (x2-x1); }
 
+/** cubic Hermite interpolation of y(x) for x1<=x<=x2 given the values (y1,y2) 
+    and derivatives (dy1, dy2) of y at the boundaries of interval x1 and x2 */
+inline double hermiteInterp(double x, double x1, double x2,
+    double y1, double y2, double dy1, double dy2) {
+    const double t = (x-x1) / (x2-x1);
+    return pow_2(1-t) * ( (1+2*t) * y1 +   t   * dy1 * (x2-x1) )
+         + pow_2(t)   * ( (3-2*t) * y2 + (t-1) * dy2 * (x2-x1) );
+}
+
 /** Class for computing running average and dispersion for a sequence of numbers */
 class Averager {
 public:
@@ -127,6 +136,10 @@ double findRoot(const IFunction& F, double x1, double x2, double relToler);
  */
 double findMin(const IFunction& F, double x1, double x2, double xinit, double relToler);
 
+///@}
+/// \name ------ numerical derivatives -------
+///@{
+
 /** Description of function behavior near a given point: the value and two derivatives,
     and the estimates of nearest points where the function takes on 
     strictly positive or negative values, or crosses zero.
@@ -166,6 +179,16 @@ public:
 private:
     double dxToPosneg(double sgn) const;
 };
+
+/** Evaluate the second derivative of a function from its values and first derivatives
+    at three consecutive points, using high-accuracy Hermite interpolation.
+    \param[in] x0, x1, x2 are the abscissa points (assuming that x1 is between x0 and x2);
+    \param[in] f0, f1, f2 are the function values at these points;
+    \param[in] df0, df1, df2 are the function derivatives at these points;
+    \return the second derivative of function at x1
+*/
+double deriv2(double x0, double x1, double x2, double f0, double f1, double f2,
+    double df0, double df1, double df2);
 
 ///@}
 /// \name ------ integration routines -------

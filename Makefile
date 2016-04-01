@@ -85,7 +85,7 @@ TESTSRCS  = test_math_core.cpp \
             test_newtorus.cpp \
             test_df_disk.cpp \
             test_df_halo.cpp \
-            test_df_fit.cpp \
+            test_df_fit_spher.cpp \
             test_selfconsistentmodel.cpp \
 
 LIBNAME   = $(LIBDIR)/libagama.a

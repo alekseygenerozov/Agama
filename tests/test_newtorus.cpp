@@ -11,6 +11,7 @@
 #include "orbit.h"
 #include "math_core.h"
 #include "debug_utils.h"
+#include "utils.h"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -24,9 +25,8 @@ const double EPSFREQ = 1e-2;
 const double EPSENER = 3e-3;
 std::ofstream strm;
 
-bool test_torus(const potential::BasePotential& pot, const coord::PosVelCyl& point)
+bool test_torus(const potential::BasePotential& pot, const coord::PosVelCyl& point, const char* fileName=NULL)
 {
-    try{
     // obtain exact actions and frequencies corresponding to the given IC
     actions::Frequencies frOrig;
     actions::ActionAngles aaOrig = actions::actionAnglesAxisymFudge(pot, point, CS_DELTA, &frOrig);
@@ -40,6 +40,7 @@ bool test_torus(const potential::BasePotential& pot, const coord::PosVelCyl& poi
     orbit::integrate(pot, point, totalTime, timeStep, trajOrig);
     double torbit = (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC;
 
+    try{
     // construct the torus
     tbegin = std::clock();
     //actions::ActionMapperTorus tor(pot, aaOrig);
@@ -100,25 +101,26 @@ bool test_torus(const potential::BasePotential& pot, const coord::PosVelCyl& poi
     }
     double tstk = (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC;
 
-    // output
-    std::ofstream strm("torus.orb");
-    strm << "#t\tR z phi\ttorus_R z phi\ttorus_thetar thetaz thetaphi\t"
-        "exact_thetar thetaz thetaphi\tJr Jz E\n";
-    for(unsigned int i=0; i<NPOINTS; i++) {
-        coord::ProlMod cm(CS_DELTA);
-        coord::PosVelProlMod pm(coord::toPosVel<coord::Cyl,coord::ProlMod>(trajOrig[i], cm));
-        strm << (i*timeStep) << '\t' <<
-        trajOrig [i].R << ' ' << trajOrig [i].z << ' ' << math::wrapAngle(trajOrig [i].phi) << '\t' <<
-        trajTorus[i].R << ' ' << trajTorus[i].z << ' ' << trajTorus[i].phi << '\t' <<
-        aaTorus[i].thetar << ' ' << aaTorus[i].thetaz << ' ' << aaTorus[i].thetaphi << '\t' <<
-        aaStk  [i].thetar << ' ' << aaStk  [i].thetaz << ' ' << aaStk  [i].thetaphi << '\t' <<
-        aaStk[i].Jr << ' ' << aaStk[i].Jz << ' ' << totalEnergy(pot, trajTorus[i]) << '\t' <<
-        pot.value(trajOrig[i]) << ' ' << 
-        0.5*(pow_2(trajOrig[i].vR)+pow_2(trajOrig[i].vz)+pow_2(trajOrig[i].vphi)) << '\t'<<
-        pm.rho << ' ' << pm.tau << ' ' << pm.prho << ' ' << pm.ptau << '\n';
+    if(fileName) {
+        // output
+        std::ofstream strm(fileName);
+        strm << "#t\tR z phi\ttorus_R z phi\tthetar thetaz thetaphi\t"
+            "true_thetar thetaz thetaphi\tJr Jz E\tPhi Ekin\trho tau prho ptau\n";
+        for(unsigned int i=0; i<NPOINTS; i++) {
+            coord::ProlMod cm(CS_DELTA);
+            coord::PosVelProlMod pm(coord::toPosVel<coord::Cyl,coord::ProlMod>(trajOrig[i], cm));
+            strm << (i*timeStep) << '\t' <<
+            trajOrig [i].R << ' ' << trajOrig [i].z << ' ' << math::wrapAngle(trajOrig [i].phi) << '\t' <<
+            trajTorus[i].R << ' ' << trajTorus[i].z << ' ' << trajTorus[i].phi << '\t' <<
+            aaTorus[i].thetar << ' ' << aaTorus[i].thetaz << ' ' << aaTorus[i].thetaphi << '\t' <<
+            aaStk  [i].thetar << ' ' << aaStk  [i].thetaz << ' ' << aaStk  [i].thetaphi << '\t' <<
+            aaStk[i].Jr << ' ' << aaStk[i].Jz << ' ' << totalEnergy(pot, trajTorus[i]) << '\t' <<
+            pot.value(trajOrig[i]) << ' ' << 
+            0.5*(pow_2(trajOrig[i].vR)+pow_2(trajOrig[i].vz)+pow_2(trajOrig[i].vphi)) << '\t'<<
+            pm.rho << ' ' << pm.tau << ' ' << pm.prho << ' ' << pm.ptau << '\n';
+        }
+        strm.close();
     }
-    strm.close();
-    
     // summarize
     statAct.finish();
     statAng = sqrt(statAng/(NPOINTS*3));
@@ -158,6 +160,7 @@ bool test_torus(const potential::BasePotential& pot, const coord::PosVelCyl& poi
     return ok_act && ok_ang && ok_frq && ok_ener;
     }
     catch(std::exception &e) {
+        strm << aaOrig.Jr<<' '<<aaOrig.Jz<<' '<<aaOrig.Jphi<<"\tFAIL\n";
         std::cout << "\033[1;31mException:\033[0m" << e.what() << '\n';
         return false;
     }
@@ -168,13 +171,13 @@ int main()
     strm.open("torus.stat");
     const potential::OblatePerfectEllipsoid potential(1.0, AXIS_A, AXIS_C);
     bool allok=true;
-    allok &= test_torus(potential, coord::PosVelCyl(1.0000000, 0, 0, 0, 0.45/*0.446*/,0.1));
-    //allok &= test_torus(potential, coord::PosVelCyl(2.0000000, 0, 0, 0, 0.01, 0.5));
+    /*allok &= test_torus(potential, coord::PosVelCyl(2.5000000, 0, 0, 0, 0.002, 0.2));
+    allok &= test_torus(potential, coord::PosVelCyl(1.0000000, 0, 0, 0, 0.45, 0.1)); // 0.446 for a really thin orbit
     allok &= test_torus(potential, coord::PosVelCyl(2.0000000, 0, 0, 0, 0.24, 0.5));
     allok &= test_torus(potential, coord::PosVelCyl(4.4444444, 0, 0, 0, 0.40, 0.225));
     allok &= test_torus(potential, coord::PosVelCyl(1.4142136, 0, 0, 0, 0.30, 0.7071068));
     allok &= test_torus(potential, coord::PosVelCyl(1.2000000, 0, 0, 0, 0.80, 0.083333333));
-    allok &= test_torus(potential, coord::PosVelCyl(3.2000000, 0, 0, 0, 0.54, 0.3125));
+    allok &= test_torus(potential, coord::PosVelCyl(3.2000000, 0, 0, 0, 0.54, 0.3125)); */
     for(int p=0; p<100; p++) {
         double m = math::random();
         double r = pow(1/sqrt(m)-1, -2./3);
@@ -189,8 +192,9 @@ int main()
         point.vR = v*sintheta*cos(phi);
         point.vz = v*sintheta*sin(phi);
         point.vphi = v*costheta;
-        allok &= test_torus(potential, point);
+        allok &= test_torus(potential, point, ("torus"+utils::convertToString(p)+".dat").c_str());
     }
+    strm.close();
     if(allok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;

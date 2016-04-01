@@ -20,7 +20,7 @@ const int NPOINTS = 10000;
 const double XMIN = 0.2;
 const double XMAX = 12.;
 const double DISP = 0.5;  // y-dispersion
-const bool OUTPUT = true;
+const bool OUTPUT = false;
 
 // provides the integral of sin(x)*x^n
 class testfnc: public math::IFunctionIntegral {
@@ -121,14 +121,22 @@ int main()
     //-------- test cubic and quintic splines ---------//
     // accuracy of approximation of an oscillating fnc //
 
+    std::vector<double> yvalues(NNODES), yderivs(NNODES);
+#if 1
     xnodes = math::createNonuniformGrid(NNODES, XMIN, XMAX, false);
     xnodes[1]=(xnodes[1]+xnodes[2])/2;  // slightly squeeze grid spacing to allow
     xnodes[0]*=2;                       // a better interpolation of a strongly varying function
-    std::vector<double> yvalues(NNODES), yderivs(NNODES);
     for(int i=0; i<NNODES; i++) {
         yvalues[i] = sin(4*sqrt(xnodes[i]));
         yderivs[i] = cos(4*sqrt(xnodes[i])) * 2 / sqrt(xnodes[i]);
     }
+#else
+    for(int i=0; i<NNODES; i++) {
+        xnodes [i] = 0.25*pow_2(i*1./(NNODES-1));
+        yvalues[i] = xnodes[i] + pow(xnodes[i], 1.5);
+        yderivs[i] = 1 + 1.5*sqrt(xnodes[i]);
+    }
+#endif
     math::CubicSpline   fcubna(xnodes, yvalues);  // cubic spline with natural boundary conditions
     math::CubicSpline   fcubcl(xnodes, yvalues,
         yderivs.front(), yderivs.back());         // cubic, clamped -- specify derivs at the boundaries
@@ -432,6 +440,6 @@ int main()
 #endif
 
     if(ok)
-        std::cout << "ALL TESTS PASSED\n";
+        std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;
 }

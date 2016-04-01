@@ -816,7 +816,7 @@ math::PtrFunction createVerticalCoordMapping(const AxisymFunctionBase& fnc, cons
     assert(toytau.size() == tau.size());
     toytau.insert(toytau.begin(), toytau.size()-1, 0);
     tau.insert(tau.begin(), tau.size()-1, 0);
-    for(int s=0; s<tau.size()/2; s++) {
+    for(unsigned int s=0; s<tau.size()/2; s++) {
         tau[s] = -tau[tau.size()-1-s];
         toytau[s] = -toytau[toytau.size()-1-s];
     }

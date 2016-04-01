@@ -192,7 +192,8 @@ double PointNeighborhood::dxToPosneg(double sgn) const
     double sder = sgn*fder, sder2 = sgn*fder2;
     // offset should be no larger than the scale of variation of the function,
     // but no smaller than the minimum resolvable distance between floating point numbers
-    const double delta = fmin(fabs(fder/fder2)*0.5, 16*GSL_DBL_EPSILON*fabs(x0));
+    const double delta = fmin(fabs(fder/fder2)*0.5,
+        fmax(16*GSL_DBL_EPSILON, fabs(f0))/fabs(sder)*fabs(x0));
     if(s0>0)
         return 0;  // already there
     if(sder==0) {
@@ -231,6 +232,21 @@ double PointNeighborhood::dxBetweenRoots() const
 {
     if(f0==0 && fder==0) return 0;  // degenerate case
     return sqrt(fder*fder - 2*f0*fder2) / fabs(fder2);  // NaN if discriminant<0 - no roots
+}
+
+double deriv2(double x0, double x1, double x2, double f0, double f1, double f2,
+    double df0, double df1, double df2)
+{
+    // construct a divided difference table to evaluate 2nd derivative via Hermite interpolation
+    double dx10 = x1-x0, dx21 = x2-x1, dx20 = x2-x0;
+    double df10 = (f1   - f0  ) / dx10;
+    double df21 = (f2   - f1  ) / dx21;
+    double dd10 = (df10 - df0 ) / dx10;
+    double dd11 = (df1  - df10) / dx10;
+    double dd21 = (df21 - df1 ) / dx21;
+    double dd22 = (df2  - df21) / dx21;
+    return ( -2 * (pow_2(dx21)*(dd10-2*dd11) + pow_2(dx10)*(dd22-2*dd21)) +
+            4*dx10*dx21 * (dx10*dd21 + dx21*dd11) / dx20 ) / pow_2(dx20);
 }
 
 // ------ root finder routines ------//

@@ -69,13 +69,13 @@ PtrDistributionFunction createDistributionFunction(
         checkNonzero(potential, type);
         DoublePowerLawParam params = parseDoublePowerLawParams(kvmap, converter);
         return PtrDistributionFunction(new DoublePowerLawSph(
-            params, potential::InterpEpicycleFreqs(*potential)));
+            params, potential::Interpolator(*potential)));
     }
     else if(utils::stringsEqual(type, "PseudoIsothermal")) {
         checkNonzero(potential, type);
         PseudoIsothermalParam params = parsePseudoIsothermalParams(kvmap, converter);
         return PtrDistributionFunction(new PseudoIsothermal(
-            params, potential::InterpEpicycleFreqs(*potential)));
+            params, potential::Interpolator(*potential)));
     }
     else
         throw std::invalid_argument("Unknown type of distribution function");

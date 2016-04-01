@@ -2,7 +2,7 @@
     \brief   Estimation of interfocal distance for Staeckel fudge action/angle finder
     \author  Eugene Vasiliev
     \date    2015
- 
+
     Routines in this file estimate the "interfocal distance" - the parameter of auxiliary
     prolate spheroidal coordinate system that is used in the Staeckel fudge approximation.
     There are two methods:
@@ -34,21 +34,6 @@ namespace actions {
 template<typename PointT>
 double estimateInterfocalDistancePoints(
     const potential::BasePotential& potential, const std::vector<PointT>& traj);
-
-
-/** Find the minimum and maximum radii of an orbit in the equatorial plane 
-    with given energy and angular momentum (which are the roots of equation
-    \f$  2 (E - \Phi(R,z=0)) - L_z^2/R^2 = 0  \f$ ).
-    \param[in] poten  is the instance of axisymmetric potential;
-    \param[in] E is the total energy of the orbit;
-    \param[in] Lz is the angular momentum of the orbit;
-    \param[out] Rmin will contain the minimum value of cylindrical radius;
-    \param[out] Rmax will contain the maximum value of cylindrical radius;
-    \param[out] Jr (optional) - if not NULL, will store the computed value of radial action.
-*/
-void findPlanarOrbitExtent(
-    const potential::BasePotential& poten, double E, double Lz, 
-    double& Rmin, double& Rmax, double* Jr=0);
 
 
 /** Estimate the interfocal distance by locating a thin (shell) orbit in R-z plane 
@@ -93,7 +78,7 @@ public:
     double Rthin(double E, double Lz) const;
 
 private:
-    const potential::InterpLcirc interpLcirc;   ///< interpolator for Lcirc(E)
+    const potential::Interpolator interpLcirc;   ///< interpolator for Lcirc(E)
     /// 2d interpolator for interfocal distance on the grid in E, Lz/Lcirc(E) plane
     math::LinearInterpolator2d interpD;
     /// 2d interpolator for the radius (in the equatorial plane) of a thin (shell) orbit

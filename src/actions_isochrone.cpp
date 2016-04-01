@@ -45,8 +45,9 @@ Actions actionsIsochrone(
         0.5 * (pow_2(point.vR) + pow_2(point.vz) + pow_2(point.vphi));
     Actions acts;
     acts.Jphi = Lz(point);
-    acts.Jz   = L - fabs(acts.Jphi);
-    acts.Jr   = M / sqrt(-2*E) - 0.5 * (L + sqrt(L*L + 4*M*b));
+    acts.Jz   = point.z==0 && point.vz==0 ? 0 : fmax(0, L - fabs(acts.Jphi));
+    // note: the expression below may suffer from loss of precision when E -> Phi(0)!
+    acts.Jr   = fmax(0, M / sqrt(-2*E) - 0.5 * (L + sqrt(L*L + 4*M*b)) );
     return acts;
 }
 
@@ -64,15 +65,15 @@ ActionAngles actionAnglesIsochrone(
     double j0invsq = M*b / pow_2(J0);
     // J0 is related to total energy via  J0 = M / sqrt(-2*E)
     aa.Jphi     = Lz(pointCyl);
-    aa.Jz       = L - fabs(aa.Jphi);
-    aa.Jr       = J0 - 0.5 * (L + L1);
+    aa.Jz       = pointCyl.z==0 && pointCyl.vz==0 ? 0 : fmax(0, L - fabs(aa.Jphi));
+    aa.Jr       = fmax(0, J0 - 0.5 * (L + L1));   // note: loss of precision is possible!
     double ecc  = sqrt(pow_2(1-j0invsq) - pow_2(L/J0));
     double fac1 = (1 + ecc - j0invsq) * J0 / L;
     double fac2 = (1 + ecc + j0invsq) * J0 / L1;
     // below are quantities that depend on position along the orbit
     double k1   = point.r * point.vr;
     double k2   = J0 - M * rb / J0;
-    double eta  = atan2(k1, k2);    // eccentric anomaly
+    double eta  = atan2(k1, k2);                         // eccentric anomaly
     double sineta     = k1 / hypot(k1, k2);              // sin(eta)
     double tanhalfeta = eta==0 ? 0 : -k2/k1 + 1/sineta;  // tan(eta/2)
     double psi  = atan2(pointCyl.z * L,  -pointCyl.R * point.vtheta * point.r);

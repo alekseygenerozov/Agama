@@ -6,7 +6,7 @@
 namespace df{
 
 PseudoIsothermal::PseudoIsothermal(
-    const PseudoIsothermalParam &params, const potential::InterpEpicycleFreqs& freqs) :
+    const PseudoIsothermalParam &params, const potential::Interpolator& freqs) :
     par(params), freq(freqs)
 {
     // sanity checks on parameters
@@ -31,7 +31,7 @@ static inline double df_JrJz(double sigmarsq, double sigmazsq, double sigmaminsq
 double PseudoIsothermal::value(const actions::Actions &J) const
 {
     double kappa, nu, Omega;   // characteristic epicyclic freqs
-    freq.eval(fmax(par.Jphimin, fabs(J.Jphi)), kappa, nu, Omega);
+    freq.epicycleFreqs(freq.R_from_Lz(fmax(par.Jphimin, fabs(J.Jphi))), kappa, nu, Omega);
     // obtain characteristic radius corresponding to the given z-component of angular momentum
     double Rcirc    = J.Jphi!=0 ? sqrt(fabs(J.Jphi) / Omega) : 0;
     // surface density follows an exponential profile in radius 

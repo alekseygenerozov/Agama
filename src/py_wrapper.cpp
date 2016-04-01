@@ -946,7 +946,7 @@ static PyTypeObject PotentialType = {
 actions::PtrActionFinder createActionFinder(const potential::PtrPotential& pot)
 {
     if(isSpherical(*pot))
-        return actions::PtrActionFinder(new actions::ActionFinderSpherical(pot));
+        return actions::PtrActionFinder(new actions::ActionFinderSpherical(*pot));
     else
         return actions::PtrActionFinder(new actions::ActionFinderAxisymFudge(pot));
 }

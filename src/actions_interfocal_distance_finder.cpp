@@ -16,8 +16,6 @@ using potential::BasePotential;
 
 /// number of sampling points for a shell orbit (equally spaced in time)
 static const unsigned int NUM_STEPS_TRAJ = 16;
-/// accuracy of root-finding for Rmin/Rmax
-static const double ACCURACY_RMINMAX = 1e-10;
 /// accuracy of root-finding for the radius of thin (shell) orbit
 static const double ACCURACY_RTHIN = 1e-6;
 /// accuracy of orbit integration for shell orbit
@@ -87,239 +85,6 @@ static double fitInterfocalDistanceShellOrbit(const std::vector<coord::PosCyl>& 
     }
     math::linearMultiFit(coefs, rhs, NULL, result);
     return sqrt( fmax( result[1] * (1 - 1/result[0]), minr2*1e-4) );
-}
-
-
-/** Helper function for finding the roots of (effective) potential in R direction */
-class OrbitSizeFunction: public math::IFunction {
-public:
-    const BasePotential& potential;
-    double E;
-    double Lz2;
-    enum { FIND_RMIN, FIND_RMAX, CALC_JR } mode;
-    OrbitSizeFunction(const BasePotential& p, double _E, double _Lz) :
-        potential(p), E(_E), Lz2(_Lz*_Lz), mode(FIND_RMIN) {};
-    virtual unsigned int numDerivs() const { return 2; }
-    /** This function is used in the root-finder for Rmin/Rmax, and in computing the radial action.
-        In the regime for locating the turnaround points of a planar orbit, it returns (1/2) v_R^2.
-        Moreover, to compute the location of pericenter this is multiplied by R^2 to curb the sharp rise 
-        of effective potential at zero, which is problematic for root-finder.
-        In the regime for computing the radial action, it returns v_R.
-    */
-    virtual void evalDeriv(const double R, 
-        double* val=0, double* deriv=0, double* deriv2=0) const
-    {
-        double Phi=0;
-        coord::GradCyl grad;
-        coord::HessCyl hess;
-        if(math::isFinite(R)) {
-            potential.eval(coord::PosCyl(R, 0, 0), &Phi, deriv? &grad : NULL, deriv2? &hess: NULL);
-        } else {  // we're at infinity in root-finder
-            if(deriv) 
-                grad.dR = NAN;
-            if(deriv2)
-                hess.dR2 = NAN;
-        }
-        if(mode == FIND_RMIN) {    // f(R) = (1/2) v_R^2 * R^2
-            if(val)
-                *val = (E-Phi)*R*R - Lz2/2;
-            if(deriv) 
-                *deriv = 2*R*(E-Phi) - R*R*grad.dR;
-            if(deriv2)
-                *deriv2 = 2*(E-Phi) - 4*R*grad.dR - R*R*hess.dR2;
-        } else if(mode == FIND_RMAX) {  // f(R) = (1/2) v_R^2 = E - Phi(R) - Lz^2/(2 R^2)
-            if(val)
-                *val = Lz2>0 && R<INFINITY ? 
-                    // the bizarre expression should yield the same roundoff error as for FIND_RMIN
-                    ((E-Phi)*R*R - Lz2/2) / (R*R) :
-                    E-Phi;
-            if(deriv)
-                *deriv = -grad.dR + (Lz2>0 ? Lz2/(R*R*R) : 0);
-            if(deriv2)
-                *deriv2 = -hess.dR2 - (Lz2>0 ? 3*Lz2/(R*R*R*R) : 0);
-        } else if(mode == CALC_JR) {  // f(R) = v_R
-            *val = sqrt(fmax(0, 2*(E-Phi) - (Lz2>0 ? Lz2/(R*R) : 0) ) );
-        } else
-            assert("Invalid operation mode in OrbitSizeFunction"==0);
-    }
-};
-
-/** Helper function for finding the roots of (effective) potential in R direction,
-    for a power-law asymptotic form potential at small radii */
-class OrbitSizeFunctionSmallE: public math::IFunction {
-public:
-    double EminusPhi0, twominusgamma, coefA, Lz2;  // parameters of power-law potential
-    enum { FIND_RMINMAX, FIND_JR } mode;
-    OrbitSizeFunctionSmallE(double _EminusPhi0, double _twominusgamma, double _coefA, double _Lz) :
-        EminusPhi0(_EminusPhi0), twominusgamma(_twominusgamma), coefA(_coefA), Lz2(_Lz*_Lz), 
-        mode(FIND_RMINMAX) {};
-    virtual unsigned int numDerivs() const { return 1; }
-    virtual void evalDeriv(const double R, double* val=0, double* deriv=0, double* =0) const
-    {
-        double AR2minusgamma = coefA*pow(R, twominusgamma);
-        double EminusPhi = EminusPhi0 - AR2minusgamma;
-        if(mode == FIND_RMINMAX) {    // f(R) = (1/2) v_R^2 * R^2
-            if(val)
-                *val = EminusPhi*R*R - Lz2/2;
-            if(deriv) 
-                *deriv = R*(2*EminusPhi0 - (2+twominusgamma)*AR2minusgamma);
-        } else if(mode == FIND_JR) {  // f(R) = v_R
-            *val = sqrt(fmax(0, 2*(EminusPhi) - (Lz2>0 ? Lz2/(R*R) : 0) ) );
-        } else
-            assert("Invalid operation mode in OrbitSizeFunctionSmallE"==0);
-    }
-};
-    
-/// accurate treatment of limiting case E --> Phi(0), assuming a power-law behaviour of potential at small r
-static void findPlanarOrbitExtentSmallE(const BasePotential& poten, double Phi0, double E, double Lz, 
-    double& Rmin, double& Rmax, double* Jr)
-{
-    // determine asymptotic power-law behaviour of Phi(r) at small r: Phi = Phi(0) + A r^(2-gamma)
-    // by computing the value of potential at three points: r0=0, r1, and r2=r1/2
-    double Phi1 = Phi0*(1-1e-8);
-    OrbitSizeFunction fnc1(poten, Phi1, 0);
-    fnc1.mode  = OrbitSizeFunction::FIND_RMAX;
-    double R1 = math::findRoot(fnc1, 0, INFINITY, ACCURACY_RMINMAX);
-    // don't blindly trust the root-finder, because it may suffer from roundoff errors
-    Phi1 = poten.value(coord::PosCyl(R1,0,0));
-    double R2 = R1/2;
-    double Phi2 = poten.value(coord::PosCyl(R2,0,0));
-    double twominusgamma = log( (Phi1-Phi0)/(Phi2-Phi0) ) / log(2.);
-    if(twominusgamma>2) twominusgamma=2;  // very unlikely
-    if(twominusgamma<0) twominusgamma=0;  // shouldn't ever occur
-    double coefA = (Phi1-Phi0) / pow(R1, twominusgamma);
-
-    // now compute everything under the assumption of power-law Phi(r)
-    double Rinit = pow(Lz*Lz/coefA/twominusgamma, 1/(2+twominusgamma));
-    OrbitSizeFunctionSmallE fnc(E-Phi0, twominusgamma, coefA, Lz);
-    if(fnc(Rinit)<0)
-        throw std::runtime_error("Error in findPlanarOrbitExtentSmallE: E and Lz have incompatible values");
-    double Rupper = pow((E-Phi0)/coefA, 1/twominusgamma);
-    if(Lz==0) {
-        Rmin=0;
-        Rmax=Rupper;
-    } else {
-        Rmin = math::findRoot(fnc, 0., Rinit, ACCURACY_RMINMAX);
-        Rmax = math::findRoot(fnc, Rinit, Rupper, ACCURACY_RMINMAX);
-    }
-    if(!math::isFinite(Rmin+Rmax))
-        throw std::runtime_error("Error in locating Rmin/max in findPlanarOrbitExtentSmallE");
-    if(Jr!=NULL) {  // compute radial action
-        fnc.mode = OrbitSizeFunctionSmallE::FIND_JR;
-        *Jr = math::integrateGL(fnc, Rmin, Rmax, 10) / M_PI;
-    }
-}
-
-// FIXME:  this seems to be the most fragile part of algorithm -- 
-// suffers a lot from numerical roundoff errors and weird behaviour of potential...
-void findPlanarOrbitExtent(const BasePotential& poten, double E, double Lz, 
-    double& Rmin, double& Rmax, double* Jr)
-{
-    if(!isAxisymmetric(poten))
-        throw std::invalid_argument("findPlanarOrbitExtent only works for axisymmetric potentials");
-    double Phi0 = poten.value(coord::PosCyl(0,0,0));
-    if(math::isFinite(Phi0) && E-Phi0 < fabs(Phi0)*1e-8) {   // accurate treatment of very low-energy values
-        findPlanarOrbitExtentSmallE(poten, Phi0, E, Lz, Rmin, Rmax, Jr);
-        return;
-    }
-    // the function to use in root-finder for locating the roots of v_R^2=0
-    OrbitSizeFunction fnc(poten, E, Lz);
-    // first guess for the radius that should lie between Rmin and Rmax
-    double Rinit = R_from_Lz(poten, Lz);
-    if(!(Rinit>=0)) { // could be NaN or inf, although it's a really bad luck
-#ifdef VERBOSE_REPORT
-        std::cout << "Cannot determine R(Lz="<<Lz<<") for E="<<E<<" (with Phi(0)="<<Phi0<<")\n";
-        for(double r=1e-10; r<1e10; r*=1.2)
-            std::cout << r << '\t' << v_circ(poten, r) << '\n';
-#endif
-        throw std::runtime_error("Error in findPlanarOrbitExtent: cannot determine R(Lz)");
-    }
-    // we make sure that f(R)>=0, since otherwise we cannot initiate root-finding
-    math::PointNeighborhood nh(fnc, Rinit);
-    double dR_to_zero = nh.dxToNearestRoot();
-    int nIter = 0;
-    while(nh.f0<0 && nIter<4) {        // safety measure to avoid roundoff errors
-        if(Rinit+dR_to_zero == Rinit)  // delta-step too small
-            Rinit *= (1 + 1e-15*math::sign(dR_to_zero));
-        else if(Rinit+dR_to_zero<0)    // delta-step negative and too large
-            Rinit /= 2;
-        else if(Rinit<dR_to_zero)      // delta-step positive and too large
-            Rinit *= 2;
-        else
-            Rinit += dR_to_zero;
-        nh = math::PointNeighborhood(fnc, Rinit);
-        dR_to_zero = nh.dxToNearestRoot();
-        nIter++;
-    }
-    if(nh.f0<0) {
-#ifdef VERBOSE_REPORT
-        std::cout << "Cannot determine Rinit for Lz="<<Lz<<", E="<<E<<" (with Phi(0)="<<Phi0<<")"
-            ": initial guess="<<R_from_Lz(poten, Lz)<<
-            ", current="<<Rinit<<" after "<<nIter<<" adjustment steps\n";
-#endif
-        throw std::runtime_error("Error in findPlanarOrbitExtent: E and Lz have incompatible values");
-    }
-    Rmin = Rmax = Rinit;
-    double maxPeri = Rinit, minApo = Rinit;    // endpoints of interval for locating peri/apocenter radii
-    if(fabs(dR_to_zero) < Rinit*ACCURACY_RMINMAX) {    // we are already near peri- or apocenter radius
-        if(nh.dxBetweenRoots() < Rinit*ACCURACY_RMINMAX) {  // the range between Rmin and Rmax is too small
-            maxPeri = minApo = NAN;  // do not attempt to locate them
-        } else if(nh.fder < 0) {
-            minApo  = NAN;  // will skip the search for Rmax
-            maxPeri = Rinit + nh.dxToPositive();
-        } else {
-            maxPeri = NAN;  // will skip the search for Rmin
-            minApo  = Rinit + nh.dxToPositive();
-        }
-    }
-    if(fnc.Lz2>0) {
-        if(math::isFinite(maxPeri)) {
-            fnc.mode = OrbitSizeFunction::FIND_RMIN;
-            Rmin = math::findRoot(fnc, 0., maxPeri, ACCURACY_RMINMAX);
-            if(!math::isFinite(Rmin))  // could be that our initial upper bound was wrong
-                Rmin = math::findRoot(fnc, maxPeri, Rinit, ACCURACY_RMINMAX);
-            // ensure that E-Phi(Rmin) >= 0
-            // (due to finite accuracy in root-finding, a small adjustment may be needed)
-            math::PointNeighborhood pn(fnc, Rmin);
-            if(pn.f0<0) {   // ensure that E>=Phi(Rmin)
-                double dx = pn.dxToPositive();
-                if(Rmin+dx>=0 && Rmin+dx<=maxPeri)
-                    Rmin += dx;
-                else  // most likely due to some roundoff errors
-                    Rmin = Rinit;  // safe value
-            }
-            if(!math::isFinite(Rmin))
-                throw std::runtime_error("Error in locating Rmin in findPlanarOrbitExtent");
-        }
-    } else  // angular momentum is zero
-        Rmin = 0; // !! this assumes a monotonic potential !! 
-    if(math::isFinite(minApo)) {
-        fnc.mode = OrbitSizeFunction::FIND_RMAX;
-        Rmax = math::findRoot(fnc, minApo, INFINITY, ACCURACY_RMINMAX);
-        if(!math::isFinite(Rmax))  // could be that our initial lower bound was wrong
-            Rmax = math::findRoot(fnc, Rinit, minApo, ACCURACY_RMINMAX);
-        math::PointNeighborhood pn(fnc, Rmax);
-        if(pn.f0<0) {   // ensure that E>=Phi(Rmax)
-            double dx = pn.dxToPositive();
-            if(Rmax+dx>=Rmin)
-                Rmax += dx;
-            else  // most likely due to some roundoff errors
-                Rmax = Rinit;  // safe value
-        }
-        if(!math::isFinite(Rmax)) {
-            if(E>=0 && fnc(INFINITY)>0)   // could not find the upper limit because it simply does not exist!
-                throw std::invalid_argument("findPlanarOrbitExtent: E>=0");
-            else
-                throw std::runtime_error("Error in locating Rmax in findPlanarOrbitExtent");
-        }
-    }   // else Rmax=Rinit
-//!!!    assert(Rmin>=0 && Rmin<=Rinit && Rinit<=Rmax);
-    if(Jr!=NULL) {  // compute radial action
-        fnc.mode = OrbitSizeFunction::CALC_JR;
-        // more precise computation using scaled radial coordinate
-        math::ScaledIntegrandEndpointSing transf(fnc, Rmin, Rmax);
-        *Jr = math::integrateGL(transf, 0, 1, 10) / M_PI;
-    }
 }
 
 
@@ -492,7 +257,7 @@ InterfocalDistanceFinder::InterfocalDistanceFinder(
     if(!isAxisymmetric(potential))
         throw std::invalid_argument("Potential is not axisymmetric, "
             "interfocal distance estimator is not suitable for this case");
-    
+
     if(gridSizeE<10 || gridSizeE>500)
         throw std::invalid_argument("InterfocalDistanceFinder: incorrect grid size");
 
@@ -536,7 +301,7 @@ InterfocalDistanceFinder::InterfocalDistanceFinder(
 double InterfocalDistanceFinder::value(double E, double Lz) const
 {
     E = fmin(fmax(E, interpD.xmin()), interpD.xmax());
-    double Lc = interpLcirc.value(E);
+    double Lc = interpLcirc.L_circ(E);
     double Lzrel = fmin(fmax(fabs(Lz)/Lc, interpD.ymin()), interpD.ymax());
     return interpD.value(E, Lzrel);
 }
@@ -544,8 +309,8 @@ double InterfocalDistanceFinder::value(double E, double Lz) const
 double InterfocalDistanceFinder::Rthin(double E, double Lz) const
 {
     E = fmin(fmax(E, interpR.xmin()), interpR.xmax());
-    double Lc = interpLcirc.value(E);
-    double Rc = interpLcirc.Rcirc(E);
+    double Lc = interpLcirc.L_circ(E);
+    double Rc = interpLcirc.R_circ(E);
     double Lzrel = fmin(fmax(fabs(Lz)/Lc, interpR.ymin()), interpR.ymax());
     return fmax(interpR.value(E, Lzrel), 0) * Rc;
 }

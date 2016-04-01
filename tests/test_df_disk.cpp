@@ -82,7 +82,7 @@ int main(){
         std::vector<potential::DiskParam>(1, paramPot),
         std::vector<potential::SphrParam>() );
     const actions::ActionFinderAxisymFudge act(pot);
-    const df::PseudoIsothermal df(param, potential::InterpEpicycleFreqs(*pot));
+    const df::PseudoIsothermal df(param, potential::Interpolator(*pot));
     const galaxymodel::GalaxyModel galmod(*pot, act, df);
 
     testTotalMass(galmod, mass);

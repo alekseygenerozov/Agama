@@ -15,6 +15,7 @@
 #include "df_halo.h"
 #include "galaxymodel.h"
 #include "particles_io.h"
+#include "math_specfunc.h"
 #include "debug_utils.h"
 
 const double reqRelError = 1e-4;
@@ -113,7 +114,6 @@ int main(){
     // test double-power-law distribution function in a spherical Hernquist potential
     // NB: parameters obtained by fitting (test_df_fit.cpp)
     df::DoublePowerLawParam paramDPL;
-    paramDPL.norm  = 0.956;
     paramDPL.alpha = 1.407;
     paramDPL.beta  = 5.628;
     paramDPL.j0    = 1.745;
@@ -124,13 +124,14 @@ int main(){
     paramDPL.br    = 1.0;
     paramDPL.bz    = 1.0;
     paramDPL.bphi  = 1.0;
+    paramDPL.norm  = 0.956 * math::gamma(paramDPL.beta-paramDPL.alpha)
+        / math::gamma(3-paramDPL.alpha) / math::gamma(paramDPL.beta-3);
     potential::PtrPotential potH(new potential::Dehnen(1., 1., 1., 1., 1.));  // potential
     const actions::ActionFinderAxisymFudge actH(potH);        // action finder
     const df::DoublePowerLaw dfH(paramDPL);                   // distribution function
     const galaxymodel::GalaxyModel galmodH(*potH, actH, dfH); // all together - the mighty triad
 
-    // the analytic value of total mass for the case ar=az=aphi=br=bz=bphi=1 and jcore=0 is just 'norm'
-    ok &= testTotalMass(galmodH, paramDPL.norm);
+    ok &= testTotalMass(galmodH, 1.);
 
     for(int i=0; i<NUM_POINTS_H; i++) {
         const coord::PosVelCyl point(testPointsH[i]);
@@ -146,6 +147,6 @@ int main(){
     particles::writeSnapshot("sampled_model.nemo", units::ExternalUnits(), points, "Nemo");
 
     if(ok)
-        std::cout << "ALL TESTS PASSED\n";
+        std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;
 }

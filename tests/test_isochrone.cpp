@@ -11,15 +11,20 @@
 #include "actions_staeckel.h"
 #include "orbit.h"
 #include "debug_utils.h"
+#include "utils.h"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
 #include <cmath>
+#include <ctime>
 
 //#define TEST_OLD_TORUS
 #ifdef TEST_OLD_TORUS
 #include "torus/Toy_Isochrone.h"
 #endif
+
+// whether to do performance test
+//#define PERFTEST
 
 bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* title)
 {
@@ -36,20 +41,23 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     std::cout << "\033[1;39m"<<title<<"\033[0m\n";
     std::vector<coord::PosVelCyl > traj;
     potential::Isochrone pot(M, b);
-    orbit::integrate(pot, initial_conditions, total_time, timestep, traj, 1e-10);
-    actions::ActionStat statI, statS, statF;
-    actions::ActionAngles aaI, aaF, aaS;
-    actions::Frequencies frI, frF, frS, frIinv, frSinv;
-    math::Averager statfrIr, statfrIz, statH;
+    orbit::integrate(pot, initial_conditions, total_time, timestep, traj, 1e-15);
+    actions::ActionFinderSpherical actGrid(pot);  // interpolation-based action finder/mapper
+    actions::ActionStat statI, statS, statF, statG;
+    actions::ActionAngles aaI, aaF, aaS, aaG;
+    actions::Frequencies frI, frF, frS, frG, frIinv, frSinv;
+    math::Averager statfrIr, statfrIz, statH, statE;
     actions::Angles aoldF(0,0,0), aoldI(0,0,0), aoldS(0,0,0);
-    bool anglesMonotonic = true;  // angle determination is reasonable
+    bool anglesMonotonic= true;   // angle determination is reasonable
     bool reversible_iso = true;   // forward-reverse transform for isochrone gives the original point
     bool reversible_sph = true;   // same for spherical a/a finder/mapper
-    bool deriv_ok = true;         // finite-difference derivs agree with analytic ones
+    bool reversible_grid= true;   // same for grid-interpolated spherical a/a finder/mapper
+    bool deriv_iso_ok   = true;   // finite-difference derivs agree with analytic ones
+    bool deriv_grid_ok  = true;   // same for the derivs of grid-interpolated a/a mapper
     std::ofstream strm;
     if(output) {
         strm.open("test_isochrone.dat");
-        strm << std::setprecision(12);
+        strm << std::setprecision(15);
     }
     double ifd = 1e-5;
     int numWarnings = 0;
@@ -61,14 +69,17 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
     Torus::ToyIsochrone toy(toypar);
 #endif
     for(size_t i=0; i<traj.size(); i++) {
+        statE.add(totalEnergy(pot, traj[i]));
         traj[i].phi = math::wrapAngle(traj[i].phi);
         aaI = actions::actionAnglesIsochrone(M, b,  traj[i], &frI);
         aaF = actions::actionAnglesAxisymFudge(pot, traj[i], ifd, &frF);
         aaS = actions::actionAnglesSpherical(pot, traj[i], &frS);
+        aaG = actGrid. actionAngles(traj[i], &frG);
         statH.add(actions::computeHamiltonianSpherical(pot, aaI));  // find H(J)
         statI.add(aaI);
         statF.add(aaF);
         statS.add(aaS);
+        statG.add(aaG);
         statfrIr.add(frI.Omegar);
         statfrIz.add(frI.Omegaz);
         actions::Angles anewF, anewI, anewS;
@@ -119,10 +130,17 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
             math::fcmp(frS.Omegar, frSinv.Omegar, epss) == 0 &&
             math::fcmp(frS.Omegaz, frSinv.Omegaz, epss) == 0 &&
             math::fcmp(frS.Omegaphi, frSinv.Omegaphi, epss) == 0;
-
+        // inverse transformation for interpolated spherical action finder, with derivatives
+        actions::DerivAct<coord::SphMod> der_sph;
+        pinv = toPosVelCyl(actGrid.map(aaG, &frSinv, &der_sph));
+        reversible_grid &= equalPosVel(pinv, traj[i], epss) && 
+            math::fcmp(frG.Omegar, frSinv.Omegar, epss) == 0 &&
+            math::fcmp(frG.Omegaz, frSinv.Omegaz, epss) == 0 &&
+            math::fcmp(frG.Omegaphi, frSinv.Omegaphi, epss) == 0;
+        
         // inverse transformation for Isochrone with derivs
-        coord::PosVelSphMod pd[2];
         actions::DerivAct<coord::SphMod> ac;
+        coord::PosVelSphMod pd[2];
         coord::PosVelSphMod pp = actions::ToyMapIsochrone(M, b).map(aaI, &frIinv, &ac, NULL, pd);
         reversible_iso &= equalPosVel(toPosVelCyl(pp), traj[i], epst) && 
             math::fcmp(frI.Omegar, frIinv.Omegar, epst) == 0 &&
@@ -144,11 +162,11 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
         pb.ptau= (pb.ptau- pp.ptau)/ (b*epsd);
         pb.pphi= (pb.pphi- pp.pphi)/ (b*epsd);
         if(!equalPosVel(pM, pd[0], 1e-4) && ++numWarnings<10) {
-            deriv_ok = false;
+            deriv_iso_ok = false;
             std::cout << "d/dM: " << pM << pd[0] << '\n';
         }
         if(!equalPosVel(pb, pd[1], 1e-4) && ++numWarnings<10) {
-            deriv_ok = false;
+            deriv_iso_ok = false;
             std::cout << "d/db: " << pb << pd[1] << '\n';
         }
         // check derivs w.r.t. actions
@@ -169,8 +187,9 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
         pJz.ptau= (pJz.ptau- pp.ptau)/ epsd;
         pJz.pphi= (pJz.pphi- pp.pphi)/ epsd;
         if(aaI.Jz==0) {
-            deriv_ok &= !math::isFinite(ac.dbyJz.tau+ac.dbyJz.ptau);  // should be infinite
-            pJz.tau=pJz.ptau=ac.dbyJz.tau=ac.dbyJz.ptau=0;  // exclude from comparison
+            deriv_iso_ok &= !math::isFinite(ac.dbyJz.tau+ac.dbyJz.ptau);  // should be infinite
+            // exclude from comparison
+            pJz.tau=pJz.ptau=ac.dbyJz.tau=ac.dbyJz.ptau=der_sph.dbyJz.tau=der_sph.dbyJz.ptau=0;
         }
         aaT = aaI; aaT.Jphi += epsd;
         coord::PosVelSphMod pJp = actions::ToyMapIsochrone(M, b).map(aaT);
@@ -180,16 +199,21 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
         pJp.pr  = (pJp.pr  - pp.pr)  / epsd;
         pJp.ptau= (pJp.ptau- pp.ptau)/ epsd;
         pJp.pphi= (pJp.pphi- pp.pphi)/ epsd;
+        // compare grid-a/a derivs with the analytic ones from the isochrone
+        deriv_grid_ok &= equalPosVel(der_sph.dbyJr, ac.dbyJr, 1e-2);
+        deriv_grid_ok &= equalPosVel(der_sph.dbyJz, ac.dbyJz, 1e-2);
+        deriv_grid_ok &= equalPosVel(der_sph.dbyJphi, ac.dbyJphi, 1e-2);
+        // compare finite-difference derivs with the analytic ones from the isochrone
         if(!equalPosVel(pJr, ac.dbyJr, 1e-4) && ++numWarnings<10) {
-            deriv_ok = false;
+            deriv_iso_ok = false;
             std::cout << "d/dJr: " << pJr << ac.dbyJr << '\n';
         }
         if(!equalPosVel(pJz, ac.dbyJz, 1e-4) && ++numWarnings<10) {
-            deriv_ok = false;
+            deriv_iso_ok = false;
             std::cout << "d/dJz: " << pJz << ac.dbyJz << '\n';
         }
         if(!equalPosVel(pJp, ac.dbyJphi, 1e-3) && ++numWarnings<10) {
-            deriv_ok = false;
+            deriv_iso_ok = false;
             std::cout << "d/dJphi: " << pJp << ac.dbyJphi << '\n';
         }
         if(output) {
@@ -197,15 +221,19 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
                 toPosVelCyl(pp).R<<" "<<toPosVelCyl(pp).z<<" "<<pp.phi<<"   "<<
                 aaI.thetar<<" "<<aaI.thetaz<<" "<<aaI.thetaphi<<"  "<<
                 aaS.thetar<<" "<<aaS.thetaz<<" "<<aaS.thetaphi<<"  "<<
+                aaG.thetar<<" "<<aaG.thetaz<<" "<<aaG.thetaphi<<"  "<<
                 aaF.thetar<<" "<<aaF.thetaz<<" "<<aaF.thetaphi<<"  "<<
             "\n";
         }
     }
     statI.finish();
-    statF.finish();
     statS.finish();
+    statG.finish();
+    statF.finish();
+
     bool dispI_ok = statI.rms.Jr<epsd && statI.rms.Jz<epsd && statI.rms.Jphi<epsd;
     bool dispS_ok = statS.rms.Jr<epsd && statS.rms.Jz<epsd && statS.rms.Jphi<epsd;
+    bool dispG_ok = statG.rms.Jr<epsd && statG.rms.Jz<epsd && statG.rms.Jphi<epsd;
     bool dispF_ok = statF.rms.Jr<epsd && statF.rms.Jz<epsd && statF.rms.Jphi<epsd;
     bool compareIF =
              fabs(statI.avg.Jr-statF.avg.Jr)<epsr
@@ -213,32 +241,166 @@ bool test_isochrone(const coord::PosVelCyl& initial_conditions, const char* titl
           && fabs(statI.avg.Jphi-statF.avg.Jphi)<epsd;
     bool freq_ok = statfrIr.disp() < epsf*epsf && statfrIz.disp() < epsf*epsf;
     bool HofJ_ok = statH.disp() < pow_2(epsf*statH.mean());
+
     std::cout << "Isochrone"
-    ":  Jr="  <<statI.avg.Jr  <<" +- "<<statI.rms.Jr<<
-    ",  Jz="  <<statI.avg.Jz  <<" +- "<<statI.rms.Jz<<
-    ",  Jphi="<<statI.avg.Jphi<<" +- "<<statI.rms.Jphi<< (dispI_ok?"":" \033[1;31m**\033[0m")<<
+    ":  Jr="  <<utils::pp(statI.avg.Jr,  14)<<" +- "<<utils::pp(statI.rms.Jr,   7)<<
+    ",  Jz="  <<utils::pp(statI.avg.Jz,  14)<<" +- "<<utils::pp(statI.rms.Jz,   7)<<
+    ",  Jphi="<<utils::pp(statI.avg.Jphi, 6)<<" +- "<<utils::pp(statI.rms.Jphi, 7)<<
+    (dispI_ok?"":" \033[1;31m**\033[0m")<<
     (reversible_iso?"":" \033[1;31mNOT INVERTIBLE\033[0m ")<<
-    (deriv_ok?"":" \033[1;31mDERIVS INCONSISTENT\033[0m ")<<
-    "\nSpherical"
-    ":  Jr="  <<statS.avg.Jr  <<" +- "<<statS.rms.Jr<<
-    ",  Jz="  <<statS.avg.Jz  <<" +- "<<statS.rms.Jz<<
-    ",  Jphi="<<statS.avg.Jphi<<" +- "<<statS.rms.Jphi<< (dispS_ok?"":" \033[1;31m**\033[0m")<<
-    (reversible_sph?"":" \033[1;31mNOT INVERTIBLE\033[0m ")<<
-    "\nAxi.Fudge"
-    ":  Jr="  <<statF.avg.Jr  <<" +- "<<statF.rms.Jr<<
-    ",  Jz="  <<statF.avg.Jz  <<" +- "<<statF.rms.Jz<<
-    ",  Jphi="<<statF.avg.Jphi<<" +- "<<statF.rms.Jphi<< (dispF_ok?"":" \033[1;31m**\033[0m")<<
+    (deriv_iso_ok?"":" \033[1;31mDERIVS INCONSISTENT\033[0m ")<<std::endl;
+
+#ifdef PERFTEST
+    size_t ncycles=100, npoints=traj.size();
+    clock_t clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++)
+        actions::actionsIsochrone(M, b,  traj[i/ncycles]);
+    double t_iso_act = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++)
+        actions::actionAnglesIsochrone(M, b,  traj[i/ncycles]);
+    double t_iso_ang = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++) {
+        actions::ActionAngles aa(statI.avg, actions::Angles(i*0.12345,i*0.23456,i*0.34567));
+        actions::mapIsochrone(M, b, aa);
+    }
+    double t_iso_map = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    std::cout << "eval/s:  actions="<<utils::pp(npoints*ncycles/t_iso_act, 4)<<
+    ",  act+ang="<<utils::pp(npoints*ncycles/t_iso_ang, 4)<<
+    ",  map="<<utils::pp(npoints*ncycles/t_iso_map, 4)<<std::endl;
+#endif
+
+    std::cout << "Spherical"
+    ":  Jr="  <<utils::pp(statS.avg.Jr,  14)<<" +- "<<utils::pp(statS.rms.Jr,   7)<<
+    ",  Jz="  <<utils::pp(statS.avg.Jz,  14)<<" +- "<<utils::pp(statS.rms.Jz,   7)<<
+    ",  Jphi="<<utils::pp(statS.avg.Jphi, 6)<<" +- "<<utils::pp(statS.rms.Jphi, 7)<<
+    (dispS_ok?"":" \033[1;31m**\033[0m")<<
+    (reversible_sph?"":" \033[1;31mNOT INVERTIBLE\033[0m ")<<std::endl;
+    
+#ifdef PERFTEST
+    clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++)
+        actions::actionsSpherical(pot, traj[i/ncycles]);
+    double t_sph_act = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++)
+        actions::actionAnglesSpherical(pot, traj[i/ncycles]);
+    double t_sph_ang = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++) {
+        actions::ActionAngles aa(statS.avg, actions::Angles(i*0.12345,i*0.23456,i*0.34567));
+        actions::mapSpherical(pot, aa);
+    }
+    double t_sph_map = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    std::cout << "eval/s:  actions="<<utils::pp(npoints*ncycles/t_sph_act, 4)<<
+    ",  act+ang="<<utils::pp(npoints*ncycles/t_sph_ang, 4)<<
+    ",  map="<<utils::pp(npoints*ncycles/t_sph_map, 4)<<std::endl;
+#endif
+
+    std::cout << "Interpol."
+    ":  Jr="  <<utils::pp(statG.avg.Jr,  14)<<" +- "<<utils::pp(statG.rms.Jr,   7)<<
+    ",  Jz="  <<utils::pp(statG.avg.Jz,  14)<<" +- "<<utils::pp(statG.rms.Jz,   7)<<
+    ",  Jphi="<<utils::pp(statG.avg.Jphi, 6)<<" +- "<<utils::pp(statG.rms.Jphi, 7)<<
+    (dispG_ok?"":" \033[1;31m**\033[0m")<<
+    (reversible_grid?"":" \033[1;31mNOT INVERTIBLE\033[0m ")<<
+    (deriv_grid_ok?"":" \033[1;31mDERIVS INCONSISTENT\033[0m ")<<std::endl;
+
+#ifdef PERFTEST
+    clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++)
+        actGrid.actions(traj[i/ncycles]);
+    double t_grid_act = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++)
+        actGrid.actionAngles(traj[i/ncycles]);
+    double t_grid_ang = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++) {
+        actions::ActionAngles aa(statS.avg, actions::Angles(i*0.12345,i*0.23456,i*0.34567));
+        actGrid.map(aa);
+    }
+    double t_grid_map = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    std::cout << "eval/s:  actions="<<utils::pp(npoints*ncycles/t_grid_act, 4)<<
+    ",  act+ang="<<utils::pp(npoints*ncycles/t_grid_ang, 4)<<
+    ",  map="<<utils::pp(npoints*ncycles/t_grid_map, 4)<<std::endl;
+#endif
+
+    std::cout << "Axi.Fudge"
+    ":  Jr="  <<utils::pp(statF.avg.Jr,  14)<<" +- "<<utils::pp(statF.rms.Jr,   7)<<
+    ",  Jz="  <<utils::pp(statF.avg.Jz,  14)<<" +- "<<utils::pp(statF.rms.Jz,   7)<<
+    ",  Jphi="<<utils::pp(statF.avg.Jphi, 6)<<" +- "<<utils::pp(statF.rms.Jphi, 7)<<
+    (dispF_ok?"":" \033[1;31m**\033[0m")<<std::endl;
+
+#ifdef PERFTEST
+    clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++)
+        actions::actionsAxisymFudge(pot, traj[i/ncycles], ifd);
+    double t_fudge_act = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    clock = std::clock();
+    for(size_t i=0; i<npoints*ncycles; i++)
+        actions::actionAnglesAxisymFudge(pot, traj[i/ncycles], ifd);
+    double t_fudge_ang = (std::clock()-clock)*1.0/CLOCKS_PER_SEC;
+    
+    std::cout << "eval/s:  actions="<<utils::pp(npoints*ncycles/t_fudge_act, 4)<<
+    ",  act+ang="<<utils::pp(npoints*ncycles/t_fudge_ang, 4)<<std::endl;
+#endif
+
+    std::cout << 
+    "Hamiltonian H(J)="<<utils::pp(statH.mean(), 14)<<" +- "<<utils::pp(sqrt(statH.disp()), 7)<<
+    ",  H(x,v)="<<utils::pp(statE.mean(), 14)<<" +- "<<utils::pp(sqrt(statE.disp()), 7)<<
+    (HofJ_ok?"":" \033[1;31m**\033[0m") <<
     (compareIF?"":" \033[1;31mNOT EQUAL\033[0m ")<<
     (freq_ok?"":" \033[1;31mFREQS NOT CONST\033[0m ")<<
-    (anglesMonotonic?"":" \033[1;31mANGLES NON-MONOTONIC\033[0m ")<<
-    "\nHamiltonian H(J)="<<statH.mean()<<" +- "<<sqrt(statH.disp())<<
-    (HofJ_ok?"":" \033[1;31m**\033[0m") <<'\n';
-    return dispI_ok && dispS_ok && dispF_ok && compareIF
-        && freq_ok && reversible_iso && reversible_sph && deriv_ok && anglesMonotonic && HofJ_ok;
+    (anglesMonotonic?"":" \033[1;31mANGLES NON-MONOTONIC\033[0m ")<<std::endl;
+    return dispI_ok && dispS_ok && dispG_ok && dispF_ok
+        && reversible_iso && reversible_sph && reversible_grid
+        && HofJ_ok && compareIF && freq_ok && deriv_iso_ok && deriv_grid_ok && anglesMonotonic;
+}
+
+void test_sph_iso()
+{
+    const double M = 2.7;      // mass and
+    const double b = 0.6;      // scale radius of Isochrone potential
+    potential::Isochrone potential(M, b);
+    actions::ActionFinderSpherical af(potential);
+    std::ofstream strm ("test_actions_isochrone_spherical.dat");
+    strm << std::setprecision(15);
+    for(double lr=-13; lr<=24; lr+=.25) {
+        double r = pow(2., lr);
+        double vc= v_circ(potential, r);
+        double Lc= vc * r;
+        double E = 0.5*pow_2(vc) +  // have to cope with ambiguous overloaded member function...
+            dynamic_cast<const potential::BasePotential&>(potential).value(coord::PosCyl(r,0,0));
+        for(double ll=0; ll<1; ll+=1./128) {
+            double L = Lc * pow_2(sin(M_PI_2*ll));
+            double Omegar, Omegaz, Jr= af.Jr(E, L, &Omegar, &Omegaz);
+            actions::Frequencies fi, fs;
+            coord::PosVelCyl point(r, 0, 0, sqrt(vc*vc-pow_2(L/r)), 0, L/r);
+            actions::Actions as = actions::actionAnglesSpherical(potential, point, &fs);
+            actions::Actions ai = actions::actionAnglesIsochrone(M, b, point, &fi);
+            strm << E << ' ' << L/Lc << ' ' <<
+                ai.Jr/(Lc-L) << ' ' << as.Jr/(Lc-L) << ' ' << Jr/(Lc-L) << ' ' <<
+                fi.Omegar << ' ' << fs.Omegar << ' ' << Omegar << ' ' <<
+                fi.Omegaz << ' ' << fs.Omegaz << ' ' << Omegaz << ' ' <<'\n'; 
+        }
+        strm <<'\n';
+    }
 }
 
 int main()
 {
+    //test_sph_iso();
     bool ok=true;
     ok &= test_isochrone(coord::PosVelCyl(1.0, 0.3, 1.1, 0.1, 0.4,  0.1), "ordinary case");
     ok &= test_isochrone(coord::PosVelCyl(1.0, 0.0, 2.2, 1.0, 0.0,  0.5), "Jz==0");

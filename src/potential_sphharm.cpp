@@ -1568,24 +1568,6 @@ template void computePotentialCoefsSph(const particles::PointMassArray<coord::Po
 
 namespace {  // internal routines
 
-/** helper function to compute the second derivative of a function f(x) at x=x1,
-    given the values f and first derivatives df of this function at three points x0,x1,x2.
-*/
-static double der2f(double f0, double f1, double f2,
-    double df0, double df1, double df2, double x0, double x1, double x2)
-{
-    // construct a divided difference table to evaluate 2nd derivative via Hermite interpolation
-    double dx10 = x1-x0, dx21 = x2-x1, dx20 = x2-x0;
-    double df10 = (f1   - f0  ) / dx10;
-    double df21 = (f2   - f1  ) / dx21;
-    double dd10 = (df10 - df0 ) / dx10;
-    double dd11 = (df1  - df10) / dx10;
-    double dd21 = (df21 - df1 ) / dx21;
-    double dd22 = (df2  - df21) / dx21;
-    return ( -2 * (pow_2(dx21)*(dd10-2*dd11) + pow_2(dx10)*(dd22-2*dd21)) +
-        4*dx10*dx21 * (dx10*dd21 + dx21*dd11) / dx20 ) / pow_2(dx20);
-}
-
 /** helper function to determine the coefficients for potential extrapolation:
     assuming that 
         Phi(r) = W * (r/r1)^v + U * (r/r1)^s              if s!=v, or
@@ -1601,7 +1583,7 @@ static void computeExtrapolationCoefs(double Phi0, double Phi1, double Phi2,
 {
     // the routine below operates on a function Phi(log(r)), thus we transform dPhi/dr -> dPhi/d(ln r)
     dPhi0 *= r0; dPhi1 *= r1; dPhi2 *= r2;
-    double d2Phi1 = der2f(Phi0, Phi1, Phi2, dPhi0, dPhi1, dPhi2, log(r0), log(r1), log(r2));
+    double d2Phi1 = math::deriv2(log(r0), log(r1), log(r2), Phi0, Phi1, Phi2, dPhi0, dPhi1, dPhi2);
     s = (d2Phi1 - v*dPhi1) / (dPhi1 - v*Phi1);
     // safeguard against weird slope determination
     if(v>=0 && (!math::isFinite(s) || s<=-1))

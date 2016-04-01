@@ -149,22 +149,17 @@ namespace actions{
 /// Helper class to compute scatter in actions
 class ActionStat{
 public:
+    math::Averager Jr, Jz, Jphi;
     actions::Actions avg, rms;
-    int N;
-    ActionStat() { avg.Jr=avg.Jz=avg.Jphi=0; rms=avg; N=0; }
     void add(const actions::Actions& act) {
-        avg.Jr  +=act.Jr;   rms.Jr  +=pow_2(act.Jr);
-        avg.Jz  +=act.Jz;   rms.Jz  +=pow_2(act.Jz);
-        avg.Jphi+=act.Jphi; rms.Jphi+=pow_2(act.Jphi);
-        N++;
+        Jr.add(act.Jr);
+        Jz.add(act.Jz);
+        Jphi.add(act.Jphi);
     }
     void finish() {
-        avg.Jr/=N;
-        avg.Jz/=N;
-        avg.Jphi/=N;
-        rms.Jr  =sqrt(std::max<double>(0, rms.Jr/N  -pow_2(avg.Jr)));
-        rms.Jz  =sqrt(std::max<double>(0, rms.Jz/N  -pow_2(avg.Jz)));
-        rms.Jphi=sqrt(std::max<double>(0, rms.Jphi/N-pow_2(avg.Jphi)));
+        avg.Jr=Jr.mean(); rms.Jr=sqrt(Jr.disp());
+        avg.Jz=Jz.mean(); rms.Jz=sqrt(Jz.disp());
+        avg.Jphi=Jphi.mean(); rms.Jphi=sqrt(Jphi.disp());
     }
 };
 

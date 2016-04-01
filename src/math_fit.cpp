@@ -111,9 +111,9 @@ struct EigenFncWrapper {
     int operator()(const Eigen::VectorXd &x, Eigen::VectorXd &f) const {
         try{
             F.eval(x.data(), f.data());
-            for(unsigned int i=0; i<F.numVars(); i++)
+            for(unsigned int i=0; i<F.numValues(); i++)
                 if(!isFinite(f[i])) {
-                    for(unsigned int j=0; j<F.numVars(); j++)
+                    for(unsigned int j=0; j<F.numValues(); j++)
                         f[j] = 1e10;
                     return 0;
                     /*error = "Function is not finite";

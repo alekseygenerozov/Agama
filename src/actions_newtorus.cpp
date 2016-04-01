@@ -27,9 +27,9 @@ namespace {  // internal routines
 class PointTransformFit: public BasePointTransform<coord::SphMod> {
 public:
     PointTransformFit(const potential::OblatePerfectEllipsoid &poten, const Actions &acts) :
-        cs(sqrt(poten.coordsys().delta))
+        cs(0*sqrt(poten.coordsys().delta))
     {
-        computeIntegralsStaeckel(poten, acts, rhomap, taumap);
+        //computeIntegralsStaeckel(poten, acts, rhomap, taumap);
     }
     coord::PosVelProlMod transform(const coord::PosVelSphMod &ps,
         double &drho_dtoyr, double &dtau_dtoytau) const
@@ -38,7 +38,7 @@ public:
         rho=ps.r; drho_dtoyr=1;  //!!!
         tau=ps.tau; dtau_dtoytau=1;
         //rhomap->evalDeriv(ps.r, &rho, &drho_dtoyr);
-        taumap->evalDeriv(ps.tau, &tau, &dtau_dtoytau);
+        //taumap->evalDeriv(ps.tau, &tau, &dtau_dtoytau);
         double prho = ps.pr / drho_dtoyr;
         double ptau = ps.ptau / dtau_dtoytau;
         return coord::PosVelProlMod(
@@ -54,6 +54,7 @@ public:
     {
         double drho_dtoyr, dtau_dtoytau;
         coord::PosVelProlMod pp(transform(ps, drho_dtoyr, dtau_dtoytau));
+        coord::PosVelCyl pcy(toPosVelCyl(pp));
         if(dHby) {
             coord::PosDerivT<coord::ProlMod, coord::Cyl> der;
             coord::GradCyl grad;
@@ -433,7 +434,6 @@ void Mapping::printoutTorus(const char* filename, const double params[]) const
             ps.r << ' ' << ps.tau << '\t' <<
             pc.R << ' ' << pc.z << '\t' << H << ' ' <<Phi<<' '<<Ekin<< '\t' << 
             ps.r*(1-ps.tau*ps.tau)/(1+ps.tau*ps.tau) << ' ' << ps.r*2*ps.tau/(1+ps.tau*ps.tau) << '\t' <<
-            (-exp(params[0])/(exp(params[1])+sqrt(ps.r*ps.r+exp(2*params[1])))) << ' ' <<
             0.5*(pow_2(ps.pr)+pow_2((1+ps.tau*ps.tau)/ps.r)*(0.25*pow_2(ps.ptau)+pow_2(ps.pphi/(1-ps.tau*ps.tau)))) << '\n';
         }
         strm << '\n';
@@ -704,7 +704,7 @@ ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& poten
             std::cout << " *";
         }
     }
-    if(numCycles==42)
+    if(numCycles==42 || !converged)
         bestMapping->printoutTorus("torus.dat", &bestParams[0]);
 
     // redo the angle fitting if the process took more than one cycle

@@ -57,37 +57,30 @@ coord::PosVelCyl mapSpherical(
     const ActionAngles &actAng, Frequencies* freq=0);
 
 
-/** Fast computation of actions in any spherical potential by using
-    2d interpolation of radial action as a function of E and L.
-*/
-class ActionFinderSpherical: public BaseActionFinder {
+/** Class for performing transformations between action/angle and coordinate/momentum for
+    an arbitrary spherical potential, using 2d interpolation tables */
+class ActionFinderSpherical: public BaseActionFinder, public BaseToyMap<coord::SphMod> {
 public:
-    /// Initialize the internal interpolation tables
-    ActionFinderSpherical(const potential::PtrPotential& potential, const unsigned int gridSize=50);
-    virtual ~ActionFinderSpherical() {};
+    /// Initialize the internal interpolation tables; the potential itself is not used later on
+    explicit ActionFinderSpherical(const potential::BasePotential& potential);
+
     virtual Actions actions(const coord::PosVelCyl& point) const;
-    /// actionAngles not implemented
     virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const;
-private:
-    const potential::PtrPotential potential;   ///< pointer to the spherical potential
-    const potential::InterpLcirc interpLcirc;  ///< interpolator for Lcirc(E)
-    const math::LinearInterpolator2d interpJr; ///< 2d interpolator for Jr(E,L)
-};
-
-
-/** Class for performing action/angle to coordinate/momentum transformation for 
-    an arbitrary spherical potential, using modified spherical coordinates for output */
-class ToyMapSpherical: public BaseToyMap<coord::SphMod>{
-public:
-    ToyMapSpherical(const potential::BasePotential& p) : potential(p) {};
     virtual coord::PosVelSphMod map(
         const ActionAngles& actAng,
         Frequencies* freq=0,
         DerivAct<coord::SphMod>* derivAct=0,
         DerivAng<coord::SphMod>* derivAng=0,
         coord::PosVelSphMod* derivParam=0) const;
+
+    /** return the interpolated value of radial action as a function of energy and angular momentum;
+        also return the frequencies in Omegar and Omegaz if these arguments are not NULL */
+    double Jr(double E, double L, double *Omegar=0, double *Omegaz=0) const;
 private:
-    const potential::BasePotential& potential;  ///< !!!!! need to use a smart pointer here
+    const potential::Interpolator2d interp;  ///< interpolator for potential and peri/apocenter radii
+    const math::CubicSpline2d intJr;         ///< interpolator for the scaled value of radial action
 };
+
+typedef ActionFinderSpherical ToyMapSpherical;
 
 }  // namespace actions

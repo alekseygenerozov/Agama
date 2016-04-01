@@ -87,9 +87,9 @@ private:
 */
 class DoublePowerLawSph: public BaseDoublePowerLaw{
 public:
-    DoublePowerLawSph(const DoublePowerLawParam &params, const potential::InterpEpicycleFreqs& freqs);
+    DoublePowerLawSph(const DoublePowerLawParam &params, const potential::Interpolator& freqs);
 private:
-    const potential::InterpEpicycleFreqs freq;  ///< interface providing the epicyclic frequencies
+    const potential::Interpolator freq;  ///< interface providing the epicyclic frequencies
     virtual double h(const actions::Actions& J) const;
     virtual double g(const actions::Actions& J) const { return h(J); }
 };

@@ -43,9 +43,10 @@ df::DoublePowerLawParam dfparams(const double vars[])
     return params;
 }
 
+/// Function to use in the Levenberg-Marquardt method for finding the maximum likelihood using derivatives
 class ModelSearchFncLM: public math::IFunctionNdimDeriv {
 public:
-    ModelSearchFncLM(const ActionArray& _points) : points(_points) {};    
+    ModelSearchFncLM(const ActionArray& _points) : points(_points) {};
     /// compute the deviations of Hamiltonian from its average value for an array of points
     /// with the provided (scaled) parameters of toy map
     virtual void evalDeriv(const double vars[], double values[], double *derivs=0) const
@@ -58,7 +59,7 @@ public:
             ", alpha="<<params.alpha<<", ar="<<params.ar<<", az="<<params.az<<", aphi="<<params.aphi<<
             ", beta=" <<params.beta << ": ";
         try{
-            for(int p=0; p <= (derivs? NPARAMS : 0); p++) {
+            for(unsigned int p=0; p <= (derivs? NPARAMS : 0); p++) {
                 double var[NPARAMS] = {vars[0], vars[1], vars[2], vars[3]};
                 if(p>0)
                     var[p-1] = vars[p-1] * (1+EPS);
@@ -71,7 +72,7 @@ public:
                 if(values)
                     values[i] = val;
                 if(derivs) {
-                    for(int p=0; p<NPARAMS; p++) {
+                    for(unsigned int p=0; p<NPARAMS; p++) {
                         double valp = -log(df[p+1]->value(points[i]) / norm[p+1]);
                         derivs[i*NPARAMS + p] = (valp-val) / (vars[p]*EPS);
                     }
@@ -184,7 +185,7 @@ int main(){
     const double toler   = 1e-4;
     double bestparams[NPARAMS];
     //ModelSearchFncLM fncLM(particleActions);
-    //math::nonlinearMultiFit(fncLM, initparams, toler, maxNumIter, bestparams);
+    //math::nonlinearMultiFit(fncLM, initparams, toler, maxNumIter, bestparams);  // <- doesn't work quite well
     ModelSearchFnc fnc(particleActions);
     int numIter = math::findMinNdim(fnc, initparams, stepsizes, toler, maxNumIter, bestparams);
     std::cout << numIter << " iterations\n";
