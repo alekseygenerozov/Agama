@@ -284,6 +284,114 @@ private:
     Matrix<double> zx, zy, zxxx, zyyy, zxyy, zxxxyy;
 };
 
+///@}
+/// \name Three-dimensional interpolation
+///@{
+
+/** Three-dimensional interpolator class: `f(x,y,z)` obtained by a tensor product
+    of three 1d interpolaing kernels of order N>=1 that use N+1 grid points in each dimension.
+    The interpolation is local: to compute the value at a given point, it uses only the values of
+    the original function `v(x,y,z)` at (N+1)^3 nearby grid points, unlike 1d and 2d splines
+    that are constructed globally.
+    For N=1, the values of interpolated function `f` at grid nodes coincide with the original values `v`,
+    but for N>1 this is not the case (like a Bezier curve does not pass through its control points).
+*/
+template<int N>
+class BaseInterpolator3d: public math::IFunctionNdim {
+public:
+    BaseInterpolator3d() {};
+    /** Initialize a 3d interpolator from the provided 1d arrays of grid nodes in x, y and z dimensions,
+        and optionally the function values v at the nodes of this 3d grid.
+        \param[in] xnodes, ynodes, znodes are the nodes of grid in each dimension,
+        sorted in increasing order, must have at least N+1 elements;
+        \param[in] fncvalues (optional) are the original function values `v(x,y,z)`
+        with the following indexing convention:
+        fncvalues[ (i*Ny + j) * Nz + k ] = v(x[i], y[j], z[k]), where Ny=ynodes.size(), Nz=znodes.size().
+        If this array is not provided (or is empty), the function values remain uninitialized,
+        but it is still possible to compute the weights of linear combination of these values
+        for any point (x,y,z) within the grid definition regions, using the method `components`.
+    */
+    BaseInterpolator3d(const std::vector<double>& xnodes, const std::vector<double>& ynodes,
+        const std::vector<double>& znodes, const std::vector<double>& fncvalues=std::vector<double>());
+
+    /** Compute the weights of the linear combination of function values at grid points
+        needed to evaluate the interpolated value `f` at the given location.
+        \param[in]  vars is the 3d vector of coordinates on the grid;
+        \param[out] leftIndices is the 3d array of indices of leftmost grid nodes in each of
+        the three coordinates that are used for kernel interpolation (N+1 nodes in each dimension);
+        \param[out] weights  is the array of (N+1)^3 weights that must be multiplied by the priginal
+        function values `v` at grid nodes to compute the interpolated value, namely:
+        \f$  f(x,y,z) = \sum_{i=0}^N \sum_{j=0}^N \sum_{k=0}^N  v(xn_{i+l[0]}, yn_{j+l[1]}, zn_{k+l[2]})
+        \times  weights[(i*(N+1)+j)*(N+1)+k]  \f$,  where `l` is the shortcut for `leftIndices`,
+        `xn`, `yn` and `zn` are the 1d arrays of grid nodes in each dimension,
+        and `v` are the function values at these nodes.
+        The sum of weights of all components is always 1, and weights are non-negative.
+        The special case when one of these weigths is 1 and the rest are 0 occurs at the corners of
+        the cube (the definition region), or, for a linear intepolator (N=1) also at all grid nodes,
+        and means that the value of interpolated function `f` is equal to the original function value `v`
+        at this node only; in all other points (even grid nodes for N>1) these values need not coincide.
+        This method may be used even if the function values `v` at grid nodes were not provided in
+        the constructor, in which case it is the responsibility of the user to carry out this summation.
+        Otherwise one may use the `value()` method that performs this operation itself.
+        If any of the coordinates falls outside grid boundaries in the respective dimension,
+        the weights are NaN.
+        \throw std::range_error if the grid nodes are empty
+        (but uninitialized function values do not trigger an exception).
+    */
+    void components(const double vars[3], unsigned int leftIndices[3], double weights[]) const;
+
+    /** Compute the value of the interpolating function `f` at point (x,y,z).
+        \param[in] vars is the 3d vector of coordinates on the grid;
+        \param[out] value will contain the interpolated function value at the given point.
+        If the input location is outside the definition region, the result is NaN.
+        Keep in mind that if the order of interpolator N>1, the weighted sum of (N+1)^3 components
+        multiplied by the original function values at the nearby nodes may not equal the original value
+        even if the point coincides with one of grid nodes (in other words, the interpolated curve is
+        smoothing the original function); only in the case of trilinear interpolator (N=1) they are equal.
+        \throw std::range_error if either grid nodes or the array of function values are not initialized.
+    */
+    virtual void eval(const double vars[3], double *value) const;
+
+    /** shortcut for computing the value of interpolating function, with the same usage as `eval` */
+    double value(const double x, const double y, const double z) const {
+        double v, t[3]={x,y,z};
+        eval(t, &v);
+        return v;
+    }
+
+    // IFunctionNdim interface
+    virtual unsigned int numVars()   const { return 3; }
+    virtual unsigned int numValues() const { return 1; }
+    
+    /** return the boundaries of definition region */
+    double xmin() const { return xval.size()? xval.front(): NAN; }
+    double xmax() const { return xval.size()? xval.back() : NAN; }
+    double ymin() const { return yval.size()? yval.front(): NAN; }
+    double ymax() const { return yval.size()? yval.back() : NAN; }
+    double zmin() const { return zval.size()? zval.front(): NAN; }
+    double zmax() const { return zval.size()? zval.back() : NAN; }
+
+    /** check if the interpolator grid is initialized (the function values may remain uninitialized) */
+    bool isEmpty() const { return xval.size()==0 || yval.size()==0 || zval.size()==0; }
+
+    /** return the array of grid nodes in x-coordinate */
+    const std::vector<double>& xvalues() const { return xval; }
+
+    /** return the array of grid nodes in y-coordinate */
+    const std::vector<double>& yvalues() const { return yval; }
+
+    /** return the array of grid nodes in z-coordinate */
+    const std::vector<double>& zvalues() const { return zval; }
+
+private:
+    std::vector<double> xval, yval, zval;  ///< grid nodes in x, y and z directions
+    std::vector<double> fncvalues;         ///< the values of function at the nodes of 3d grid, if provided
+};
+
+/// trilinear interpolator
+typedef BaseInterpolator3d<1> LinearInterpolator3d;
+/// tricubic interpolator
+typedef BaseInterpolator3d<3> CubicInterpolator3d;
 
 ///@}
 /// \name Penalized spline approximation (1d)

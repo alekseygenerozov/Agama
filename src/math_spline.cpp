@@ -123,6 +123,8 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const st
     gsl_bspline_knots(&v_knots.vector, bsplineWorkspace);
     for(size_t i=0; i<numDataPoints; i++) {
         gsl_bspline_eval(_xvalues[i], bsplineValues, bsplineWorkspace);
+        //double wei[4];
+        //bsplineWeights<3>(_xvalues[i], &knots.front(), knots.size(), wei);
         for(size_t p=0; p<numKnots+2; p++)
             bsplineMatrix(i, p) = gsl_vector_get(bsplineValues, p);
     }
@@ -203,7 +205,8 @@ void SplineApproxImpl::initRoughnessMatrix()
                 double Hp = getVal(derivs,p,k+1)  - getVal(derivs,p,k);
                 double Gq = getVal(derivs,q,k)*x1 - getVal(derivs,q,k+1)*x0;
                 double Hq = getVal(derivs,q,k+1)  - getVal(derivs,q,k);
-                result += (Hp*Hq*(pow(x1,3.0)-pow(x0,3.0))/3.0 + (Gp*Hq+Gq*Hp)*(pow_2(x1)-pow_2(x0))/2.0 + Gp*Gq*(x1-x0)) / pow_2(x1-x0);
+                result += (Hp*Hq*(pow(x1,3.0)-pow(x0,3.0))/3.0 +
+                    (Gp*Hq+Gq*Hp)*(pow_2(x1)-pow_2(x0))/2.0 + Gp*Gq*(x1-x0)) / pow_2(x1-x0);
             }
             MMatrix(p, q) = result;
             MMatrix(q, p) = result;  // it is symmetric
@@ -694,17 +697,17 @@ QuinticSpline::QuinticSpline(const std::vector<double>& xgrid,
         double dy1 = yval[i+1] - yval[i];
         double sig = dx/dx2;
         double p   = sig*v[i-1] - 3;
-        v[i]       = (sig-1)/p;
-        yder3[i]   = 12 * ( 7*yder[i]*dx2 / (dx*dx1) 
+        double der3= 12 * ( 7*yder[i]*dx2 / (dx*dx1) 
             + 3 * (yder[i-1]/dx + yder[i+1]/dx1)
             - 10* (dy / (dx*dx) + dy1 / (dx1*dx1)) ) / dx2;
-        yder3[i]   = (yder3[i] - sig*yder3[i-1] ) / p;
+        yder3[i]   = (der3 - sig*yder3[i-1] ) / p;
+        v[i]       = (sig-1)/p;
         dx = dx1;
         dy = dy1;
     }
     yder3[numPoints-1] = 0.;
-    for(int i=numPoints-2; i>=0; i--)
-        yder3[i] += v[i]*yder3[i+1];
+    for(unsigned int i=numPoints-1; i>0; i--)
+        yder3[i-1] += v[i-1]*yder3[i];
 }
 
 template<unsigned int K>   // K>=1 - number of splines to compute; k=0,...,K-1
@@ -981,7 +984,12 @@ void CubicSpline2d::evalDeriv(const double x, const double y,
         t0u0 = t0*u0, t0u1=t0*u1, t0u2=t0*u2, t0u3=t0*u3,
         t1u0 = t1*u0, t1u1=t1*u1, t1u2=t1*u2, t1u3=t1*u3,
         t2u0 = t2*u0, t2u1=t2*u1, t2u2=t2*u2, t2u3=t2*u3,
-        t3u0 = t3*u0, t3u1=t3*u1, t3u2=t3*u2, t3u3=t3*u3;
+        t3u0 = t3*u0, t3u1=t3*u1, t3u2=t3*u2, t3u3=t3*u3,
+        sum0 = zlowlow - zupplow - zlowupp + zuppupp,
+        sum1 = 2*sum0 +   zxlowlow + zxupplow -   zxlowupp - zxuppupp,
+        sum2 = 3*sum0 + 2*zxlowlow + zxupplow - 2*zxlowupp - zxuppupp,
+        sum3 = zylowlow   -   zyupplow + zylowupp - zyuppupp,
+        sum4 = 2*zylowlow - 2*zyupplow + zylowupp - zyuppupp;
     double
         zvalue= 0,
         zderx = 0,
@@ -1032,16 +1040,14 @@ void CubicSpline2d::evalDeriv(const double x, const double y,
     zdery  += v*t2u0;
     zd_xx  += 2*v*t0u1;
     zd_xy  += 2*v*t1u0;
-    v = 9*zlowlow - 9*zupplow + 9*zuppupp - 9*zlowupp + 6*zxlowlow + 3*zxupplow - 3*zxuppupp - 6*zxlowupp 
-      + 6*zylowlow - 6*zyupplow - 3*zyuppupp + 3*zylowupp + 4*zxylowlow + 2*zxyupplow + zxyuppupp + 2*zxylowupp;
+    v = 4*zxylowlow + 2*zxyupplow + 2*zxylowupp + zxyuppupp + 3*sum2 + 3*sum4;
     zvalue += v*t2u2;
     zderx  += 2*v*t1u2;
     zdery  += 2*v*t2u1;
     zd_xx  += 2*v*t0u2;
     zd_xy  += 4*v*t1u1;
     zd_yy  += 2*v*t2u0;
-    v = -6*zlowlow + 6*zupplow - 6*zuppupp + 6*zlowupp - 4*zxlowlow - 2*zxupplow + 2*zxuppupp + 4*zxlowupp 
-      - 3*zylowlow + 3*zyupplow + 3*zyuppupp - 3*zylowupp - 2*zxylowlow - zxyupplow - zxyuppupp - 2*zxylowupp;
+    v =  -2*zxylowlow - zxyupplow - 2*zxylowupp - zxyuppupp - 2*sum2 - 3*sum3;
     zvalue += v*t2u3;
     zderx  += 2*v*t1u3;
     zdery  += 3*v*t2u2;
@@ -1058,16 +1064,14 @@ void CubicSpline2d::evalDeriv(const double x, const double y,
     zdery  += v*t3u0;
     zd_xx  += 6*v*t1u1;
     zd_xy  += 3*v*t2u0;
-    v = -6*zlowlow + 6*zupplow - 6*zuppupp + 6*zlowupp - 3*zxlowlow - 3*zxupplow + 3*zxuppupp + 3*zxlowupp 
-      - 4*zylowlow + 4*zyupplow + 2*zyuppupp - 2*zylowupp - 2*zxylowlow - 2*zxyupplow - zxyuppupp - zxylowupp;
+    v = -2*zxylowlow - 2*zxyupplow - zxylowupp - zxyuppupp - 3*sum1 - 2*sum4;
     zvalue += v*t3u2;
     zderx  += 3*v*t2u2;
     zdery  += 2*v*t3u1;
     zd_xx  += 6*v*t1u2;
     zd_xy  += 6*v*t2u1;
     zd_yy  += 2*v*t3u0;
-    v = 4*zlowlow - 4*zupplow + 4*zuppupp - 4*zlowupp + 2*zxlowlow + 2*zxupplow - 2*zxuppupp - 2*zxlowupp 
-      + 2*zylowlow - 2*zyupplow - 2*zyuppupp + 2*zylowupp + zxylowlow + zxyupplow + zxyuppupp + zxylowupp;
+    v = zxylowlow + zxyupplow + zxylowupp + zxyuppupp + 2*sum1 + 2*sum3;
     zvalue += v*t3u3;
     zderx  += 3*v*t2u3;
     zdery  += 3*v*t3u2;
@@ -1186,6 +1190,160 @@ void QuinticSpline2d::evalDeriv(const double x, const double y,
             &d2F[0], &d2F[1], &d2G[0], &d2G[1], &d2G[2], &d2G[3],  z_yy, NULL, NULL);
 }
 
+// ------- Interpolation in 3d ------- //
+
+namespace {
+
+/// linear interpolation on a grid with a special treatment for indices outside the grid
+static inline double linInt(const double x, const double grid[], int size, int i1, int i2)
+{
+    double x1 = grid[i1<0 ? 0 : i1>=size ? size-1 : i1];
+    double x2 = grid[i2<0 ? 0 : i2>=size ? size-1 : i2];
+    if(x1==x2) {
+        return x==x1 ? 1 : 0;
+    } else {
+        return (x-x1) / (x2-x1);
+    }
+}
+
+/// find the index of the segment on the grid that the given point x belongs to,
+/// and evaluate the values of B-spline functions of order N that are non-zero at this point
+template<int N>
+int bsplineWeights(const double x, const double grid[], int size, double B[])
+{
+    if(x<grid[0] || x>grid[size-1]) {
+        for(int i=0; i<=N; i++)
+            B[i] = NAN;
+        return 0;
+    }
+    const int ind  = binSearch(x, grid, size);
+    // de Boor's algorithm:
+    // 0th order basis functions are all zero except the one on the grid segment `ind`
+    for(int i=0; i<=N; i++)
+        B[i] = i==N ? 1 : 0;
+    for(int l=1; l<=N; l++) {
+        double Bip1=0;
+        for(int i=N, j=ind; j>=ind-l; i--, j--) {
+            double Bi = B[i] * linInt(x, grid, size, j, j+l)
+                      + Bip1 * linInt(x, grid, size, j+l+1, j+1);
+            Bip1 = B[i];
+            B[i] = Bi;
+        }
+    }
+    return ind;
+}
+
+/** Compute the weights of kernel b-spline functions used for 1d interpolation.
+    \tparam N   is the order of spline basis functions;
+    \param[in]  x  is the input position on the grid;
+    \param[in]  grid  is the array of grid nodes;
+    \param[out] weights  are the amplitudes of N+1 basis functions at this point,
+    to be multiplied by function values at grid nodes that enclose this point;
+    if the point is outside the grid then the weights are filled with NaN and return value is 0;
+    \return  the index of the leftmost out of N+1 grid nodes used in the interpolation.
+*/
+template<int N>
+int bsplineInterp(const double x, const std::vector<double> &grid, double weights[N+1]);
+
+/// specialization for the case of cubic b-splines
+template<>
+int bsplineInterp<3>(const double x, const std::vector<double> &grid, double weights[])
+{
+    const int size = grid.size();
+    int ind = bsplineWeights<3>(x, &grid.front(), size, weights);
+    // Normally the interpolation uses 4 values of original function at the adjacent nodes, as follows:
+    // if  x[ind-1] < x[ind] <= x < x[ind+1] < x[ind+2], these are the values from ind-1 to ind+2.
+    // However, if the point belongs to the first or the last grid segment, the left- or right-adjacent
+    // segments would fall outside the grid, meaning that we need to identify the -1'th node with the 0th
+    // (if ind==0), or similarly for ind==size-2. In these cases we shift the indexed nodes and their
+    // weights by one, and ignore the extra 4th node.
+    if(ind==0) {
+        weights[0]+= weights[1];
+        weights[1] = weights[2];
+        weights[2] = weights[3];
+        weights[3] = 0;
+        return 0;
+    }
+    if(ind==size-2) {
+        weights[3]+= weights[2];
+        weights[2] = weights[1];
+        weights[1] = weights[0];
+        weights[0] = 0;
+        return size-4;
+    }
+    return ind-1;
+}
+
+/// linear interpolation between two adjacent grid points
+template<>
+inline int bsplineInterp<1>(const double x, const std::vector<double> &grid, double weights[])
+{
+    if(x<grid.front() || x>grid.back()) {
+        weights[0] = weights[1] = NAN;
+        return 0;
+    }
+    int ind = binSearch(x, &grid.front(), grid.size());
+    double dx = grid[ind+1] - grid[ind];
+    weights[0] = (grid[ind+1]-x) / dx;
+    weights[1] = (x-grid[ind]) / dx;
+    return ind;
+}
+
+}  // internal namespace
+
+template<int N>
+BaseInterpolator3d<N>::BaseInterpolator3d(
+    const std::vector<double>& xgrid, const std::vector<double>& ygrid, const std::vector<double>& zgrid,
+    const std::vector<double>& fvalues) :
+    xval(xgrid), yval(ygrid), zval(zgrid), fncvalues(fvalues)
+{
+    const unsigned int xsize = xval.size();
+    const unsigned int ysize = yval.size();
+    const unsigned int zsize = zval.size();
+    if(xsize<N+1 || ysize<N+1 || zsize<N+1)
+        throw std::invalid_argument("Error in 3d interpolator initialization: number of nodes is too small");
+    if(!fncvalues.empty() && fncvalues.size() != xsize * ysize * zsize)
+        throw std::invalid_argument("Error in 3d interpolator initialization: "
+            "the array of function values is not compatible with sizes of coordinate grids");
+}
+
+template<int N>
+void BaseInterpolator3d<N>::eval(const double vars[3], double *value) const
+{
+    if(fncvalues.empty())
+        throw std::range_error("Error in 3d interpolator: function values not initialized");
+    double weights[(N+1)*(N+1)*(N+1)];
+    unsigned int leftInd[3];
+    components(vars, leftInd, weights);
+    *value=0;
+    const unsigned int ysize = yval.size();
+    const unsigned int zsize = zval.size();
+    for(int i=0; i<=N; i++)
+        for(int j=0; j<=N; j++)
+            for(int k=0; k<=N; k++)
+                *value += weights[(i * (N+1) + j) * (N+1) + k] *
+                fncvalues[ ((i+leftInd[0]) * ysize + j+leftInd[1]) * zsize + k+leftInd[2] ]; 
+}
+
+template<int N>
+void BaseInterpolator3d<N>::components(const double vars[3],
+    unsigned int leftIndices[3], double weights[]) const
+{
+    if(isEmpty())
+        throw std::range_error("Empty 3d interpolator");
+    double bsplineWeights[3][N+1];
+    for(int d=0; d<3; d++)
+        leftIndices[d] = bsplineInterp<N>(vars[d], d==0? xval : d==1? yval : zval, bsplineWeights[d]);
+    for(int i=0; i<=N; i++)
+        for(int j=0; j<=N; j++)
+            for(int k=0; k<=N; k++)
+                weights[(i * (N+1) + j) * (N+1) + k] =
+                    bsplineWeights[0][i] * bsplineWeights[1][j] * bsplineWeights[2][k];
+}
+
+// force the template instantiations to compile
+template class BaseInterpolator3d<1>;
+template class BaseInterpolator3d<3>;
 
 //------------ GENERATION OF UNEQUALLY SPACED GRIDS ------------//
 

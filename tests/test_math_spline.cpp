@@ -37,6 +37,7 @@ class testfnc: public math::IFunctionIntegral {
         }
     }
 };
+
 // provides the integrand for numerical integration of sin(x)*f(x)
 class testfncint: public math::IFunctionNoDeriv {
 public:
@@ -47,6 +48,7 @@ public:
 private:
     const math::IFunction& f;
 };
+
 // provides the integrand for numerical integration of f(x)^2
 class squaredfnc: public math::IFunctionNoDeriv {
 public:
@@ -58,6 +60,7 @@ private:
     const math::IFunction& f;
 };
 
+// test the integration of a spline function
 bool test_integral(const math::CubicSpline& f, double x1, double x2)
 {
     double result_int = f.integrate(x1, x2);
@@ -78,6 +81,17 @@ bool test_integral(const math::CubicSpline& f, double x1, double x2)
     return true;
 }
 
+// provides a function of 3 variables to interpolate
+class testfnc3d: public math::IFunctionNdim {
+public:
+    virtual void eval(const double vars[], double values[]) const {
+        values[0] = sin(vars[0]+0.5*vars[1]+0.25*vars[2]) * cos(-0.2*vars[0]*vars[1]+vars[2]) /
+            sqrt(1 + 0.1*(pow_2(vars[0]) + pow_2(vars[1]) + pow_2(vars[2])));
+    }
+    virtual unsigned int numVars() const { return 3; }
+    virtual unsigned int numValues() const { return 1; }
+};
+
 int main()
 {
     //----------- test penalized smoothing spline fit to noisy data -------------//
@@ -87,9 +101,9 @@ int main()
     std::vector<double> xnodes = math::createNonuniformGrid(NNODES, XMIN, XMAX, true);
     std::vector<double> xvalues(NPOINTS), yvalues1(NPOINTS), yvalues2(NPOINTS);
     for(int i=0; i<NPOINTS; i++) {
-        xvalues [i] = rand()*XMAX/RAND_MAX;
-        yvalues1[i] = sin(4*sqrt(xvalues[i])) + DISP*(rand()*1./RAND_MAX-0.5);
-        yvalues2[i] = cos(4*sqrt(xvalues[i])) + DISP*(rand()*1./RAND_MAX-0.5)*4;
+        xvalues [i] = math::random()*XMAX;
+        yvalues1[i] = sin(4*sqrt(xvalues[i])) + DISP*(math::random()-0.5);
+        yvalues2[i] = cos(4*sqrt(xvalues[i])) + DISP*(math::random()-0.5)*4;
     }
     math::SplineApprox appr(xvalues, xnodes);
     if(appr.isSingular())
@@ -122,7 +136,6 @@ int main()
     // accuracy of approximation of an oscillating fnc //
 
     std::vector<double> yvalues(NNODES), yderivs(NNODES);
-#if 1
     xnodes = math::createNonuniformGrid(NNODES, XMIN, XMAX, false);
     xnodes[1]=(xnodes[1]+xnodes[2])/2;  // slightly squeeze grid spacing to allow
     xnodes[0]*=2;                       // a better interpolation of a strongly varying function
@@ -130,13 +143,6 @@ int main()
         yvalues[i] = sin(4*sqrt(xnodes[i]));
         yderivs[i] = cos(4*sqrt(xnodes[i])) * 2 / sqrt(xnodes[i]);
     }
-#else
-    for(int i=0; i<NNODES; i++) {
-        xnodes [i] = 0.25*pow_2(i*1./(NNODES-1));
-        yvalues[i] = xnodes[i] + pow(xnodes[i], 1.5);
-        yderivs[i] = 1 + 1.5*sqrt(xnodes[i]);
-    }
-#endif
     math::CubicSpline   fcubna(xnodes, yvalues);  // cubic spline with natural boundary conditions
     math::CubicSpline   fcubcl(xnodes, yvalues,
         yderivs.front(), yderivs.back());         // cubic, clamped -- specify derivs at the boundaries
@@ -195,26 +201,26 @@ int main()
     const int NN=99;    // number of intermediate points for checking the values
     std::vector<double> xval(NNODESX,0);
     std::vector<double> yval(NNODESY,0);
-    math::Matrix<double> zval(NNODESX,NNODESY);
+    math::Matrix<double> fval(NNODESX,NNODESY);
     for(int i=1; i<NNODESX; i++)
-        xval[i] = xval[i-1] + rand()*1.0/RAND_MAX + 0.5;
+        xval[i] = xval[i-1] + math::random() + 0.5;
     for(int j=1; j<NNODESY; j++)
-        yval[j] = yval[j-1] + rand()*1.0/RAND_MAX + 0.5;
+        yval[j] = yval[j-1] + math::random() + 0.5;
     for(int i=0; i<NNODESX; i++) {
         for(int j=0; j<NNODESY; j++)
-            zval(i, j) = rand()*1.0/RAND_MAX;
+            fval(i, j) = math::random();
     }
     // create a 2d cubic spline with prescribed derivatives at three out of four edges
-    math::CubicSpline2d spl2d(xval, yval, zval, 0., NAN, 1., -1.);
+    math::CubicSpline2d spl2d(xval, yval, fval, 0., NAN, 1., -1.);
 
     // obtain the matrices of derivatives from the existing cubic spline
-    math::Matrix<double> zderx(NNODESX,NNODESY), zdery(NNODESX,NNODESY);
+    math::Matrix<double> fderx(NNODESX,NNODESY), fdery(NNODESX,NNODESY);
     for(int i=0; i<NNODESX; i++)
         for(int j=0; j<NNODESY; j++)
-            spl2d.evalDeriv(xval[i], yval[j], NULL, &zderx(i, j), &zdery(i, j));
+            spl2d.evalDeriv(xval[i], yval[j], NULL, &fderx(i, j), &fdery(i, j));
 
     // create a 2d quintic spline with prescribed derivatives at all nodes
-    math::QuinticSpline2d spl2d5(xval, yval, zval, zderx, zdery);
+    math::QuinticSpline2d spl2d5(xval, yval, fval, fderx, fdery);
 
 #ifdef COMPARE_WD_PSPLINE
     double *WD_X[2], **WD_Y[3], **WD_Z[4];
@@ -234,37 +240,37 @@ int main()
         WD_X[1][j] = yval[j];
     for(int i=0; i<NNODESX; i++)
         for(int j=0; j<NNODESY; j++) {
-            WD_Y[0][i][j] = zval(i, j);
-            WD_Y[1][i][j] = zderx(i, j);
-            WD_Y[2][i][j] = zdery(i, j);
+            WD_Y[0][i][j] = fval(i, j);
+            WD_Y[1][i][j] = fderx(i, j);
+            WD_Y[2][i][j] = fdery(i, j);
         }
     WD::Pspline2D(WD_X, WD_Y, WD_K, WD_Z);
 #endif
 
     // check values and derivatives at grid nodes on all four grid edges
     for(int i=0; i<NNODESX; i++) {
-        double z, dy;
-        spl2d.evalDeriv(xval[i], yval.front(), &z, NULL, &dy);
-        ok &= math::fcmp(dy, 1., 1e-13)==0 && math::fcmp(z, zval(i, 0), 1e-13)==0;
-        spl2d.evalDeriv(xval[i], yval.back(), &z, NULL, &dy);
-        ok &= math::fcmp(dy, -1., 1e-13)==0 && math::fcmp(z, zval(i, NNODESY-1), 1e-13)==0;
+        double f, dy;
+        spl2d.evalDeriv(xval[i], yval.front(), &f, NULL, &dy);
+        ok &= math::fcmp(dy, 1., 1e-13)==0 && math::fcmp(f, fval(i, 0), 1e-13)==0;
+        spl2d.evalDeriv(xval[i], yval.back(), &f, NULL, &dy);
+        ok &= math::fcmp(dy, -1., 1e-13)==0 && math::fcmp(f, fval(i, NNODESY-1), 1e-13)==0;
 
-        spl2d5.evalDeriv(xval[i], yval.front(), &z, NULL, &dy);
-        ok &= math::fcmp(dy, 1., 1e-13)==0 && math::fcmp(z, zval(i, 0), 1e-13)==0;
-        spl2d5.evalDeriv(xval[i], yval.back(), &z, NULL, &dy);
-        ok &= math::fcmp(dy, -1., 1e-13)==0 && math::fcmp(z, zval(i, NNODESY-1), 1e-13)==0;
+        spl2d5.evalDeriv(xval[i], yval.front(), &f, NULL, &dy);
+        ok &= math::fcmp(dy, 1., 1e-13)==0 && math::fcmp(f, fval(i, 0), 1e-13)==0;
+        spl2d5.evalDeriv(xval[i], yval.back(), &f, NULL, &dy);
+        ok &= math::fcmp(dy, -1., 1e-13)==0 && math::fcmp(f, fval(i, NNODESY-1), 1e-13)==0;
     }
     for(int j=0; j<NNODESY; j++) {
-        double z, dx;
-        spl2d.evalDeriv(xval.front(), yval[j], &z, &dx);
-        ok &= math::fcmp(dx, 0.)==0 && math::fcmp(z, zval(0, j), 1e-13)==0;
-        spl2d.evalDeriv(xval.back(), yval[j], &z, &dx);
-        ok &= fabs(dx)<10 && math::fcmp(z, zval(NNODESX-1, j), 1e-13)==0;
+        double f, dx;
+        spl2d.evalDeriv(xval.front(), yval[j], &f, &dx);
+        ok &= math::fcmp(dx, 0.)==0 && math::fcmp(f, fval(0, j), 1e-13)==0;
+        spl2d.evalDeriv(xval.back(), yval[j], &f, &dx);
+        ok &= fabs(dx)<10 && math::fcmp(f, fval(NNODESX-1, j), 1e-13)==0;
 
-        spl2d5.evalDeriv(xval.front(), yval[j], &z, &dx);
-        ok &= math::fcmp(dx, 0.)==0 && math::fcmp(z, zval(0, j), 1e-13)==0;
-        spl2d5.evalDeriv(xval.back(), yval[j], &z, &dx);
-        ok &= fabs(dx)<10 && math::fcmp(z, zval(NNODESX-1, j), 1e-13)==0;
+        spl2d5.evalDeriv(xval.front(), yval[j], &f, &dx);
+        ok &= math::fcmp(dx, 0.)==0 && math::fcmp(f, fval(0, j), 1e-13)==0;
+        spl2d5.evalDeriv(xval.back(), yval[j], &f, &dx);
+        ok &= fabs(dx)<10 && math::fcmp(f, fval(NNODESX-1, j), 1e-13)==0;
     }
 
     // check derivatives on the entire edge at the three edges that had a prescribed value of derivative
@@ -322,8 +328,76 @@ int main()
                     z5<< ' ' << d5x<< ' ' << d5y<< ' ' << d5xx<< ' ' << d5xy<< ' ' << d5yy << "\n";
         }
         if(OUTPUT)
-        strm << "\n";
+            strm << "\n";
     }
+    if(OUTPUT)
+        strm.close();
+
+    //----------- test 3d interpolation ------------//
+
+    testfnc3d fnc3d;
+    const int NNODESZ=6;
+    std::vector<double> zval(NNODESZ,0);
+    std::vector<double> fval3d(NNODESX*NNODESY*NNODESZ);
+    for(int i=1; i<NNODESZ; i++)
+        zval[i] = zval[i-1] + math::random() + 0.5;
+    for(int i=0; i<NNODESX; i++)
+        for(int j=0; j<NNODESY; j++)
+            for(int k=0; k<NNODESZ; k++) {
+                double t[3] = {xval[i], yval[j], zval[k]};
+                double v;
+                fnc3d.eval(t, &v);
+                fval3d[ (i*NNODESY + j) * NNODESZ + k ] = v;
+            }
+    // create 3d interpolators
+    math::LinearInterpolator3d lin3d(xval, yval, zval, fval3d);
+    math::CubicInterpolator3d  cub3d(xval, yval, zval, fval3d);
+    for(int i=0; i<NNODESX; i++)
+        for(int j=0; j<NNODESY; j++)
+            for(int k=0; k<NNODESZ; k++) {
+                double t[3] = {xval[i], yval[j], zval[k]};
+                double v;
+                fnc3d.eval(t, &v);
+                double l = lin3d.value(t[0], t[1], t[2]);
+                double c = cub3d.value(t[0], t[1], t[2]);
+                ok &= math::fcmp(v, l, 1e-14)==0 && math::isFinite(c);
+                // cubic interpolation coincides with the original values only at grid corners
+                if((i==0 || i==NNODESX-1) && (j==0 || j==NNODESY-1) && (k==0 || k==NNODESZ-1))
+                    ok &= math::fcmp(v, c, 1e-14)==0;
+            }
+    // test accuracy of approximation
+    double sumsqerr_l=0, sumsqerr_c=0;
+    const int NNN=24;    // number of intermediate points for checking the values
+    if(OUTPUT)
+        strm.open("test_math_spline3d.dat");
+    double point[3];
+    for(int i=0; i<=NNN; i++) {
+        point[0] = i*xval.back()/NNN;
+        for(int j=0; j<=NNN; j++) {
+            point[1] = j*yval.back()/NNN;
+            for(int k=0; k<=NNN; k++) {
+                point[2] = k*zval.back()/NNN;
+                double v;
+                fnc3d.eval(point, &v);
+                double l = lin3d.value(point[0], point[1], point[2]);
+                double c = cub3d.value(point[0], point[1], point[2]);
+                sumsqerr_l += pow_2(l-v);
+                sumsqerr_c += pow_2(c-v);
+                if(OUTPUT)
+                    strm << point[0] << ' ' << point[1] << ' ' << point[2] << '\t' <<
+                    v << ' ' << l << ' ' << c << "\n";
+            }
+            if(OUTPUT)
+                strm << "\n";
+        }
+    }
+    if(OUTPUT)
+        strm.close();
+    sumsqerr_l = sqrt(sumsqerr_l / pow_3(NNN+1));
+    sumsqerr_c = sqrt(sumsqerr_c / pow_3(NNN+1));
+    std::cout << "RMS error in linear 3d interpolator: " << sumsqerr_l << 
+        ", cubic 3d interpolator:" << sumsqerr_c << "\n";
+    ok &= sumsqerr_l<0.1 && sumsqerr_c<0.2;
 
 #ifdef STRESS_TEST
     //----------- test the performance of 2d spline calculation -------------//
