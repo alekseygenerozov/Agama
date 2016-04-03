@@ -1,413 +1,10 @@
 #include "math_spline.h"
 #include "math_core.h"
-#include "math_fit.h"
 #include <cmath>
 #include <cassert>
 #include <stdexcept>
-#include <gsl/gsl_bspline.h>
-#include <gsl/gsl_version.h>
 
 namespace math {
-
-//-------------- PENALIZED SPLINE APPROXIMATION ---------------//
-
-/// Implementation of penalized spline approximation
-class SplineApproxImpl {
-private:
-    const size_t numDataPoints;        ///< number of x[i],y[i] pairs (original data)
-    const size_t numKnots;             ///< number of X[k] knots in the fitting spline; the number of basis functions is numKnots+2
-    std::vector<double> knots;         ///< b-spline knots  X[k], k=0..numKnots-1
-    std::vector<double> xvalues;       ///< x[i], i=0..numDataPoints-1
-    std::vector<double> yvalues;       ///< y[i], overwritten each time loadYvalues is called
-    std::vector<double> weightCoefs;   ///< w_p, weight coefficients for basis functions to be found in the process of fitting 
-    std::vector<double> zRHS;          ///< z_p = C^T y, right hand side of linear system
-    Matrix<double> bsplineMatrix;      ///< matrix "C_ip" used in fitting process; i=0..numDataPoints-1, p=0..numBasisFnc-1
-    Matrix<double> LMatrix;            ///< lower triangular matrix L is Cholesky decomposition of matrix A = C^T C, of size numBasisFnc*numBasisFnc
-    Matrix<double> MMatrix;            ///< matrix "M" which is the transformed version of roughness matrix "R_pq" of integrals of product of second derivatives of basis functions; p,q=0..numBasisFnc-1
-    std::vector<double> singValues;    ///< part of the decomposition of the roughness matrix
-    std::vector<double> MTz;           ///< pre-computed M^T z
-    gsl_bspline_workspace*
-        bsplineWorkspace;              ///< workspace for b-spline evaluation
-#if GSL_MAJOR_VERSION < 2
-    gsl_bspline_deriv_workspace*
-        bsplineDerivWorkspace;         ///< workspace for derivative computation
-#endif
-    double ynorm2;                     ///< |y|^2 - used to compute residual sum of squares (RSS)
-
-public:
-    SplineApproxImpl(const std::vector<double> &_xvalues, const std::vector<double> &_knots);
-    ~SplineApproxImpl();
-
-    /** load the y-values of data points and precompute zRHS */
-    void loadyvalues(const std::vector<double> &_yvalues);
-
-    /** compute integrals over products of second derivatives of basis functions, 
-        and transform R to M+singValues  */
-    void initRoughnessMatrix();
-
-    /** compute the weights of basis function for the given value of smoothing parameter */
-    void computeWeights(double lambda=0);
-
-    /** compute the RMS scatter of data points about the approximating spline,
-        and the number of effective degrees of freedom (EDF) */
-    void computeRMSandEDF(double lambda, double* rmserror=NULL, double* edf=NULL) const;
-
-    /** compute the value of Akaike information criterion (AIC)
-        for the given value of smoothing parameter 'lambda'  */
-    double computeAIC(double lambda);
-
-    /** compute Y-values at spline knots X[k], and also two endpoint derivatives, 
-        after the weights w have been determined  */
-    void computeYvalues(std::vector<double>& splineValues, double& der_left, double& der_right) const;
-
-    /** compute values of spline at an arbitrary set of points  */
-    //void computeRegressionAtPoints(const std::vector<double> &xpoints, std::vector<double> &ypoints) const;
-
-    /** check if the basis matrix L is singular */
-    bool isSingular() const { return LMatrix.rows()==0; }
-
-private:
-    /** In the unfortunate case that the fit matrix appears to be singular, another algorithm
-        is used which is based on the GSL multifit routine, which performs SVD of bsplineMatrix.
-        It is much slower and cannot accomodate nonzero smoothing. */
-    void computeWeightsSingular();
-
-    SplineApproxImpl& operator= (const SplineApproxImpl&);  ///< assignment operator forbidden
-    SplineApproxImpl(const SplineApproxImpl&);              ///< copy constructor forbidden
-};
-
-SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const std::vector<double> &_knots) :
-    numDataPoints(_xvalues.size()), numKnots(_knots.size()),
-    knots(_knots),
-    xvalues(_xvalues),
-    weightCoefs  (numKnots+2),
-    zRHS         (numKnots+2),
-    bsplineMatrix(numDataPoints, numKnots+2),
-    LMatrix      (numKnots+2, numKnots+2),
-    MTz          (numKnots+2)
-{
-    // first check for validity of input range
-    bool range_ok = (numDataPoints>2 && numKnots>2);
-    for(size_t k=1; k<numKnots; k++)
-        range_ok &= (_knots[k-1]<_knots[k]);  // knots must be in ascending order
-    if(!range_ok)
-        throw std::invalid_argument("Error in SplineApprox initialization: knots must be in ascending order");
-    for(size_t v=0; v<xvalues.size(); v++) {
-        if(xvalues[v] < knots.front() || xvalues[v] > knots.back()) 
-            throw std::invalid_argument("Error in SplineApprox initialization: "
-                "source data points must lie within spline definition region");
-    }
-    ynorm2 = gsl_nan();  // to indicate that no y-values have been loaded yet
-
-    bsplineWorkspace      = gsl_bspline_alloc(4, numKnots);
-#if GSL_MAJOR_VERSION < 2
-    bsplineDerivWorkspace = gsl_bspline_deriv_alloc(4);
-#endif
-    gsl_vector* bsplineValues = gsl_vector_alloc(numKnots+2);
-    if(bsplineWorkspace==NULL ||
-#if GSL_MAJOR_VERSION < 2
-        bsplineDerivWorkspace==NULL ||
-#endif
-        bsplineValues==NULL)
-    {
-        gsl_bspline_free(bsplineWorkspace);
-#if GSL_MAJOR_VERSION < 2
-        gsl_bspline_deriv_free(bsplineDerivWorkspace);
-#endif
-        gsl_vector_free(bsplineValues);
-        throw std::bad_alloc();
-    }
-
-    // initialize b-spline matrix C
-    gsl_vector_const_view v_knots = gsl_vector_const_view_array(&knots.front(), knots.size());
-    gsl_bspline_knots(&v_knots.vector, bsplineWorkspace);
-    for(size_t i=0; i<numDataPoints; i++) {
-        gsl_bspline_eval(_xvalues[i], bsplineValues, bsplineWorkspace);
-        //double wei[4];
-        //bsplineWeights<3>(_xvalues[i], &knots.front(), knots.size(), wei);
-        for(size_t p=0; p<numKnots+2; p++)
-            bsplineMatrix(i, p) = gsl_vector_get(bsplineValues, p);
-    }
-    gsl_vector_free(bsplineValues);
-
-    // pre-compute matrix L
-    blas_dgemm(CblasTrans, CblasNoTrans, 1, bsplineMatrix, bsplineMatrix, 0, LMatrix);
-    try {
-        choleskyDecomp(LMatrix);
-    }
-    catch(std::domain_error&) {   // means that the matrix is not positive definite, i.e. fit is singular
-        LMatrix = Matrix<double>();
-    }
-}
-
-SplineApproxImpl::~SplineApproxImpl()
-{
-    gsl_bspline_free(bsplineWorkspace);
-#if GSL_MAJOR_VERSION < 2
-    gsl_bspline_deriv_free(bsplineDerivWorkspace);
-#endif
-}
-
-void SplineApproxImpl::loadyvalues(const std::vector<double> &_yvalues)
-{
-    if(_yvalues.size() != numDataPoints) 
-        throw std::invalid_argument("SplineApprox: input array sizes do not match");
-    yvalues = _yvalues;
-    ynorm2  = pow_2(blas_dnrm2(yvalues));
-    if(!isSingular()) {   // precompute z = C^T y
-        blas_dgemv(CblasTrans, 1, bsplineMatrix, yvalues, 0, zRHS);
-    }
-}
-
-/// convenience function returning values from band matrix or zero if indexes are outside the band
-inline double getVal(const Matrix<double>& deriv, size_t row, size_t col)
-{
-    if(row<col || row>=col+3) return 0;
-    else return deriv(row-col, col);
-}
-
-void SplineApproxImpl::initRoughnessMatrix()
-{
-    if(MMatrix.rows()>0) {  // already computed
-        blas_dgemv(CblasTrans, 1, MMatrix, zRHS, 0, MTz);  // precompute M^T z
-        return;
-    }
-    // init matrix with roughness penalty (integrals of product of second derivatives of basis functions)
-    MMatrix = Matrix<double>(numKnots+2, numKnots+2);   // matrix R_pq
-    Matrix<double> derivs(3, numKnots);
-    gsl_matrix* bsplineDerivValues = gsl_matrix_alloc(4, 3);
-    for(size_t k=0; k<numKnots; k++)
-    {
-        size_t istart, iend;
-#if GSL_MAJOR_VERSION >= 2
-        gsl_bspline_deriv_eval_nonzero(knots[k], 2, bsplineDerivValues, 
-            &istart, &iend, bsplineWorkspace);
-#else
-        gsl_bspline_deriv_eval_nonzero(knots[k], 2, bsplineDerivValues, 
-            &istart, &iend, bsplineWorkspace, bsplineDerivWorkspace);
-#endif
-        for(size_t b=0; b<3; b++)
-            derivs(b, k) = gsl_matrix_get(bsplineDerivValues, b+k-istart, 2);
-    }
-    gsl_matrix_free(bsplineDerivValues);
-    for(size_t p=0; p<numKnots+2; p++)
-    {
-        size_t kmin = p>3 ? p-3 : 0;
-        size_t kmax = std::min<size_t>(p+3, knots.size()-1);
-        for(size_t q=p; q<std::min<size_t>(p+4,numKnots+2); q++)
-        {
-            double result=0;
-            for(size_t k=kmin; k<kmax; k++)
-            {
-                double x0 = knots[k];
-                double x1 = knots[k+1];
-                double Gp = getVal(derivs,p,k)*x1 - getVal(derivs,p,k+1)*x0;
-                double Hp = getVal(derivs,p,k+1)  - getVal(derivs,p,k);
-                double Gq = getVal(derivs,q,k)*x1 - getVal(derivs,q,k+1)*x0;
-                double Hq = getVal(derivs,q,k+1)  - getVal(derivs,q,k);
-                result += (Hp*Hq*(pow(x1,3.0)-pow(x0,3.0))/3.0 +
-                    (Gp*Hq+Gq*Hp)*(pow_2(x1)-pow_2(x0))/2.0 + Gp*Gq*(x1-x0)) / pow_2(x1-x0);
-            }
-            MMatrix(p, q) = result;
-            MMatrix(q, p) = result;  // it is symmetric
-        }
-    }
-
-    // now transform the roughness matrix R into more suitable form (so far MMatrix contains R)
-    // obtain Q = L^{-1} R L^{-T}, where R is the roughness penalty matrix (store Q instead of R)
-    blas_dtrsm(CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit, 1, LMatrix, MMatrix);
-    blas_dtrsm(CblasRight, CblasLower, CblasTrans, CblasNonUnit, 1, LMatrix, MMatrix);   // now MMatrix contains Q = L^{-1} R L^(-T}
-
-    // next decompose this Q via singular value decomposition: Q = U * diag(SV) * V^T
-    singValues = std::vector<double>(numKnots+2);   // vector SV
-    Matrix<double> tempm(numKnots+2, numKnots+2);
-    singularValueDecomp(MMatrix, tempm, singValues);   // now MMatrix contains U, and tempm contains V^T
-
-    // Because Q was symmetric and positive definite, we expect that U=V, but don't actually check it.
-    singValues[numKnots] = 0;   // the smallest two singular values must be zero; set explicitly to avoid roundoff error
-    singValues[numKnots+1] = 0;
-
-    // precompute M = L^{-T} U  which is used in computing basis weight coefs.
-    blas_dtrsm(CblasLeft, CblasLower, CblasTrans, CblasNonUnit, 1, LMatrix, MMatrix);   // now M is finally in place
-    // now the weight coefs for any lambda are given by  w = M (I + lambda*diag(singValues))^{-1} M^T  z
-
-    blas_dgemv(CblasTrans, 1, MMatrix, zRHS, 0, MTz);  // precompute M^T z
-}
-
-// obtain solution of linear system for the given smoothing parameter, store the weights of basis functions in weightCoefs
-void SplineApproxImpl::computeWeights(double lambda)
-{
-    if(isSingular()) {
-        computeWeightsSingular();
-        return;
-    }
-    if(lambda==0)  // simple case, no need to use roughness penalty matrix
-        linearSystemSolveCholesky(LMatrix, zRHS, weightCoefs);
-    else {
-        std::vector<double>tempv(numKnots+2);
-        for(size_t p=0; p<numKnots+2; p++) {
-            double sv = singValues[p];
-            tempv[p] = MTz[p] / (1 + (sv>0 ? sv*lambda : 0));
-        }
-        blas_dgemv(CblasNoTrans, 1, MMatrix, tempv, 0, weightCoefs);
-    }
-}
-
-// compute weights of basis functions in the case that the matrix is singular
-void SplineApproxImpl::computeWeightsSingular()
-{
-    double rms;
-    linearMultiFit(bsplineMatrix, yvalues, NULL, weightCoefs, &rms);
-    ynorm2 = pow_2(rms);
-}
-
-void SplineApproxImpl::computeRMSandEDF(double lambda, double* rmserror, double* edf) const
-{
-    if(rmserror == NULL && edf == NULL)
-        return;
-    if(isSingular()) {
-        if(rmserror)
-            *rmserror = ynorm2;
-        if(*edf)
-            *edf = static_cast<double>(numKnots+2);
-        return;
-    }
-    std::vector<double>tempv(weightCoefs);
-    blas_dtrmv(CblasLower, CblasTrans, CblasNonUnit, LMatrix, tempv);
-    double wTz = blas_ddot(weightCoefs, zRHS);
-    if(rmserror)
-        *rmserror = (ynorm2 - 2*wTz + pow_2(blas_dnrm2(tempv))) / numDataPoints;
-    if(edf == NULL)
-        return;
-    // equivalent degrees of freedom
-    *edf = 0;
-    if(!gsl_finite(lambda))
-        *edf = 2;
-    else if(lambda>0) 
-        for(size_t c=0; c<numKnots+2; c++)
-            *edf += 1 / (1 + lambda * singValues[c]);
-    else
-        *edf = static_cast<double>(numKnots+2);
-}
-
-double SplineApproxImpl::computeAIC(double lambda) {
-    double rmserror, edf;
-    computeWeights(lambda);
-    computeRMSandEDF(lambda, &rmserror, &edf);
-    return log(rmserror) + 2*edf/(numDataPoints-edf-1);
-}
-
-/// after the weights of basis functions have been determined, evaluate the values of approximating spline 
-/// at its nodes, and additionally its derivatives at endpoints
-void SplineApproxImpl::computeYvalues(std::vector<double>& splineValues, double& der_left, double& der_right) const
-{
-    splineValues.assign(numKnots, 0);
-    gsl_vector* bsplineValues = gsl_vector_alloc(numKnots+2);
-    gsl_matrix* bsplineDerivValues = gsl_matrix_alloc(numKnots+2, 2);
-    for(size_t k=1; k<numKnots-1; k++) {  // loop over interior nodes
-        gsl_bspline_eval(knots[k], bsplineValues, bsplineWorkspace);
-        double val=0;
-        for(size_t p=0; p<numKnots+2; p++)
-            val += gsl_vector_get(bsplineValues, p) * weightCoefs[p];
-        splineValues[k] = val;
-    }
-    for(size_t k=0; k<numKnots; k+=numKnots-1) {  // two endpoints: values and derivatives
-#if GSL_MAJOR_VERSION >= 2
-        gsl_bspline_deriv_eval(knots[k], 1, bsplineDerivValues, bsplineWorkspace);
-#else
-        gsl_bspline_deriv_eval(knots[k], 1, bsplineDerivValues, bsplineWorkspace, bsplineDerivWorkspace);
-#endif
-        double val=0, der=0;
-        for(size_t p=0; p<numKnots+2; p++) {
-            val += gsl_matrix_get(bsplineDerivValues, p, 0) * weightCoefs[p];
-            der += gsl_matrix_get(bsplineDerivValues, p, 1) * weightCoefs[p];
-        }
-        splineValues[k] = val;
-        if(k==0)
-            der_left = der;
-        else
-            der_right = der;
-    }
-    gsl_matrix_free(bsplineDerivValues);
-    gsl_vector_free(bsplineValues);
-}
-
-//-------- helper class for root-finder -------//
-class SplineAICRootFinder: public IFunctionNoDeriv {
-public:
-    SplineAICRootFinder(SplineApproxImpl& _impl, double _targetAIC) :
-        impl(_impl), targetAIC(_targetAIC) {};
-    virtual double value(double lambda) const {
-        return impl.computeAIC(lambda) - targetAIC;
-    }
-private:
-    SplineApproxImpl& impl;
-    double targetAIC;       ///< target value of AIC for root-finder
-};
-
-//----------- DRIVER CLASS FOR PENALIZED SPLINE APPROXIMATION ------------//
-
-SplineApprox::SplineApprox(const std::vector<double> &xvalues, const std::vector<double> &knots)
-{
-    impl = new SplineApproxImpl(xvalues, knots);
-}
-
-SplineApprox::~SplineApprox()
-{
-    delete impl;
-}
-
-bool SplineApprox::isSingular() const {
-    return impl->isSingular();
-}
-
-void SplineApprox::fitData(const std::vector<double> &yvalues, const double lambda,
-    std::vector<double>& splineValues, double& deriv_left, double& deriv_right, double *rmserror, double* edf)
-{
-    impl->loadyvalues(yvalues);
-    if(impl->isSingular() || lambda==0)
-        impl->computeWeights();
-    else {
-        impl->initRoughnessMatrix();
-        impl->computeWeights(lambda);
-    }
-    impl->computeYvalues(splineValues, deriv_left, deriv_right);
-    impl->computeRMSandEDF(lambda, rmserror, edf);
-}
-
-void SplineApprox::fitDataOversmooth(const std::vector<double> &yvalues, const double deltaAIC,
-    std::vector<double>& splineValues, double& deriv_left, double& deriv_right, 
-    double *rmserror, double* edf, double *lambda)
-{
-    impl->loadyvalues(yvalues);
-    double lambdaFit = 0;
-    if(impl->isSingular()) {
-        impl->computeWeights();
-    } else {
-        impl->initRoughnessMatrix();
-        if(deltaAIC <= 0) {  // find optimal fit
-            SplineAICRootFinder fnc(*impl, 0);
-            lambdaFit = findMin(fnc, 0, INFINITY, NAN, 1e-6);  // no initial guess
-        } else {  // allow for somewhat higher AIC value, to smooth more than minimum necessary amount
-            SplineAICRootFinder fnc(*impl, impl->computeAIC(0) + deltaAIC);
-            lambdaFit = findRoot(fnc, 0, INFINITY, 1e-6);
-            if(!isFinite(lambdaFit))   // root does not exist, i.e. function is everywhere lower than target value
-                lambdaFit = INFINITY;  // basically means fitting with a linear regression
-        }
-    }
-    impl->computeYvalues(splineValues, deriv_left, deriv_right);
-    impl->computeRMSandEDF(lambdaFit, rmserror, edf);
-    if(lambda!=NULL)
-        *lambda=lambdaFit;
-}
-
-void SplineApprox::fitDataOptimal(const std::vector<double> &yvalues,
-    std::vector<double>& splineValues, double& deriv_left, double& deriv_right, 
-    double *rmserror, double* edf, double *lambda) 
-{
-    fitDataOversmooth(yvalues, 0.0, splineValues, deriv_left, deriv_right, rmserror, edf, lambda);
-}
-
 
 //-------------- CUBIC SPLINE --------------//
 
@@ -467,6 +64,17 @@ CubicSpline::CubicSpline(const std::vector<double>& xa,
             / (xa[max_index]-xa[max_index-1]);
 }
 
+namespace {
+// definite integral of x^(m+n)
+class MonomialIntegral: public IFunctionIntegral {
+    const int n;
+public:
+    MonomialIntegral(int _n) : n(_n) {};
+    virtual double integrate(double x1, double x2, int m=0) const {
+        return m+n+1==0 ? log(x2/x1) : (powInt(x2, m+n+1) - powInt(x1, m+n+1)) / (m+n+1);
+    }
+};
+
 // evaluate spline value, derivative and 2nd derivative at once (faster than doing it separately);
 // possibly for several splines (K>=1), k=0,...,K-1);
 // input arguments contain the value(s) and 2nd derivative(s) of these splines
@@ -497,6 +105,7 @@ inline void evalCubicSplines(
             d2y[k] = c + dx * d;
     }
 }
+}  // internal namespace
 
 void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* deriv2) const
 {
@@ -556,19 +165,6 @@ bool CubicSpline::isMonotonic() const
         }  // otherwise there are no roots
     }
     return ismonotonic;
-}
-
-namespace {
-// definite integral of x^(m+n)
-class MonomialIntegral: public IFunctionIntegral {
-public:
-    MonomialIntegral(int _n) : n(_n) {};
-    virtual double integrate(double x1, double x2, int m=0) const {
-        return m+n+1==0 ? log(x2/x1) : (powInt(x2, m+n+1) - powInt(x1, m+n+1)) / (m+n+1);
-    }
-private:
-    const int n;
-};
 }
 
 double CubicSpline::integrate(double x1, double x2, int n) const {
@@ -710,6 +306,8 @@ QuinticSpline::QuinticSpline(const std::vector<double>& xgrid,
         yder3[i-1] += v[i-1]*yder3[i];
 }
 
+namespace{
+
 template<unsigned int K>   // K>=1 - number of splines to compute; k=0,...,K-1
 inline void evalQuinticSplines(
     const double xl,   // input:   xl <= x
@@ -765,6 +363,7 @@ inline void evalQuinticSplines(
             d3y[k] = A*(2.5*A-1.5)*y3l[k] + B*(2.5*B-1.5)*y3h[k] + 5*A*B*t2;
 
     }
+}
 }
 
 void QuinticSpline::evalDeriv(const double x, double* val, double* deriv, double* deriv2) const
@@ -1190,7 +789,7 @@ void QuinticSpline2d::evalDeriv(const double x, const double y,
             &d2F[0], &d2F[1], &d2G[0], &d2G[1], &d2G[2], &d2G[3],  z_yy, NULL, NULL);
 }
 
-// ------- Interpolation in 3d ------- //
+// ------- Some machinery for B-splines ------- //
 
 namespace {
 
@@ -1216,7 +815,7 @@ int bsplineWeights(const double x, const double grid[], int size, double B[])
             B[i] = NAN;
         return 0;
     }
-    const int ind  = binSearch(x, grid, size);
+    const int ind = binSearch(x, grid, size);
     // de Boor's algorithm:
     // 0th order basis functions are all zero except the one on the grid segment `ind`
     for(int i=0; i<=N; i++)
@@ -1231,6 +830,44 @@ int bsplineWeights(const double x, const double grid[], int size, double B[])
         }
     }
     return ind;
+}
+
+/// subexpression in b-spline derivatives (inverse distance between grid nodes or 0 if they coincide)
+static inline double denom(const double grid[], int size, int i1, int i2)
+{
+    double x1 = grid[i1<0 ? 0 : i1>=size ? size-1 : i1];
+    double x2 = grid[i2<0 ? 0 : i2>=size ? size-1 : i2];
+    return x1==x2 ? 0 : 1 / (x2-x1);
+}
+
+/// recursive template definition for B-spline derivatives through B-spline derivatives
+/// of lower degree and order; this is probably not very efficient but good enough for our purposes
+template<int N, int order>
+int bsplineDerivs(const double x, const double grid[], int size, double B[])
+{
+    int ind = bsplineDerivs<N-1, order-1>(x, grid, size, B+1);
+    B[0] = 0;
+    for(int i=0, j=ind-N; i<=N; i++, j++) {
+        B[i] = N * (B[i]   * denom(grid, size, j, j+N)
+            + (i<N? B[i+1] * denom(grid, size, j+N+1, j+1) : 0) );
+    }
+    return ind;
+}
+
+/// the above recursion terminates when the order of derivative is zero, returning B-spline values;
+/// however, C++ rules do not permit to declare a partial function template specialization
+/// (for arbitrary N and order 0), therefore we use full specializations for several values of N
+template<>
+inline int bsplineDerivs<1,0>(const double x, const double grid[], int size, double B[]) {
+    return bsplineWeights<1>(x, grid, size, B);
+}
+template<>
+inline int bsplineDerivs<2,0>(const double x, const double grid[], int size, double B[]) {
+    return bsplineWeights<2>(x, grid, size, B);
+}
+template<>
+inline int bsplineDerivs<3,0>(const double x, const double grid[], int size, double B[]) {
+    return bsplineWeights<3>(x, grid, size, B);
 }
 
 /** Compute the weights of kernel b-spline functions used for 1d interpolation.
@@ -1291,6 +928,8 @@ inline int bsplineInterp<1>(const double x, const std::vector<double> &grid, dou
 
 }  // internal namespace
 
+// ------- Interpolation in 3d ------- //
+
 template<int N>
 BaseInterpolator3d<N>::BaseInterpolator3d(
     const std::vector<double>& xgrid, const std::vector<double>& ygrid, const std::vector<double>& zgrid,
@@ -1344,6 +983,459 @@ void BaseInterpolator3d<N>::components(const double vars[3],
 // force the template instantiations to compile
 template class BaseInterpolator3d<1>;
 template class BaseInterpolator3d<3>;
+
+//-------------- PENALIZED SPLINE APPROXIMATION ---------------//
+
+/// Implementation of penalized spline approximation
+class SplineApproxImpl {
+    const unsigned int numDataPoints;  ///< number of x[i],y[i] pairs (original data)
+    const unsigned int numKnots;       ///< number of X[k] knots in the fitting spline;
+    ///< the number of basis functions is  numBasisFnc = numKnots+2
+    const std::vector<double> knots;   ///< b-spline knots  X[k], k=0..numKnots-1
+    const std::vector<double> xvalues; ///< x[i], i=0..numDataPoints-1
+
+    /// matrix  C  containing the values of each basis function at each data point:
+    /// (size: numDataPoints rows, numBasisFnc columns - the largest matrix in use).
+    /// In the case that this matrix is singular, normal equations cannot be used, and this matrix
+    /// is replaced by the U-component of its singular value decomposition (of the same size).
+    Matrix<double> CMatrix;
+
+    /// in the case of singular matrix C, this holds the V-component of its SVD (size: numBasisFnc^2)
+    Matrix<double> VMatrix;
+
+    /// in the case of singular matrix C, this vector contains its inverse singular values,
+    /// or zeros in place of zero or extremely small values (size: numBasisFnc)
+    std::vector<double> invSingValuesC;
+
+    /// in the non-singular case, the matrix A = C^T C  of the system of normal equations is formed,
+    /// and the lower triangular matrix L contains its Cholesky decomposition (size: numBasisFnc^2)
+    Matrix<double> LMatrix;
+
+    /// matrix "M" is the transformed version of roughness matrix R, which contains
+    /// integrals of product of second derivatives of basis functions (size: numBasisFnc^2)
+    Matrix<double> MMatrix;
+
+    /// part of the decomposition of the matrix M (size: numBasisFnc)
+    std::vector<double> singValuesM;
+
+public:
+    /// Auxiliary data used in the fitting process, pre-initialized for each set of data points `y`
+    /// (these data cannot be members of the class, since they are not constant)
+    struct FitData {
+        std::vector<double> zRHS;  ///< C^T y, right hand side of the system of normal equations
+        std::vector<double> MTz;   ///< the product  M^T z
+        double ynorm2;             ///< the squared norm of vector y
+    };
+
+    /** Prepare internal tables for fitting the data points at the given set of x-coordinates
+        and the given array of knots which determine the basis functions */
+    SplineApproxImpl(const std::vector<double> &xvalues, const std::vector<double> &knots);
+
+    /** check if the matrix L of the system of normal equation is singular */
+    bool isSingular() const { return LMatrix.rows()==0; }
+
+    /** find the weights of basis functions that provide the best fit to the data points `y`
+        for the given value of smoothing parameter `lambda`.
+        \param[in]  yvalues  are the data values corresponding to x-coordinates
+        that were provided to the constructor;
+        \param[in]  lambda>=0  is the smoothing parameter (ignored if the matrix C is singular);
+        \param[out] weights  will contain the computed weights of basis functions;
+        \param[out] RSS  will contain the residual sum of squares divided by the number of data points;
+        \param[out] EDF  will contain the equivalent number of degrees of freedom (2<=EDF<=numBasisFnc).
+    */
+    void solveForWeightsWithLambda(const std::vector<double> &yvalues, const double lambda,
+        std::vector<double> &weights, double &RSS, double &EDF) const;
+
+    /** find the weights of basis functions that provide the best fit to the data points `y`
+        with the Akaike information criterion (AIC) being offset by deltaAIC from its minimum value
+        (the latter corresponding to the case of optimal smoothing).
+        \param[in]  yvalues  are the data values;
+        \param[in]  deltaAIC is the offset of AIC (0 means the optimally smoothed spline);
+        \param[out] weights  will contain the computed weights of basis functions;
+        \param[out] RSS,EDF  same as in the previous function;
+        \param[out] lambda   will contain the value of smoothing parameter lambda corresponding
+        to the target value of AIC.
+    */
+    void solveForWeightsWithAIC(const std::vector<double> &yvalues, const double deltaAIC,
+        std::vector<double> &weights, double &RSS, double &EDF, double &lambda) const;
+
+    /** Obtain the best-fit solution for the given value of smoothing parameter lambda
+        (this method is called repeatedly in the process of finding the optimal value of lambda).
+        \param[in]  fitData contains the pre-initialized auxiliary arrays constructed by `initFit()`;
+        \param[in]  lambda is the smoothing parameter;
+        \param[out] weights  will contain the computed weights of basis functions;
+        \param[out] RSS,EDF  same as in the previous function;
+        \return  the value of AIC (Akaike information criterion) corresponding to these RSS and EDF
+    */
+    double computeWeights(const FitData &fitData, const double lambda,
+        std::vector<double> &weights, double &RSS, double &EDF) const;
+
+    /** convert the weighted combination of basis functions
+        \f$  f(x) = \sum_{i=0}^{numBasisFnc-1}  w_i  B_i(x)  \f$
+        into the input data for an ordinary clamped cubic spline: the values of f(x) at grid knots
+        plus two endpoint derivatives.
+        \param[in]  weights  are the weights of each basis function determined elsewhere;
+        \param[out] splineValues  are the values of f at the grid knots;
+        \param[out] derivLeft, derifRight  are the two derivatives at i=0 and i=numBasisFnc-1
+    */
+    void convertToCubicSpline(const std::vector<double> &weights,
+        std::vector<double> &splineValues, double &derivLeft, double &derivRight) const;
+
+private:
+    /** Initialize temporary arrays used in the fitting process for the provided data vector y,
+        in the case that the normal equations are not singular.
+        \param[in]  yvalues is the vector of data values `y` at each data point;
+        \param[out] fitData is the data structure used by other methods later in the fitting process
+    */
+    void initFit(const std::vector<double> &yvalues, FitData &fitData) const;
+
+    /** In the unfortunate case that the matrix  C  appears to be singular,
+        we solve the linear least-square fit directly, using the pre-initialized SVD of matrix C
+        (this cannot accomodate nonzero smoothing). */
+    void computeWeightsSingular(const std::vector<double> &yvalues,
+        std::vector<double> &weights, double &RSS, double &EDF) const;
+};
+
+namespace{
+/// convenience function returning values from band matrix or zero if indexes are outside the band
+static inline double getVal(const Matrix<double>& deriv, unsigned int row, unsigned int col)
+{
+    if(row<col || row>=col+3) return 0;
+    else return deriv(row-col, col);
+}
+
+/// init matrix with roughness penalty (integrals of product of second derivatives of basis functions
+/// (B-splines) determined by the knots vector)
+static void initRoughnessMatrix(const std::vector<double> &knots, Matrix<double> &MMatrix)
+{
+    int numKnots = knots.size();
+    MMatrix.resize(numKnots+2, numKnots+2);   // matrix R_pq
+    Matrix<double> derivs(3, numKnots);
+
+    for(int k=0; k<numKnots; k++) {
+        double der[4];
+        int ind = bsplineDerivs<3,2>(knots[k], &knots.front(), numKnots, der);
+        for(int b=0; b<3; b++)  // out of 4 derivatives, only 3 may be non-zero
+            derivs(b, k) = der[b+k-ind];
+    }
+
+    // evaluate integrals analytically
+    for(int p=0; p<numKnots+2; p++) {
+        int kmin = p>3 ? p-3 : 0;
+        int kmax = std::min<int>(p+3, numKnots-1);
+        int qmax = std::min<int>(p+4, numKnots+2);
+        for(int q=p; q<qmax; q++) {
+            double result=0;
+            for(int k=kmin; k<kmax; k++) {
+                double x0 = knots[k];
+                double x1 = knots[k+1];
+                double Gp = getVal(derivs,p,k)*x1 - getVal(derivs,p,k+1)*x0;
+                double Hp = getVal(derivs,p,k+1)  - getVal(derivs,p,k);
+                double Gq = getVal(derivs,q,k)*x1 - getVal(derivs,q,k+1)*x0;
+                double Hq = getVal(derivs,q,k+1)  - getVal(derivs,q,k);
+                result += (Hp*Hq*(pow(x1,3.0)-pow(x0,3.0))/3.0 +
+                           (Gp*Hq+Gq*Hp)*(pow_2(x1)-pow_2(x0))/2.0 + Gp*Gq*(x1-x0)) / pow_2(x1-x0);
+            }
+            MMatrix(p, q) = result;
+            MMatrix(q, p) = result;  // it is symmetric
+        }
+    }
+}
+
+//-------- helper class for root-finder -------//
+class SplineAICRootFinder: public IFunctionNoDeriv {
+    const SplineApproxImpl& impl; ///< the fitting interface
+    const SplineApproxImpl::FitData& fitData; ///< data for the fitting procedure
+    const double targetAIC;       ///< target value of AIC for root-finder
+public:
+    SplineAICRootFinder(const SplineApproxImpl& _impl,
+        const SplineApproxImpl::FitData& _fitData, double _targetAIC) :
+        impl(_impl), fitData(_fitData), targetAIC(_targetAIC) {};
+    virtual double value(double lambda) const {
+        std::vector<double> weights;
+        double RSS, EDF;
+        double AIC = impl.computeWeights(fitData, lambda, weights, RSS, EDF);
+        return AIC - targetAIC;
+    }
+};
+}  // internal namespace
+
+SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const std::vector<double> &_knots) :
+    numDataPoints(_xvalues.size()), numKnots(_knots.size()),
+    knots(_knots),
+    xvalues(_xvalues),
+    CMatrix(numDataPoints, numKnots+2),
+    LMatrix(numKnots+2, numKnots+2)
+{
+    // first check for validity of input range
+    bool range_ok = (numDataPoints>2 && numKnots>2);
+    for(unsigned int k=1; k<numKnots; k++)
+        range_ok &= (_knots[k-1]<_knots[k]);  // knots must be in ascending order
+    if(!range_ok)
+        throw std::invalid_argument(
+            "Error in SplineApprox initialization: knots must be in ascending order");
+    for(unsigned int v=0; v<xvalues.size(); v++) {
+        if(xvalues[v] < knots.front() || xvalues[v] > knots.back()) 
+            throw std::invalid_argument("Error in SplineApprox initialization: "
+                "source data points must lie within spline definition region");
+    }
+
+    // initialize b-spline matrix C
+    for(unsigned int i=0; i<numDataPoints; i++) {
+        // for each input point, at most 4 basis functions are non-zero, starting from index 'ind'
+        double B[4];
+        unsigned int ind = bsplineWeights<3>(xvalues[i], &knots.front(), numKnots, B);
+        assert(ind<=numKnots-2);
+        // the matrix is rather sparse and it might be possible to use an optimized representation of it?
+        for(unsigned int k=0; k<numKnots+2; k++)
+            CMatrix(i, k) = 0;
+        // store non-zero elements of the matrix
+        for(unsigned int k=0; k<4; k++)
+            CMatrix(i, k+ind) = B[k];
+    }
+
+    // pre-compute matrix L which is the Cholesky decomposition of matrix of normal equations A = C^T C
+    blas_dgemm(CblasTrans, CblasNoTrans, 1, CMatrix, CMatrix, 0, LMatrix); // now LMatrix contains A
+    try {
+        // this may fail if A is not positive definite, in which case smoothing is not (yet?) possible
+        choleskyDecomp(LMatrix);
+
+        // if that worked, compute the roughness matrix R (integrals over products of second derivatives
+        // of basis functions) and transform it into a more suitable form M+singValues
+        initRoughnessMatrix(knots, MMatrix);  // now MMatrix contains R
+
+        // obtain Q = L^{-1} R L^{-T}, where R is the roughness penalty matrix
+        blas_dtrsm(CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit, 1, LMatrix, MMatrix);
+        blas_dtrsm(CblasRight, CblasLower,  CblasTrans, CblasNonUnit, 1, LMatrix, MMatrix);
+        // now MMatrix contains Q = L^{-1} R L^(-T}
+
+        // next decompose this Q via singular value decomposition: Q = U * diag(SV) * V^T
+        singValuesM = std::vector<double>(numKnots+2);    // vector SV of singular values of matrix Q
+        Matrix<double> tempm(numKnots+2, numKnots+2);     // temporary workspace
+        singularValueDecomp(MMatrix, tempm, singValuesM); // now MMatrix contains U, and tempm contains V^T
+
+        // Because Q was symmetric and positive definite, we expect that U=V, but don't actually check it.
+        // the smallest two singular values must be zero; set explicitly to avoid roundoff error
+        singValuesM[numKnots] = 0;
+        singValuesM[numKnots+1] = 0;
+
+        // precompute M = L^{-T} U  which is used in computing basis weight coefs.
+        blas_dtrsm(CblasLeft, CblasLower, CblasTrans, CblasNonUnit, 1, LMatrix, MMatrix);
+        // now M is finally in place, and the weight coefs for any lambda are given by
+        // w = M (I + lambda * diag(singValues))^{-1} M^T  z
+    }
+    catch(std::domain_error&) {   // means that the matrix is not positive definite, i.e. fit is singular
+        LMatrix = Matrix<double>();  // raise the flag of a singular case
+
+        // in this case we will solve the linear least-square fit using SVD of the original matrix C,
+        // which is pre-initialized here
+        std::vector<double> singValuesC;
+        singularValueDecomp(CMatrix, VMatrix, singValuesC);
+
+        // eliminate singular values smaller than threshold, and replace the other ones with their inverse
+        double maxSV=0;
+        for(unsigned int i=0; i<singValuesC.size(); i++)
+            maxSV = fmax(maxSV, fabs(singValuesC[i]));
+        invSingValuesC.resize(singValuesC.size());
+        for(unsigned int i=0; i<singValuesC.size(); i++)
+            invSingValuesC[i] = fabs(singValuesC[i]) < maxSV * 1e-10  ?  0  :  1/invSingValuesC[i];
+    }
+}
+
+// initialize the temporary arrays used in the fitting process
+void SplineApproxImpl::initFit(const std::vector<double> &yvalues, FitData &fitData) const
+{
+    assert(!isSingular());
+    if(yvalues.size() != numDataPoints) 
+        throw std::invalid_argument("SplineApprox: input array sizes do not match");
+    fitData.ynorm2  = pow_2(blas_dnrm2(yvalues));
+    fitData.zRHS.resize(numKnots+2);
+    fitData.MTz. resize(numKnots+2);
+    blas_dgemv(CblasTrans, 1, CMatrix, yvalues, 0, fitData.zRHS);     // precompute z = C^T y
+    blas_dgemv(CblasTrans, 1, MMatrix, fitData.zRHS, 0, fitData.MTz); // precompute M^T z
+}
+
+// obtain solution of linear system for the given smoothing parameter,
+// using the pre-computed matrix M^T z, where z = C^T y is the rhs of the system of normal equations;
+// output the weights of basis functions and other relevant quantities (RSS, EDF); return AIC
+double SplineApproxImpl::computeWeights(const FitData &fitData, const double lambda,
+    std::vector<double> &weights, double &RSS, double &EDF) const
+{
+    std::vector<double>tempv(numKnots+2);
+    if(lambda==0) {
+        linearSystemSolveCholesky(LMatrix, fitData.zRHS, weights);
+    } else {
+        for(unsigned int p=0; p<numKnots+2; p++) {
+            double sv = singValuesM[p];
+            tempv[p]  = fitData.MTz[p] / (1 + (sv>0 ? sv*lambda : 0));
+        }
+        weights.resize(numKnots+2);
+        blas_dgemv(CblasNoTrans, 1, MMatrix, tempv, 0, weights);
+    }
+    // compute the residual sum of squares (TODO: rewrite in a way that avoids cancellation!)
+    tempv = weights;
+    blas_dtrmv(CblasLower, CblasTrans, CblasNonUnit, LMatrix, tempv);
+    double wTz = blas_ddot(weights, fitData.zRHS);
+    RSS = (fitData.ynorm2 - 2*wTz + pow_2(blas_dnrm2(tempv))) / numDataPoints;
+    // compute the number of equivalent degrees of freedom
+    if(!isFinite(lambda))  // infinite smoothing leads to a straight line (2 d.o.f)
+        EDF = 2;
+    else if(lambda==0)     // no smoothing means the number of d.o.f. equal to the number of basis fncs
+        EDF = static_cast<double>(numKnots+2);
+    else {
+        EDF = 0;
+        for(unsigned int c=0; c<numKnots+2; c++)
+            EDF += 1 / (1 + lambda * singValuesM[c]);
+    }
+    return log(RSS) + 2*EDF / (numDataPoints-EDF-1);  // AIC
+}
+
+void SplineApproxImpl::computeWeightsSingular(const std::vector<double> &yvalues,
+    std::vector<double> &weights, double &RSS, double &EDF) const
+{
+    assert(isSingular());
+    if(yvalues.size() != numDataPoints) 
+        throw std::invalid_argument("SplineApprox: input array sizes do not match");
+    weights.resize(numKnots+2);
+    // solve the linear system  C w = y  in the least-square sense,
+    // using a pre-computed SVD of matrix C = U diag(SV) V^T.
+    // CMatrix stores the U component, VMatrix - the V component, and invSingValuesC is the vector
+    // containing _inverse_ singular values, or zeros in place of zero or very small singular values)
+    std::vector<double> UTy(numKnots+2), tmp(numKnots+2);
+    blas_dgemv(CblasTrans, 1, CMatrix, yvalues, 0, UTy);
+    // multiply each element of  U^T y  by a corresponding inverse singular value of matrix C
+    for(unsigned int i=0; i<numKnots+2; i++)
+        tmp[i] = UTy[i] * invSingValuesC[i];
+    // finally multiply this temp.vector by V to obtain the solution w
+    blas_dgemv(CblasNoTrans, 1, VMatrix, tmp, 0, weights);
+    // compute the residuals  C w - y,  using the relation  C w = U ( U^T y )
+    std::vector<double> resid(yvalues);
+    blas_dgemv(CblasNoTrans, 1, CMatrix, UTy, -1, resid);
+    RSS = pow_2(blas_dnrm2(resid)) / numDataPoints;
+    EDF = static_cast<double>(numKnots+2);    
+}
+
+/// after the weights of basis functions have been determined, evaluate the values
+/// of approximating spline at its nodes, and additionally its derivatives at endpoints
+void SplineApproxImpl::convertToCubicSpline(const std::vector<double>& weights,
+    std::vector<double>& splineValues, double& derivLeft, double& derivRight) const
+{
+    splineValues.assign(numKnots, 0);
+    for(unsigned int k=0; k<numKnots; k++) {
+        // for any x, at most 4 basis functions are non-zero, starting from ind
+        double B[4];
+        int ind = bsplineWeights<3>(knots[k], &knots.front(), knots.size(), B);
+        double val=0;
+        for(int p=0; p<=3; p++)
+            val += B[p] * weights[p+ind];
+        splineValues[k] = val;
+        if(k==0 || k==numKnots-1) {  // at endpoints also compute derivatives
+            bsplineDerivs<3,1>(knots[k], &knots.front(), knots.size(), B);
+            double der=0;
+            for(int p=0; p<=3; p++)
+                der += B[p] * weights[p+ind];
+            if(k==0)
+                derivLeft = der;
+            else
+                derivRight = der;
+        }
+    }
+}
+
+void SplineApproxImpl::solveForWeightsWithLambda(const std::vector<double> &yvalues, const double lambda,
+    std::vector<double> &weights, double &RSS, double &EDF) const
+{
+    if(isSingular()) {
+        computeWeightsSingular(yvalues, weights, RSS, EDF);
+        return;
+    }
+    if(lambda < 0)
+        throw std::invalid_argument("SplineApprox: lambda must be non-negative");
+    FitData fitData;
+    initFit(yvalues, fitData);
+    computeWeights(fitData, lambda, weights, RSS, EDF);
+}
+
+void SplineApproxImpl::solveForWeightsWithAIC(const std::vector<double> &yvalues, const double deltaAIC,
+    std::vector<double> &weights, double &RSS, double &EDF, double &lambda) const
+{
+    lambda=0;
+    if(isSingular()) {
+        computeWeightsSingular(yvalues, weights, RSS, EDF);
+        return;
+    }
+    FitData fitData;
+    initFit(yvalues, fitData);
+    if(deltaAIC < 0)
+        throw std::invalid_argument("SplineApprox: deltaAIC must be non-negative");
+    if(deltaAIC == 0) {  // find the value of lambda corresponding to the optimal fit
+        lambda = findMin(SplineAICRootFinder(*this, fitData, 0),
+            0, INFINITY, NAN /*no initial guess*/, 1e-6);  
+    } else {  // find an oversmoothed solution
+        // the reference value of AIC at lambda=0 (NOT the value that minimizes AIC, but very close to it)
+        double AIC0 = computeWeights(fitData, 0, weights, RSS, EDF);
+        // find the value of lambda so that AIC is larger than the reference value by the required amount
+        lambda = findRoot(SplineAICRootFinder(*this, fitData, AIC0 + deltaAIC),
+            0, INFINITY, 1e-6);
+        if(!isFinite(lambda))   // root does not exist, i.e. AIC is everywhere lower than target value
+            lambda = INFINITY;  // basically means fitting with a linear regression
+    }
+    // compute the weights for the final value of lambda
+    computeWeights(fitData, lambda, weights, RSS, EDF);
+}
+
+//----------- DRIVER CLASS FOR PENALIZED SPLINE APPROXIMATION ------------//
+
+SplineApprox::SplineApprox(const std::vector<double> &xvalues, const std::vector<double> &knots)
+{
+    impl = new SplineApproxImpl(xvalues, knots);
+}
+
+SplineApprox::~SplineApprox()
+{
+    delete impl;
+}
+
+bool SplineApprox::isSingular() const {
+    return impl->isSingular();
+}
+
+void SplineApprox::fitData(const std::vector<double> &yvalues, const double lambda,
+    std::vector<double>& splineValues, double& derivLeft, double& derivRight,
+    double *RSS_out, double* EDF_out) const
+{
+    std::vector<double> weights;
+    double RSS, EDF;
+    impl->solveForWeightsWithLambda(yvalues, lambda, weights, RSS, EDF);
+    impl->convertToCubicSpline(weights, splineValues, derivLeft, derivRight);
+    if(RSS_out)
+        *RSS_out = RSS;
+    if(EDF_out)
+        *EDF_out = EDF;
+}
+
+void SplineApprox::fitDataOversmooth(const std::vector<double> &yvalues, const double deltaAIC,
+    std::vector<double>& splineValues, double& derivLeft, double& derivRight, 
+    double *RSS_out, double* EDF_out, double *lambda_out) const
+{
+    std::vector<double> weights;
+    double RSS, EDF, lambda;
+    impl->solveForWeightsWithAIC(yvalues, deltaAIC, weights, RSS, EDF, lambda);
+    impl->convertToCubicSpline(weights, splineValues, derivLeft, derivRight);
+    if(RSS_out)
+        *RSS_out = RSS;
+    if(EDF_out)
+        *EDF_out = EDF;
+    if(lambda_out)
+        *lambda_out = lambda;
+}
+
+void SplineApprox::fitDataOptimal(const std::vector<double> &yvalues,
+    std::vector<double>& splineValues, double& derivLeft, double& derivRight, 
+    double *RSS_out, double* EDF_out, double *lambda_out) const
+{
+    fitDataOversmooth(yvalues, 0.0, splineValues, derivLeft, derivRight, RSS_out, EDF_out, lambda_out);
+}
 
 //------------ GENERATION OF UNEQUALLY SPACED GRIDS ------------//
 
@@ -1430,7 +1522,8 @@ std::vector<double> createAlmostUniformGrid(const std::vector<double> &srcpoints
 {
     if(srcpoints.size()==0)
         throw std::invalid_argument("Error in creating a grid: input points array is empty");
-    gridsize = std::max<size_t>(2, std::min<size_t>(gridsize, static_cast<size_t>(srcpoints.size()/minbin)));
+    gridsize = std::max<unsigned int>(2, std::min<unsigned int>(gridsize,
+        static_cast<unsigned int>(srcpoints.size()/minbin)));
     std::vector<double> grid(gridsize);
     std::vector<double>::iterator gridbegin=grid.begin(), gridend=grid.end();
     std::vector<double>::const_iterator srcbegin=srcpoints.begin(), srcend=srcpoints.end();

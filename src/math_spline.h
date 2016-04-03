@@ -444,7 +444,7 @@ public:
     SplineApprox(const std::vector<double> &xvalues, const std::vector<double> &knots);
     ~SplineApprox();
 
-    /** check if the basis-function matrix L is singular: if this is the case, 
+    /** check if the basis-function matrix A is singular: if this is the case, 
         fitting procedure is much slower and cannot accomodate any smoothing */
     bool isSingular() const;
 
@@ -459,7 +459,7 @@ public:
         2<=EDF<=numKnots+2.  */
     void fitData(const std::vector<double> &yvalues, const double lambda, 
         std::vector<double>& splineValues, double& derivLeft, double& derivRight,
-        double *rmserror=0, double* edf=0);
+        double *rmserror=0, double* edf=0) const;
 
     /** perform fitting with adaptive choice of smoothing parameter lambda, to minimize AIC.
         AIC (Akaike information criterion) is defined as 
@@ -468,7 +468,7 @@ public:
         and best-choice value of lambda. */
     void fitDataOptimal(const std::vector<double> &yvalues, 
         std::vector<double>& splineValues, double& derivLeft, double& derivRight,
-        double *rmserror=0, double* edf=0, double *lambda=0);
+        double *rmserror=0, double* edf=0, double *lambda=0) const;
 
     /** perform an 'oversmooth' fitting with adaptive choice of smoothing parameter lambda.
         The difference in AIC (Akaike information criterion) between the solution with no smoothing 
@@ -476,10 +476,10 @@ public:
         return spline values Y, rms error, equivalent degrees of freedom and best-choice value of lambda. */
     void fitDataOversmooth(const std::vector<double> &yvalues, const double deltaAIC, 
         std::vector<double>& splineValues, double& derivLeft, double& derivRight,
-        double *rmserror=0, double* edf=0, double *lambda=0);
+        double *rmserror=0, double* edf=0, double *lambda=0) const;
 
 private:
-    SplineApproxImpl* impl;       ///< internal data hiding the implementation details
+    const SplineApproxImpl* impl;   ///< internal object hiding the implementation details
     SplineApprox& operator= (const SplineApprox&);  ///< assignment operator forbidden
     SplineApprox(const SplineApprox&);              ///< copy constructor forbidden
 };

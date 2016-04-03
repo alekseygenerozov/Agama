@@ -7,7 +7,6 @@
 #include <gsl/gsl_poly.h>
 #include <gsl/gsl_integration.h>
 #include <gsl/gsl_rng.h>
-#include <gsl/gsl_monte_vegas.h>
 #include <stdexcept>
 #include <cassert>
 #include <vector>

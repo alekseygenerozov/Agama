@@ -111,7 +111,7 @@ double blas_ddot(const std::vector<double>& X, const std::vector<double>& Y);
 /// norm of a vector (square root of dot product of a vector by itself)
 double blas_dnrm2(const std::vector<double>& X);
 
-/// matrix-vector multiplication:  Y := alpha * A + beta * X
+/// matrix-vector multiplication:  Y := alpha * A * X + beta * Y
 void blas_dgemv(CBLAS_TRANSPOSE TransA,
     double alpha, const Matrix<double>& A, const std::vector<double>& X, double beta,
     std::vector<double>& Y);
