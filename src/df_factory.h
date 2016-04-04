@@ -15,19 +15,21 @@ namespace utils { class KeyValueMap; }
 namespace df {
 
 /** A trivial collection of several distribution functions */
-class CompositeDF: public BaseDistributionFunction{
+class CompositeDF: public BaseMulticomponentDF{
 public:
     CompositeDF(const std::vector<PtrDistributionFunction> &comps) :
         components(comps) {};
-    unsigned int size() const { return components.size(); }
+
+    /// the number of components in this composite DF
+    virtual unsigned int size() const { return components.size(); }
+
+    /// pointer to the given component
     PtrDistributionFunction component(unsigned int index) const {
         return components.at(index); }
-    virtual double value(const actions::Actions &J) const {
-        double sum=0;
-        for(unsigned int i=0; i<components.size(); i++) 
-            sum += components[i]->value(J); 
-        return sum;
-    }    
+
+    /// value of the given DF component at the given actions
+    virtual double valueOfComponent(const actions::Actions &J, unsigned int index) const {
+        return components.at(index)->value(J); }
 private:
     std::vector<PtrDistributionFunction> components;
 };

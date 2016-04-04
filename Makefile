@@ -25,6 +25,7 @@ SOURCES   = \
             df_disk.cpp \
             df_factory.cpp \
             df_halo.cpp \
+            df_interpolated.cpp \
             galaxymodel.cpp \
             galaxymodel_selfconsistent.cpp \
             math_core.cpp \
@@ -85,6 +86,8 @@ TESTSRCS  = test_math_core.cpp \
             test_newtorus.cpp \
             test_df_disk.cpp \
             test_df_halo.cpp \
+            test_df_interpolated.cpp \
+            test_df_fit.cpp \
             test_df_fit_spher.cpp \
             test_selfconsistentmodel.cpp \
 

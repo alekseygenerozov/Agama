@@ -716,10 +716,10 @@ static int integrandNdimWrapperCuba(const int *ndim, const double xscaled[],
             param->xvalue[n] = param->xlower[n] + (param->xupper[n]-param->xlower[n])*xscaled[n];
         param->F.eval(&param->xvalue.front(), fval);
         double result=0;
-        for(unsigned int i=0; i<param->F.numValues(); i++)
+        for(int i=0; i< *ncomp; i++)
             result+=fval[i];
         if(!isFinite(result)) {
-            param->error = "Invalid function value encountered at";
+            param->error = "integrateNdim: invalid function value encountered at";
             for(int n=0; n< *ndim; n++)
                 param->error += " "+utils::convertToString(param->xvalue[n], 15);
             return -1;
@@ -727,7 +727,7 @@ static int integrandNdimWrapperCuba(const int *ndim, const double xscaled[],
         return 0;   // success
     }
     catch(std::exception& e) {
-        param->error = std::string(" ")+e.what();
+        param->error = std::string("integrateNdim: ") + e.what();
         return -999;  // signal of error
     }
 }
@@ -749,10 +749,10 @@ static int integrandNdimWrapperCubature(unsigned int ndim, const double *x, void
         param->numEval++;
         param->F.eval(x, fval);
         double result=0;
-        for(unsigned int i=0; i<param->F.numValues(); i++)
+        for(unsigned int i=0; i<fdim; i++)
             result+=fval[i];
         if(!isFinite(result)) {
-            param->error = "Invalid function value encountered at";
+            param->error = "integrateNdim: invalid function value encountered at";
             for(unsigned int n=0; n<ndim; n++)
                 param->error += " "+utils::convertToString(x[n], 15);
             return -1;
@@ -760,7 +760,7 @@ static int integrandNdimWrapperCubature(unsigned int ndim, const double *x, void
         return 0;   // success
     }
     catch(std::exception& e) {
-        param->error = std::string(" ")+e.what();
+        param->error = std::string("integrateNdim: ") + e.what();
         return -1;  // signal of error
     }
 }
@@ -773,10 +773,9 @@ void integrateNdim(const IFunctionNdim& F, const double xlower[], const double x
     const unsigned int numVars = F.numVars();
     const unsigned int numValues = F.numValues();
     const double absToler = 0;  // maybe should be more flexible?
-    double* error = outError;
+    // storage for errors in the case that user doesn't need them
     std::vector<double> tempError(numValues);
-    if(error==NULL)
-        error = &tempError.front();  // storage for errors in the case that user doesn't need them
+    double* error = outError!=NULL ? outError : &tempError.front();
 #ifdef HAVE_CUBA
     CubaParams param(F, xlower, xupper);
     std::vector<double> tempProb(numValues);  // unused
@@ -784,10 +783,10 @@ void integrateNdim(const IFunctionNdim& F, const double xlower[], const double x
     const int NVEC = 1, FLAGS = 0, KEY = 0, minNumEval = 0;
     cubacores(0, 0);
     Cuhre(numVars, numValues, &integrandNdimWrapperCuba, &param, NVEC,
-          relToler, absToler, FLAGS, minNumEval, maxNumEval, 
-          KEY, NULL/*STATEFILE*/, NULL/*spin*/,
-          &nregions, numEval!=NULL ? numEval : &neval, &fail, 
-          result, error, &tempProb.front());
+        relToler, absToler, FLAGS, minNumEval, maxNumEval, 
+        KEY, NULL/*STATEFILE*/, NULL/*spin*/,
+        &nregions, numEval!=NULL ? numEval : &neval, &fail, 
+        result, error, &tempProb.front());
     // need to scale the result to account for coordinate transformation [xlower:xupper] => [0:1]
     double scaleFactor = 1.;
     for(unsigned int n=0; n<numVars; n++)
@@ -797,16 +796,16 @@ void integrateNdim(const IFunctionNdim& F, const double xlower[], const double x
         error[m] *= scaleFactor;
     }
     if(!param.error.empty())
-        throw std::runtime_error("Error in integrateNdim: "+param.error);
+        throw std::runtime_error(param.error);
 #else
     CubatureParams param(F);
     hcubature(numValues, &integrandNdimWrapperCubature, &param,
-              numVars, xlower, xupper, maxNumEval, absToler, relToler,
-              ERROR_INDIVIDUAL, result, error);
+        numVars, xlower, xupper, maxNumEval, absToler, relToler,
+        ERROR_INDIVIDUAL, result, error);
     if(numEval!=NULL)
         *numEval = param.numEval;
     if(!param.error.empty())
-        throw std::runtime_error("Error in integrateNdim: "+param.error);
+        throw std::runtime_error(param.error);
 #endif
 }
 

@@ -43,6 +43,35 @@ private:
     BaseDistributionFunction& operator= (const BaseDistributionFunction&);
 };
 
+/** Base class for multi-component distribution functions */
+class BaseMulticomponentDF: public BaseDistributionFunction{
+public:
+    /// the number of components
+    virtual unsigned int size() const = 0;
+
+    /// value of the given DF component at the given actions
+    virtual double valueOfComponent(const actions::Actions &J, unsigned int index) const = 0;
+
+    /** values of all components at the given actions:
+        \param[in]  J are the actions;
+        \param[out] values will contain the values of all components,
+        must point to an existing array of sufficient length.
+    */
+    virtual void valuesOfAllComponents(const actions::Actions &J, double values[]) const {
+        for(unsigned int i=0; i<size(); i++)
+            values[i] = valueOfComponent(J, i);
+    }
+
+    /// total value of multi-component DF is the sum of all components
+    virtual double value(const actions::Actions &J) const {
+        double sum=0;
+        for(unsigned int i=0; i<size(); i++)
+            sum += valueOfComponent(J, i);
+        return sum;
+    }
+};
+
+
 /** Sample the distribution function in actions.
     In other words, draw N sampling points from the action space, so that the density of points 
     in the neighborhood of any point is proportional to the value of DF at this point 

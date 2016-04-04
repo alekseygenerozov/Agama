@@ -180,7 +180,7 @@ protected:
     }
 
     const coord::PosCyl point;  ///< fixed position
-    const double v_esc ;        ///< escape velocity at this position
+    const double v_esc;         ///< escape velocity at this position
 };
 
 
@@ -332,6 +332,47 @@ protected:
     }
 };
 
+
+/** helper class for integrating a multi-component DF over velocities at the given point,
+    to obtain the densities of each component separately. */
+class DFIntegrandMulticomponent: public math::IFunctionNdim {
+public:
+    DFIntegrandMulticomponent(
+        const potential::BasePotential&  _potential,
+        const actions::BaseActionFinder& _actFinder,
+        const df::BaseMulticomponentDF&  _distrFunc,
+        const coord::PosCyl& _point) :
+    actFinder(_actFinder), distrFunc(_distrFunc), numComp(distrFunc.size()),
+    point(_point), v_esc(escapeVel(_point, _potential)) {}
+    
+    /** compute values of all components of the distribution function. */
+    virtual void eval(const double vars[], double values[]) const
+    {
+        for(unsigned int i=0; i<numComp; i++)
+            values[i] = 0;
+        double jac;    // jacobian of variable transformation
+        coord::PosVelCyl posvel(point, unscaleVelocity(vars, v_esc, &jac));
+        if(jac == 0)   // we can't compute actions, but pretend that DF*jac is zero
+            return;
+        actions::Actions acts = actFinder.actions(posvel);
+        distrFunc.valuesOfAllComponents(acts, values);
+        for(unsigned int i=0; i<numComp; i++)
+            values[i] *= jac;
+    }
+    
+private:
+    /// dimension of the input array (3 scaled velocity components)
+    virtual unsigned int numVars()   const { return 3; }
+    /// dimension of the output array
+    virtual unsigned int numValues() const { return numComp; }
+    
+    const actions::BaseActionFinder& actFinder;
+    const df::BaseMulticomponentDF&  distrFunc;
+    const unsigned int numComp;
+    const coord::PosCyl point;  ///< fixed position
+    const double v_esc;         ///< escape velocity at this position
+};
+
 }  // unnamed namespace
 
 //------- DRIVER ROUTINES -------//
@@ -398,7 +439,24 @@ void computeMoments(const GalaxyModel& model,
     }
 }
 
-
+std::vector<double> computeMulticomponentDensity(
+    const potential::BasePotential& pot,
+    const actions::BaseActionFinder& af,
+    const df::BaseMulticomponentDF&  df,
+    const coord::PosCyl& point,
+    const double reqRelError,
+    const int maxNumEval)
+{
+    // define the integration region in scaled velocities
+    double xlower[3] = {0, 0, 0};
+    double xupper[3] = {1, 1, 1};
+    std::vector<double> result(df.size()), error(df.size());
+    int numEval; // actual number of evaluations
+    DFIntegrandMulticomponent fnc(pot, af, df, point);
+    math::integrateNdim(fnc, xlower, xupper, reqRelError, maxNumEval, &result[0], &error[0], &numEval);
+    return result;
+}
+    
 double computeProjectedDF(const GalaxyModel& model,
     const double R, const double vz, const double vz_error,
     const double reqRelError, const int maxNumEval, double* error, int* numEval)

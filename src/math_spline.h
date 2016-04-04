@@ -383,9 +383,12 @@ public:
     /** return the array of grid nodes in z-coordinate */
     const std::vector<double>& zvalues() const { return zval; }
 
+    /** return the array of function values (may be empty if not provided at the constructor) */
+    const std::vector<double>& fncvalues() const { return fncval; }
+    
 private:
     std::vector<double> xval, yval, zval;  ///< grid nodes in x, y and z directions
-    std::vector<double> fncvalues;         ///< the values of function at the nodes of 3d grid, if provided
+    std::vector<double> fncval;            ///< the values of function at the nodes of 3d grid, if provided
 };
 
 /// trilinear interpolator
@@ -448,32 +451,39 @@ public:
         fitting procedure is much slower and cannot accomodate any smoothing */
     bool isSingular() const;
 
-    /** perform actual fitting for the array of y values corresponding to the array of x values 
-        passed to the constructor, with given smoothing parameter lambda.
-        Return spline values Y at knots X, and if necessary, RMS error and EDF 
-        (equivalent degrees of freedom) in corresponding output parameters (if they are not NULL).
-        The spline derivatives at endpoints are returned in separate output arguments
-        (to pass to initialization of clamped cubic spline):  the internal fitting process uses 
-        b-splines, not natural cubic splines, therefore the endpoint derivatives are non-zero.
-        EDF is equivalent number of free parameters in fit, increasing smoothing decreases EDF: 
-        2<=EDF<=numKnots+2.  */
+    /** perform actual fitting for the array of y values with the given smoothing parameter.
+        \param[in]  yvalues is the array of data points corresponding to x values
+        that were passed to the constructor;
+        \param[in]  lambda  is the smoothing parameter;
+        \param[out] splineValues  are the values of smoothing spline function at grid nodes;
+        \param[out] derivLeft, derivRight  are the derivatives of spline at the endpoints,
+        which together with splineValues provide a complete description of the clamped cubic spline;
+        \param[out] rmserror if not NULL, will contain the root-mean-square deviation of data points
+        from the smoothing curve;
+        \param[out] edf if not NULL, will contain the number of equivalend degrees of freedom,
+        which decreases from numKnots+2 to 2 as the smoothing parameter increases from 0 to infinity.
+    */
     void fitData(const std::vector<double> &yvalues, const double lambda, 
         std::vector<double>& splineValues, double& derivLeft, double& derivRight,
         double *rmserror=0, double* edf=0) const;
 
-    /** perform fitting with adaptive choice of smoothing parameter lambda, to minimize AIC.
-        AIC (Akaike information criterion) is defined as 
-          log(rmserror*numDataPoints) + 2*EDF/(numDataPoints-EDF-1) .
-        return spline values Y, rms error, equivalent degrees of freedom (EDF),
-        and best-choice value of lambda. */
+    /** perform fitting with adaptive choice of smoothing parameter lambda, to minimize
+        the value of AIC (Akaike information criterion), defined as 
+          log(rmserror^2 * numDataPoints) + 2 * EDF / (numDataPoints-EDF-1) .
+        The input and output arguments are similar to `fitData()`, with the difference that
+        the smoothing parameter lambda is not provided as input, but may be reported as output
+        parameter `lambda` if the latter is not NULL.
+    */
     void fitDataOptimal(const std::vector<double> &yvalues, 
         std::vector<double>& splineValues, double& derivLeft, double& derivRight,
         double *rmserror=0, double* edf=0, double *lambda=0) const;
 
     /** perform an 'oversmooth' fitting with adaptive choice of smoothing parameter lambda.
-        The difference in AIC (Akaike information criterion) between the solution with no smoothing 
-        and the returned solution is equal to deltaAIC (i.e. smooth more than optimal amount defined above).
-        return spline values Y, rms error, equivalent degrees of freedom and best-choice value of lambda. */
+        deltaAIC>=0 determines the difference in AIC (Akaike information criterion) between
+        the solution with no smoothing and the returned solution which is smoothed more than
+        the optimal amount defined above.
+        The other arguments have the same meaning as in `fitDataOptimal()`.
+    */
     void fitDataOversmooth(const std::vector<double> &yvalues, const double deltaAIC, 
         std::vector<double>& splineValues, double& derivLeft, double& derivRight,
         double *rmserror=0, double* edf=0, double *lambda=0) const;
@@ -487,6 +497,14 @@ private:
 ///@}
 /// \name Auxiliary routines for grid generation
 ///@{
+
+/** generate a grid with uniformly spaced nodes.
+    \param[in]  nnodes   is the total number of grid points (>=2);
+    \param[in]  xmin     is the location of the innermost node (>0);
+    \param[in]  xmax     is the location of the outermost node (should be >xmin);
+    \return     the array of grid nodes.
+*/
+std::vector<double> createUniformGrid(unsigned int nnodes, double xmin, double xmax);
 
 /** generate a grid with exponentially spaced nodes, i.e., uniform in log(x):
     log(x[k]) = log(xmin) + log(xmax/xmin) * k/(nnodes-1), k=0..nnodes-1.

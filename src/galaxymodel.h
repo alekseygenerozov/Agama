@@ -52,6 +52,15 @@ void computeMoments(const GalaxyModel& model,
     double* densityErr, coord::VelCyl* velocityFirstMomentErr, coord::Vel2Cyl* velocitySecondMomentErr);
 
 
+std::vector<double> computeMulticomponentDensity(
+    const potential::BasePotential& pot,
+    const actions::BaseActionFinder& af,
+    const df::BaseMulticomponentDF&  df,
+    const coord::PosCyl& point,
+    const double reqRelError,
+    const int maxNumEval);
+
+
 /** Compute the value of 'projected distribution function' at the given point
     specified by two coordinates in the sky plane and line-of-sight velocity.
     \param[in]  model  is the galaxy model;

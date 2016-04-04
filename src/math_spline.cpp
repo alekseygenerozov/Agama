@@ -934,14 +934,15 @@ template<int N>
 BaseInterpolator3d<N>::BaseInterpolator3d(
     const std::vector<double>& xgrid, const std::vector<double>& ygrid, const std::vector<double>& zgrid,
     const std::vector<double>& fvalues) :
-    xval(xgrid), yval(ygrid), zval(zgrid), fncvalues(fvalues)
+    xval(xgrid), yval(ygrid), zval(zgrid), fncval(fvalues)
 {
     const unsigned int xsize = xval.size();
     const unsigned int ysize = yval.size();
     const unsigned int zsize = zval.size();
     if(xsize<N+1 || ysize<N+1 || zsize<N+1)
-        throw std::invalid_argument("Error in 3d interpolator initialization: number of nodes is too small");
-    if(!fncvalues.empty() && fncvalues.size() != xsize * ysize * zsize)
+        throw std::invalid_argument("Error in 3d interpolator initialization: "
+            "number of nodes is too small");
+    if(!fncval.empty() && fncval.size() != xsize * ysize * zsize)
         throw std::invalid_argument("Error in 3d interpolator initialization: "
             "the array of function values is not compatible with sizes of coordinate grids");
 }
@@ -949,7 +950,7 @@ BaseInterpolator3d<N>::BaseInterpolator3d(
 template<int N>
 void BaseInterpolator3d<N>::eval(const double vars[3], double *value) const
 {
-    if(fncvalues.empty())
+    if(fncval.empty())
         throw std::range_error("Error in 3d interpolator: function values not initialized");
     double weights[(N+1)*(N+1)*(N+1)];
     unsigned int leftInd[3];
@@ -961,7 +962,7 @@ void BaseInterpolator3d<N>::eval(const double vars[3], double *value) const
         for(int j=0; j<=N; j++)
             for(int k=0; k<=N; k++)
                 *value += weights[(i * (N+1) + j) * (N+1) + k] *
-                fncvalues[ ((i+leftInd[0]) * ysize + j+leftInd[1]) * zsize + k+leftInd[2] ]; 
+                fncval[ ((i+leftInd[0]) * ysize + j+leftInd[1]) * zsize + k+leftInd[2] ];
 }
 
 template<int N>
@@ -1040,7 +1041,7 @@ public:
         that were provided to the constructor;
         \param[in]  lambda>=0  is the smoothing parameter (ignored if the matrix C is singular);
         \param[out] weights  will contain the computed weights of basis functions;
-        \param[out] RSS  will contain the residual sum of squares divided by the number of data points;
+        \param[out] RSS  will contain the residual sum of squared differences between data and appxox;
         \param[out] EDF  will contain the equivalent number of degrees of freedom (2<=EDF<=numBasisFnc).
     */
     void solveForWeightsWithLambda(const std::vector<double> &yvalues, const double lambda,
@@ -1276,7 +1277,7 @@ double SplineApproxImpl::computeWeights(const FitData &fitData, const double lam
     tempv = weights;
     blas_dtrmv(CblasLower, CblasTrans, CblasNonUnit, LMatrix, tempv);
     double wTz = blas_ddot(weights, fitData.zRHS);
-    RSS = (fitData.ynorm2 - 2*wTz + pow_2(blas_dnrm2(tempv))) / numDataPoints;
+    RSS = (fitData.ynorm2 - 2*wTz + pow_2(blas_dnrm2(tempv)));
     // compute the number of equivalent degrees of freedom
     if(!isFinite(lambda))  // infinite smoothing leads to a straight line (2 d.o.f)
         EDF = 2;
@@ -1311,7 +1312,7 @@ void SplineApproxImpl::computeWeightsSingular(const std::vector<double> &yvalues
     // compute the residuals  C w - y,  using the relation  C w = U ( U^T y )
     std::vector<double> resid(yvalues);
     blas_dgemv(CblasNoTrans, 1, CMatrix, UTy, -1, resid);
-    RSS = pow_2(blas_dnrm2(resid)) / numDataPoints;
+    RSS = pow_2(blas_dnrm2(resid));
     EDF = static_cast<double>(numKnots+2);    
 }
 
@@ -1402,42 +1403,52 @@ bool SplineApprox::isSingular() const {
 
 void SplineApprox::fitData(const std::vector<double> &yvalues, const double lambda,
     std::vector<double>& splineValues, double& derivLeft, double& derivRight,
-    double *RSS_out, double* EDF_out) const
+    double *rms, double* edf) const
 {
     std::vector<double> weights;
     double RSS, EDF;
     impl->solveForWeightsWithLambda(yvalues, lambda, weights, RSS, EDF);
     impl->convertToCubicSpline(weights, splineValues, derivLeft, derivRight);
-    if(RSS_out)
-        *RSS_out = RSS;
-    if(EDF_out)
-        *EDF_out = EDF;
+    if(rms)
+        *rms = sqrt(RSS / yvalues.size());
+    if(edf)
+        *edf = EDF;
 }
 
 void SplineApprox::fitDataOversmooth(const std::vector<double> &yvalues, const double deltaAIC,
     std::vector<double>& splineValues, double& derivLeft, double& derivRight, 
-    double *RSS_out, double* EDF_out, double *lambda_out) const
+    double *rms, double* edf, double *lam) const
 {
     std::vector<double> weights;
     double RSS, EDF, lambda;
     impl->solveForWeightsWithAIC(yvalues, deltaAIC, weights, RSS, EDF, lambda);
     impl->convertToCubicSpline(weights, splineValues, derivLeft, derivRight);
-    if(RSS_out)
-        *RSS_out = RSS;
-    if(EDF_out)
-        *EDF_out = EDF;
-    if(lambda_out)
-        *lambda_out = lambda;
+    if(rms)
+        *rms = sqrt(RSS / yvalues.size());
+    if(edf)
+        *edf = EDF;
+    if(lam)
+        *lam = lambda;
 }
 
 void SplineApprox::fitDataOptimal(const std::vector<double> &yvalues,
     std::vector<double>& splineValues, double& derivLeft, double& derivRight, 
-    double *RSS_out, double* EDF_out, double *lambda_out) const
+    double *rms, double* edf, double *lambda) const
 {
-    fitDataOversmooth(yvalues, 0.0, splineValues, derivLeft, derivRight, RSS_out, EDF_out, lambda_out);
+    fitDataOversmooth(yvalues, 0.0, splineValues, derivLeft, derivRight, rms, edf, lambda);
 }
 
 //------------ GENERATION OF UNEQUALLY SPACED GRIDS ------------//
+
+std::vector<double> createUniformGrid(unsigned int nnodes, double xmin, double xmax)
+{
+    if(nnodes<2 || xmax<=xmin)
+        throw std::invalid_argument("Invalid parameters for grid creation");
+    std::vector<double> grid(nnodes);
+    for(unsigned int k=0; k<nnodes; k++)
+        grid[k] = (xmin * (nnodes-1-k) + xmax * k) / (nnodes-1);
+    return grid;
+}
 
 std::vector<double> createExpGrid(unsigned int nnodes, double xmin, double xmax)
 {
