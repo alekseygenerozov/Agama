@@ -284,117 +284,148 @@ private:
     Matrix<double> zx, zy, zxxx, zyyy, zxyy, zxxxyy;
 };
 
+
 ///@}
 /// \name Three-dimensional interpolation
 ///@{
 
-/** Three-dimensional interpolator class: `f(x,y,z)` obtained by a tensor product
-    of three 1d interpolaing kernels of order N>=1 that use N+1 grid points in each dimension.
-    The interpolation is local: to compute the value at a given point, it uses only the values of
-    the original function `v(x,y,z)` at (N+1)^3 nearby grid points, unlike 1d and 2d splines
-    that are constructed globally.
-    For N=1, the values of interpolated function `f` at grid nodes coincide with the original values `v`,
-    but for N>1 this is not the case (like a Bezier curve does not pass through its control points).
+/** Three-dimensional kernel interpolator class.
+    The value of interpolant is given by a weighted sum of components:
+    \f$  f(x,y,z) = \sum_n  A_n  K_n(x,y,z) ,  0 <= n < numComp  \f$,
+    where A_n are the amplitudes and K_n are 3d interpolation kernels, obtained by a tensor product
+    of three 1d interpolating kernels of order N>=1 that use N+1 grid points in each dimension.
+    The interpolation is local - at any point, at most (N+1)^3 kernels are non-zero.
+    The total number of components numComp = (N_x+N-1) * (N_y+N-1) * (N_z+N-1), where N_x,N_y,N_z
+    are the grid sizes in each dimension; the correspondence between the triplet of indices {i,j,k}
+    and the index of the component n is given by two functions `indComp` and `decomposeIndComp`.
+    For a linear interpolator (N=1) numComp is equal to the total number of nodes in the 3d grid,
+    and the value of interpolant at each node of 3d grid is equal to the amplitude of
+    the correspoding component; in other words, if we denote the grid nodes as X[i],Y[j],Z[k],
+    0<=i<N_x, etc., then  f(X[i], Y[j], Z[k]) = A[indComp(i,j,k)].
+    However, for higher-order interpolators (N>1) there is no 1:1 correspondence between the amplitudes
+    of components and the values of interpolant at grid points (like a Bezier curve does not pass
+    through its control points), and the number of components is larger than the total number of nodes.
+    This class does not itself hold the amplitudes of components, it only manages the interpolation
+    kernels - e.g., `nonzeroKernels()` computes the values of all possibly non-zero kernels
+    at the given point, the method `eval()` implementing IFunctionNdim interface computes the values
+    of all numComp kernels at the given point, and `interpolate()` computes the value of interpolant
+    at the given point from the provided array of amplitudes, summing only over the relevant kernels.
+    \tparam N is the order of 1d interpolation kernels (N=1 - linear, N=3 - cubic).
 */
 template<int N>
-class BaseInterpolator3d: public math::IFunctionNdim {
+class KernelInterpolator3d: public math::IFunctionNdim {
 public:
-    BaseInterpolator3d() {};
-    /** Initialize a 3d interpolator from the provided 1d arrays of grid nodes in x, y and z dimensions,
-        and optionally the function values v at the nodes of this 3d grid.
+    /** Initialize a 3d interpolator from the provided 1d arrays of grid nodes in x, y and z dimensions.
         \param[in] xnodes, ynodes, znodes are the nodes of grid in each dimension,
-        sorted in increasing order, must have at least N+1 elements;
-        \param[in] fncvalues (optional) are the original function values `v(x,y,z)`
-        with the following indexing convention:
-        fncvalues[ (i*Ny + j) * Nz + k ] = v(x[i], y[j], z[k]), where Ny=ynodes.size(), Nz=znodes.size().
-        If this array is not provided (or is empty), the function values remain uninitialized,
-        but it is still possible to compute the weights of linear combination of these values
-        for any point (x,y,z) within the grid definition regions, using the method `components`.
+        sorted in increasing order, must have at least N+1 elements.
+        \throw std::invalid_argument if the grid sizes are too small.
     */
-    BaseInterpolator3d(const std::vector<double>& xnodes, const std::vector<double>& ynodes,
-        const std::vector<double>& znodes, const std::vector<double>& fncvalues=std::vector<double>());
+    KernelInterpolator3d(const std::vector<double>& xnodes,
+        const std::vector<double>& ynodes, const std::vector<double>& znodes);
 
-    /** Compute the weights of the linear combination of function values at grid points
-        needed to evaluate the interpolated value `f` at the given location.
-        \param[in]  vars is the 3d vector of coordinates on the grid;
-        \param[out] leftIndices is the 3d array of indices of leftmost grid nodes in each of
-        the three coordinates that are used for kernel interpolation (N+1 nodes in each dimension);
-        \param[out] weights  is the array of (N+1)^3 weights that must be multiplied by the priginal
-        function values `v` at grid nodes to compute the interpolated value, namely:
-        \f$  f(x,y,z) = \sum_{i=0}^N \sum_{j=0}^N \sum_{k=0}^N  v(xn_{i+l[0]}, yn_{j+l[1]}, zn_{k+l[2]})
-        \times  weights[(i*(N+1)+j)*(N+1)+k]  \f$,  where `l` is the shortcut for `leftIndices`,
-        `xn`, `yn` and `zn` are the 1d arrays of grid nodes in each dimension,
-        and `v` are the function values at these nodes.
-        The sum of weights of all components is always 1, and weights are non-negative.
+    /** Compute the values of all potentially non-zero interpolating kernels at the given point,
+        needed to obtain the value of interpolant f(x,y,z) at this point.
+        \param[in]  point is the array of three coordinates of the point;
+        \param[out] leftIndices is the array of indices of leftmost elements used for kernel
+        interpolation in each of 3 dimensions: N+1 consecutive elements are used per dimension;
+        \param[out] values  is the array of (N+1)^3 weights (values of 3d interpolation kernels)
+        that must be multiplied by the amplitudes to compute the interpolant, namely:
+        \f$  f(x,y,z) = \sum_{i=0}^N \sum_{j=0}^N \sum_{k=0}^N
+             A[indComp(i+l[0], j+l[1], k+l[2])  \times  values[(i * (N+1) + j) * (N+1) + k]  \f$,
+        where `l` is the shortcut for `leftIndices`, and `A` is the flattened array of amplitudes.
+        The sum of weights of all kernels is always 1, and weights are non-negative.
         The special case when one of these weigths is 1 and the rest are 0 occurs at the corners of
         the cube (the definition region), or, for a linear intepolator (N=1) also at all grid nodes,
-        and means that the value of interpolated function `f` is equal to the original function value `v`
-        at this node only; in all other points (even grid nodes for N>1) these values need not coincide.
-        This method may be used even if the function values `v` at grid nodes were not provided in
-        the constructor, in which case it is the responsibility of the user to carry out this summation.
-        Otherwise one may use the `value()` method that performs this operation itself.
-        If any of the coordinates falls outside grid boundaries in the respective dimension,
-        the weights are NaN.
-        \throw std::range_error if the grid nodes are empty
-        (but uninitialized function values do not trigger an exception).
+        and means that the value of interpolant `f` is equal to the single element of the amplitudes
+        array, which in the case N=1 should contain the values of the original function at grid nodes.
+        If any of the coordinates of input point falls outside grid boundaries in the respective
+        dimension, all weights are zero.
     */
-    void components(const double vars[3], unsigned int leftIndices[3], double weights[]) const;
+    void nonzeroComponents(const double point[3], unsigned int leftIndices[3], double values[]) const;
 
-    /** Compute the value of the interpolating function `f` at point (x,y,z).
-        \param[in] vars is the 3d vector of coordinates on the grid;
-        \param[out] value will contain the interpolated function value at the given point.
-        If the input location is outside the definition region, the result is NaN.
-        Keep in mind that if the order of interpolator N>1, the weighted sum of (N+1)^3 components
-        multiplied by the original function values at the nearby nodes may not equal the original value
-        even if the point coincides with one of grid nodes (in other words, the interpolated curve is
-        smoothing the original function); only in the case of trilinear interpolator (N=1) they are equal.
-        \throw std::range_error if either grid nodes or the array of function values are not initialized.
+    /** Return the value of a single component (interpolation kernel) at the given point.
+        Note that it is much more efficient to compute all possibly nonzero components at once,
+        by calling `nonzeroComponents()`, than calling this function separately for each indComp;
+        alternatively, `eval()` returns the values of all numComp (empty and non-empty) components.
+        \param[in]  point  is the array of three coordinates of the point;
+        \param[in]  indComp  is the index of component (0 <= indComp < numComp);
+        \return  the value of a single interpolation kernel at this point, or zero if the point
+        is outside the grid definition region;
+        \throw std::range_error if indComp is out of range.
     */
-    virtual void eval(const double vars[3], double *value) const;
+    double valueOfComponent(const double point[3], unsigned int indComp) const;
 
-    /** shortcut for computing the value of interpolating function, with the same usage as `eval` */
-    double value(const double x, const double y, const double z) const {
-        double v, t[3]={x,y,z};
-        eval(t, &v);
-        return v;
+    /** Compute the values of all numComp kernels at the given point.
+        \param[in]  point is the array of three coordinates of the point;
+        \param[out] values will contain the values of all kernels at the given point
+        (many of them may be zero); must point to an existing array of length numComp
+        (no range check performed!).
+        If the input point is outside the grid, all values will contain zeros.
+    */
+    virtual void eval(const double point[3], double values[]) const;
+
+    /** Compute the value of the interpolant `f` at the given point.
+        \param[in] point is the array of three coordinates of the point;
+        \param[in] amplitudes is the array of numComp amplitudes of each kernel, provided by the caller;
+        \return    the weighted sum of all potentially non-zero kernels at this point, multiplied by
+        their respective amplitudes, or 0 if the input location is outside the grid definition region.
+        \throw std::range_error if the length of `amplitudes` does not correspond to numComp.
+    */
+    double interpolate(const double point[3], const std::vector<double> &amplitudes) const;
+
+    /** The dimensions of interpolator (3) */
+    virtual unsigned int numVars()   const { return 3; }
+
+    /** The number of components (3d interpolation kernels) */
+    virtual unsigned int numValues() const { return numComp; }
+
+    /** Return the index of element in the flattened 3d array of function values
+        associated with the given triplet of indices in each of the 1d coordinate grids.
+        The indices must satisfy  0 <= ind_x < N_x+N-1, 0 <= ind_y < N_y+N-1, 0 <= ind_z < N_z+N-1,
+        where N_x, N_y, N_z are the sizes of grids in each dimension provided to the constructor;
+        however, no range check is performed on the input indices!
+    */
+    unsigned int indComp(unsigned int ind_x, unsigned int ind_y, unsigned int ind_z) const {
+        return (ind_x * (ynodes.size()+N-1) + ind_y) * (znodes.size()+N-1) + ind_z;
     }
 
-    // IFunctionNdim interface
-    virtual unsigned int numVars()   const { return 3; }
-    virtual unsigned int numValues() const { return 1; }
+    /** Decompose the index of element in the flattened 3d array of function values
+        into the three indices in each of the 1d coordinate grids (no range check is performed!)
+    */
+    void decomposeIndComp(const unsigned int indComp, unsigned int indices[3]) const {
+        const unsigned int NN_y = znodes.size()+N-1, NN_z = znodes.size()+N-1;
+        indices[2] = indComp % NN_z,
+        indices[1] = indComp / NN_z % NN_y,
+        indices[0] = indComp / NN_z / NN_y;
+    }
     
-    /** return the boundaries of definition region */
-    double xmin() const { return xval.size()? xval.front(): NAN; }
-    double xmax() const { return xval.size()? xval.back() : NAN; }
-    double ymin() const { return yval.size()? yval.front(): NAN; }
-    double ymax() const { return yval.size()? yval.back() : NAN; }
-    double zmin() const { return zval.size()? zval.front(): NAN; }
-    double zmax() const { return zval.size()? zval.back() : NAN; }
-
-    /** check if the interpolator grid is initialized (the function values may remain uninitialized) */
-    bool isEmpty() const { return xval.size()==0 || yval.size()==0 || zval.size()==0; }
-
-    /** return the array of grid nodes in x-coordinate */
-    const std::vector<double>& xvalues() const { return xval; }
-
-    /** return the array of grid nodes in y-coordinate */
-    const std::vector<double>& yvalues() const { return yval; }
-
-    /** return the array of grid nodes in z-coordinate */
-    const std::vector<double>& zvalues() const { return zval; }
-
-    /** return the array of function values (may be empty if not provided at the constructor) */
-    const std::vector<double>& fncvalues() const { return fncval; }
+    /** return the boundaries of grid definition region */
+    double xmin() const { return xnodes.front(); }
+    double xmax() const { return xnodes.back();  }
+    double ymin() const { return ynodes.front(); }
+    double ymax() const { return ynodes.back();  }
+    double zmin() const { return znodes.front(); }
+    double zmax() const { return znodes.back();  }
     
 private:
-    std::vector<double> xval, yval, zval;  ///< grid nodes in x, y and z directions
-    std::vector<double> fncval;            ///< the values of function at the nodes of 3d grid, if provided
+    std::vector<double> xnodes, ynodes, znodes;  ///< grid nodes in x, y and z directions
+    const unsigned int numComp;                  ///< total number of components
 };
 
 /// trilinear interpolator
-typedef BaseInterpolator3d<1> LinearInterpolator3d;
+typedef KernelInterpolator3d<1> LinearInterpolator3d;
 /// tricubic interpolator
-typedef BaseInterpolator3d<3> CubicInterpolator3d;
+typedef KernelInterpolator3d<3> CubicInterpolator3d;
+
+/** fill the array of amplitudes for a 3d interpolator by collecting the values of the source
+    function F at the nodes of 3d grid.
+*/
+template<int N>
+std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
+    const std::vector<double>& xnodes,
+    const std::vector<double>& ynodes,
+    const std::vector<double>& znodes);
+
 
 ///@}
 /// \name Penalized spline approximation (1d)

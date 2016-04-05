@@ -46,7 +46,8 @@ bool allZeros(const Matrix<double>& mat)
     return true;
 }
 
-// ---- wrappers for GSL vector and matrix views (access the data arrays without copying) ----- //
+namespace {
+// wrappers for GSL vector and matrix views (access the data arrays without copying) and permutations
 struct Vec {
     explicit Vec(std::vector<double>& vec) :
         v(gsl_vector_view_array(&vec.front(), vec.size())) {}
@@ -78,6 +79,22 @@ struct MatC {
 private:
     gsl_matrix_const_view m;
 };
+
+gsl_permutation Per(std::vector<size_t>& per) {
+    gsl_permutation p;
+    p.size=per.size();
+    p.data=&per[0];
+    return p;
+}
+
+const gsl_permutation PerC(const std::vector<size_t>& per) {
+    gsl_permutation p;
+    p.size=per.size();
+    p.data=const_cast<size_t*>(&per[0]);
+    return p;
+}
+
+} // internal namespace
 
 // ------ wrappers for BLAS routines ------ //
 
@@ -118,6 +135,21 @@ void blas_dtrsm(CBLAS_SIDE Side, CBLAS_UPLO Uplo, CBLAS_TRANSPOSE TransA, CBLAS_
 }
 
 // ------ linear algebra routines ------ //
+
+void LUDecomp(Matrix<double>& A, std::vector<size_t>& perm)
+{
+    int dummy;
+    gsl_permutation p=Per(perm);
+    gsl_linalg_LU_decomp(Mat(A), &p, &dummy);
+}
+
+void linearSystemSolveLU(const Matrix<double>& LU, const std::vector<size_t>& perm,
+    const std::vector<double>& y, std::vector<double>& x)
+{
+    x.resize(y.size());
+    const gsl_permutation p=PerC(perm);
+    gsl_linalg_LU_solve(MatC(LU), &p, VecC(y), Vec(x));
+}
 
 void choleskyDecomp(Matrix<double>& A)
 {

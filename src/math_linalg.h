@@ -133,7 +133,17 @@ void blas_dtrsm(CBLAS_SIDE Side, CBLAS_UPLO Uplo, CBLAS_TRANSPOSE TransA, CBLAS_
 /// \name  Linear algebra routines
 ///@{
 
-/** perform in-place Cholesky decomposition of a symmetric positive-definite matrix M
+/** perform in-place LU decomposition of a square matrix A into lower and upper triangular matrices,
+    both of which are stored in the same matrix A, and the list of column permutations stored
+    in the vector perm.
+*/
+void LUDecomp(Matrix<double>& A, std::vector<size_t>& perm);
+
+/** solve a linear system  A x = y,  using a previously computed LU decomposition of matrix A */
+void linearSystemSolveLU(const Matrix<double>& LU, const std::vector<size_t>& perm,
+    const std::vector<double>& y, std::vector<double>& x);
+
+/** perform in-place Cholesky decomposition of a symmetric positive-definite matrix A
     into a product of L L^T, where L is a lower triangular matrix.  
     On output, matrix A is replaced by elements of L (stored in the lower triangle)
     and L^T (upper triangle).

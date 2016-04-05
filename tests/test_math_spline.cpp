@@ -20,7 +20,7 @@ const int NPOINTS = 10000;
 const double XMIN = 0.2;
 const double XMAX = 12.;
 const double DISP = 0.5;  // y-dispersion
-const bool OUTPUT = false;
+const bool OUTPUT = true;
 
 // provides the integral of sin(x)*x^n
 class testfnc: public math::IFunctionIntegral {
@@ -115,7 +115,7 @@ int main()
     appr.fitDataOptimal(yvalues1, ynodes1, deriv_left, deriv_right, &rms, &edf, &lambda);
     std::cout << "case A: RMS="<<rms<<", EDF="<<edf<<", lambda="<<lambda<<"\n";
     math::CubicSpline fit1(xnodes, ynodes1, deriv_left, deriv_right);
-    ok &= rms<0.1 && edf>=2 && edf<NNODES+2 && lambda>0;
+    ok &= rms<0.2 && edf>=2 && edf<NNODES+2 && lambda>0;
 
     appr.fitDataOversmooth(yvalues2, .5, ynodes2, deriv_left, deriv_right, &rms, &edf, &lambda);
     std::cout << "case B: RMS="<<rms<<", EDF="<<edf<<", lambda="<<lambda<<"\n";
@@ -338,39 +338,36 @@ int main()
     testfnc3d fnc3d;
     const int NNODESZ=6;
     std::vector<double> zval(NNODESZ,0);
-    std::vector<double> fval3d(NNODESX*NNODESY*NNODESZ);
     for(int i=1; i<NNODESZ; i++)
         zval[i] = zval[i-1] + math::random() + 0.5;
-    for(int i=0; i<NNODESX; i++)
-        for(int j=0; j<NNODESY; j++)
+    std::vector<double> lval3d(math::createInterpolator3dArray<1>(fnc3d, xval, yval, zval));
+    std::vector<double> cval3d(math::createInterpolator3dArray<3>(fnc3d, xval, yval, zval));
+    math::LinearInterpolator3d lin3d(xval, yval, zval);
+    math::CubicInterpolator3d  cub3d(xval, yval, zval);
+    double point[3];
+    // test the values of interpolated function at grid nodes
+    for(int i=0; i<NNODESX; i++) {
+        point[0] = xval[i];
+        for(int j=0; j<NNODESY; j++) {
+            point[1] = yval[j];
             for(int k=0; k<NNODESZ; k++) {
-                double t[3] = {xval[i], yval[j], zval[k]};
+                point[2] = zval[k];
                 double v;
-                fnc3d.eval(t, &v);
-                fval3d[ (i*NNODESY + j) * NNODESZ + k ] = v;
-            }
-    // create 3d interpolators
-    math::LinearInterpolator3d lin3d(xval, yval, zval, fval3d);
-    math::CubicInterpolator3d  cub3d(xval, yval, zval, fval3d);
-    for(int i=0; i<NNODESX; i++)
-        for(int j=0; j<NNODESY; j++)
-            for(int k=0; k<NNODESZ; k++) {
-                double t[3] = {xval[i], yval[j], zval[k]};
-                double v;
-                fnc3d.eval(t, &v);
-                double l = lin3d.value(t[0], t[1], t[2]);
-                double c = cub3d.value(t[0], t[1], t[2]);
+                fnc3d.eval(point, &v);
+                double l = lin3d.interpolate(point, lval3d);
+                double c = cub3d.interpolate(point, cval3d);
                 ok &= math::fcmp(v, l, 1e-14)==0 && math::isFinite(c);
                 // cubic interpolation coincides with the original values only at grid corners
                 if((i==0 || i==NNODESX-1) && (j==0 || j==NNODESY-1) && (k==0 || k==NNODESZ-1))
                     ok &= math::fcmp(v, c, 1e-14)==0;
             }
+        }
+    }
     // test accuracy of approximation
     double sumsqerr_l=0, sumsqerr_c=0;
     const int NNN=24;    // number of intermediate points for checking the values
     if(OUTPUT)
         strm.open("test_math_spline3d.dat");
-    double point[3];
     for(int i=0; i<=NNN; i++) {
         point[0] = i*xval.back()/NNN;
         for(int j=0; j<=NNN; j++) {
@@ -379,8 +376,8 @@ int main()
                 point[2] = k*zval.back()/NNN;
                 double v;
                 fnc3d.eval(point, &v);
-                double l = lin3d.value(point[0], point[1], point[2]);
-                double c = cub3d.value(point[0], point[1], point[2]);
+                double l = lin3d.interpolate(point, lval3d);
+                double c = cub3d.interpolate(point, cval3d);
                 sumsqerr_l += pow_2(l-v);
                 sumsqerr_c += pow_2(c-v);
                 if(OUTPUT)

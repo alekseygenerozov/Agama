@@ -808,11 +808,11 @@ static inline double linInt(const double x, const double grid[], int size, int i
 /// find the index of the segment on the grid that the given point x belongs to,
 /// and evaluate the values of B-spline functions of order N that are non-zero at this point
 template<int N>
-int bsplineWeights(const double x, const double grid[], int size, double B[])
+inline int bsplineWeights(const double x, const double grid[], int size, double B[])
 {
     if(x<grid[0] || x>grid[size-1]) {
         for(int i=0; i<=N; i++)
-            B[i] = NAN;
+            B[i] = 0;
         return 0;
     }
     const int ind = binSearch(x, grid, size);
@@ -831,7 +831,7 @@ int bsplineWeights(const double x, const double grid[], int size, double B[])
     }
     return ind;
 }
-
+    
 /// subexpression in b-spline derivatives (inverse distance between grid nodes or 0 if they coincide)
 static inline double denom(const double grid[], int size, int i1, int i2)
 {
@@ -843,7 +843,7 @@ static inline double denom(const double grid[], int size, int i1, int i2)
 /// recursive template definition for B-spline derivatives through B-spline derivatives
 /// of lower degree and order; this is probably not very efficient but good enough for our purposes
 template<int N, int order>
-int bsplineDerivs(const double x, const double grid[], int size, double B[])
+inline int bsplineDerivs(const double x, const double grid[], int size, double B[])
 {
     int ind = bsplineDerivs<N-1, order-1>(x, grid, size, B+1);
     B[0] = 0;
@@ -869,7 +869,13 @@ template<>
 inline int bsplineDerivs<3,0>(const double x, const double grid[], int size, double B[]) {
     return bsplineWeights<3>(x, grid, size, B);
 }
-
+template<>
+inline int bsplineDerivs<1,2>(const double, const double[], int, double B[]) {
+    assert("Should not be called"==0);
+    B[0] = B[1] = 0;  // for the sake of completeness...
+    return 0;
+}
+#if 0
 /** Compute the weights of kernel b-spline functions used for 1d interpolation.
     \tparam N   is the order of spline basis functions;
     \param[in]  x  is the input position on the grid;
@@ -925,65 +931,154 @@ inline int bsplineInterp<1>(const double x, const std::vector<double> &grid, dou
     weights[1] = (x-grid[ind]) / dx;
     return ind;
 }
-
+#endif
 }  // internal namespace
 
 // ------- Interpolation in 3d ------- //
 
 template<int N>
-BaseInterpolator3d<N>::BaseInterpolator3d(
-    const std::vector<double>& xgrid, const std::vector<double>& ygrid, const std::vector<double>& zgrid,
-    const std::vector<double>& fvalues) :
-    xval(xgrid), yval(ygrid), zval(zgrid), fncval(fvalues)
+KernelInterpolator3d<N>::KernelInterpolator3d(
+    const std::vector<double>& xgrid, const std::vector<double>& ygrid, const std::vector<double>& zgrid) :
+    xnodes(xgrid), ynodes(ygrid), znodes(zgrid),
+    numComp(indComp(xnodes.size()+N-2, ynodes.size()+N-2, znodes.size()+N-2)+1)
 {
-    const unsigned int xsize = xval.size();
-    const unsigned int ysize = yval.size();
-    const unsigned int zsize = zval.size();
-    if(xsize<N+1 || ysize<N+1 || zsize<N+1)
-        throw std::invalid_argument("Error in 3d interpolator initialization: "
-            "number of nodes is too small");
-    if(!fncval.empty() && fncval.size() != xsize * ysize * zsize)
-        throw std::invalid_argument("Error in 3d interpolator initialization: "
-            "the array of function values is not compatible with sizes of coordinate grids");
+    if(xnodes.size()<N+1 || ynodes.size()<N+1 || znodes.size()<N+1)
+        throw std::invalid_argument("KernelInterpolator3d: number of nodes is too small");
 }
 
 template<int N>
-void BaseInterpolator3d<N>::eval(const double vars[3], double *value) const
+void KernelInterpolator3d<N>::nonzeroComponents(const double point[3],
+    unsigned int leftIndices[3], double values[]) const
 {
-    if(fncval.empty())
-        throw std::range_error("Error in 3d interpolator: function values not initialized");
+    double weights[3][N+1];
+    for(int d=0; d<3; d++) {
+        const std::vector<double> nodes = d==0? xnodes : d==1? ynodes : znodes;
+        leftIndices[d] = bsplineWeights<N>(point[d], &nodes[0], nodes.size(), weights[d]);
+    }
+    for(int i=0; i<=N; i++)
+        for(int j=0; j<=N; j++)
+            for(int k=0; k<=N; k++)
+                values[(i * (N+1) + j) * (N+1) + k] = weights[0][i] * weights[1][j] * weights[2][k];
+}
+
+template<int N>
+double KernelInterpolator3d<N>::interpolate(
+    const double point[3], const std::vector<double> &amplitudes) const
+{
+    if(amplitudes.size() != numComp)
+        throw std::range_error("KernelInterpolator3d: invalid size of amplitudes array");
     double weights[(N+1)*(N+1)*(N+1)];
     unsigned int leftInd[3];
-    components(vars, leftInd, weights);
-    *value=0;
-    const unsigned int ysize = yval.size();
-    const unsigned int zsize = zval.size();
+    nonzeroComponents(point, leftInd, weights);
+    double val=0;
     for(int i=0; i<=N; i++)
         for(int j=0; j<=N; j++)
             for(int k=0; k<=N; k++)
-                *value += weights[(i * (N+1) + j) * (N+1) + k] *
-                fncval[ ((i+leftInd[0]) * ysize + j+leftInd[1]) * zsize + k+leftInd[2] ];
+                val += weights[ (i * (N+1) + j) * (N+1) + k ] *
+                    amplitudes[ indComp(i+leftInd[0], j+leftInd[1], k+leftInd[2]) ];
+    return val;
 }
 
 template<int N>
-void BaseInterpolator3d<N>::components(const double vars[3],
-    unsigned int leftIndices[3], double weights[]) const
+void KernelInterpolator3d<N>::eval(const double point[3], double values[]) const
 {
-    if(isEmpty())
-        throw std::range_error("Empty 3d interpolator");
-    double bsplineWeights[3][N+1];
-    for(int d=0; d<3; d++)
-        leftIndices[d] = bsplineInterp<N>(vars[d], d==0? xval : d==1? yval : zval, bsplineWeights[d]);
+    unsigned int leftInd[3];
+    double weights[(N+1)*(N+1)*(N+1)];
+    nonzeroComponents(point, leftInd, weights);
+    for(unsigned int i=0; i<numComp; i++)
+        values[i] = 0;
     for(int i=0; i<=N; i++)
         for(int j=0; j<=N; j++)
             for(int k=0; k<=N; k++)
-                weights[(i * (N+1) + j) * (N+1) + k] =
-                    bsplineWeights[0][i] * bsplineWeights[1][j] * bsplineWeights[2][k];
+                values[ indComp(i+leftInd[0], j+leftInd[1], k+leftInd[2]) ] =
+                    weights[(i * (N+1) + j) * (N+1) + k];
 }
 
+template<int N>
+double KernelInterpolator3d<N>::valueOfComponent(const double point[3], unsigned int indComp) const
+{
+    if(indComp>=numComp)
+        throw std::range_error("InterpolatedDF: component index out of range");
+    unsigned int leftInd[3], indices[3];
+    double weights[(N+1)*(N+1)*(N+1)];
+    nonzeroComponents(point, leftInd, weights);
+    decomposeIndComp(indComp, indices);
+    if( indices[0]>=leftInd[0] && indices[0]<=leftInd[0]+N &&
+        indices[1]>=leftInd[1] && indices[1]<=leftInd[1]+N &&
+        indices[2]>=leftInd[2] && indices[2]<=leftInd[2]+N )
+        return weights[ ((indices[0]-leftInd[0]) * (N+1)
+                         +indices[1]-leftInd[1]) * (N+1) + indices[2]-leftInd[2] ];
+    else
+        return 0;
+}
+
+template<int N>
+std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
+    const std::vector<double>& xnodes, const std::vector<double>& ynodes, const std::vector<double>& znodes)
+{
+    assert(N==1 || N==3);
+    if(F.numVars() != 3 || F.numValues() != 1)
+        throw std::invalid_argument(
+            "createInterpolator3dArray: input function must have numVars=3, numValues=1");
+    KernelInterpolator3d<N> interp(xnodes, ynodes, znodes);
+
+    // collect the function values at all nodes of 3d grid
+    std::vector<double> fncvalues(interp.numValues());
+    double point[3];
+    for(int i=0; i<xnodes.size()+N-1; i++) {
+        point[0] = xnodes[std::max<int>(0, std::min<int>(xnodes.size()-1, i-N/2))];
+        for(int j=0; j<ynodes.size()+N-1; j++) {
+            point[1] = ynodes[std::max<int>(0, std::min<int>(ynodes.size()-1, j-N/2))];
+            for(int k=0; k<znodes.size()+N-1; k++) {
+                point[2] = znodes[std::max<int>(0, std::min<int>(znodes.size()-1, k-N/2))];
+                unsigned int index = interp.indComp(i, j, k);
+                F.eval(point, &fncvalues[index]);
+            }
+        }
+    }
+    //if(N==1)
+        // in this case no further action is necessary: the values of function at grid nodes
+        // are identical to the amplitudes used in the interpolation
+        return fncvalues;
+
+    // the matrix of values of kernel functions at grid nodes
+    Matrix<double> coefs(interp.numValues(), interp.numValues());
+    coefs.fill(0);
+
+    const std::vector<double>* nodes[3] = {&xnodes, &ynodes, &znodes};
+    // values of 1d kernels (B-splines) at each grid node in each of the three dimensions
+    Matrix<double> weights[3];
+    // indices of first non-trivial B-spline functions at each grid node in each dimension
+    std::vector<double> leftInd[3];
+    // 2nd derivatives of non-trivial B-spline functions at leftmost and rightmost nodes in each dimension
+    double derivsL[3][N+1], derivsR[3][N+1];
+    // collect the values of all kernels at each grid node in each dimension
+    for(int d=0; d<3; d++) {
+        unsigned int Ngrid = nodes[d]->size();
+        weights[d].resize(Ngrid, N+1);
+        leftInd[d].resize(Ngrid);
+        for(unsigned int n=0; n<Ngrid; n++)
+            leftInd[d][n] = bsplineWeights<N>(nodes[d]->at(n), &(nodes[d]->front()), Ngrid, &weights[d](n, 0));
+        // collect 2nd derivatives at the endpoints
+        bsplineDerivs<N,2>(nodes[d]->at(0),       &nodes[d]->front(), Ngrid, derivsL[d]);
+        bsplineDerivs<N,2>(nodes[d]->at(Ngrid-1), &nodes[d]->front(), Ngrid, derivsR[d]);
+    }
+    //for(int n=0; n<=N; n++)
+    //    coefs(index, interp.indComp(leftInd+n, j, k)) = derivs[n];
+
+}
+
+
 // force the template instantiations to compile
-template class BaseInterpolator3d<1>;
-template class BaseInterpolator3d<3>;
+template class KernelInterpolator3d<1>;
+template class KernelInterpolator3d<3>;
+
+template
+std::vector<double> createInterpolator3dArray<1>(const IFunctionNdim& F,
+    const std::vector<double>& xnodes, const std::vector<double>& ynodes, const std::vector<double>& znodes);
+template
+std::vector<double> createInterpolator3dArray<3>(const IFunctionNdim& F,
+    const std::vector<double>& xnodes, const std::vector<double>& ynodes, const std::vector<double>& znodes);
 
 //-------------- PENALIZED SPLINE APPROXIMATION ---------------//
 
