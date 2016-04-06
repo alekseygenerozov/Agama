@@ -310,15 +310,18 @@ private:
     at the given point, the method `eval()` implementing IFunctionNdim interface computes the values
     of all numComp kernels at the given point, and `interpolate()` computes the value of interpolant
     at the given point from the provided array of amplitudes, summing only over the relevant kernels.
-    \tparam N is the order of 1d interpolation kernels (N=1 - linear, N=3 - cubic).
+    The sum of all kernel functions is always unity, and the kernels themselves are non-negative.
+    \tparam  N is the order of 1d interpolation kernels
+    (N=1 - linear, N=3 - cubic, other cases are not implemented).
 */
 template<int N>
 class KernelInterpolator3d: public math::IFunctionNdim {
 public:
     /** Initialize a 3d interpolator from the provided 1d arrays of grid nodes in x, y and z dimensions.
         \param[in] xnodes, ynodes, znodes are the nodes of grid in each dimension,
-        sorted in increasing order, must have at least N+1 elements.
-        \throw std::invalid_argument if the grid sizes are too small.
+        sorted in increasing order, must have at least 2 elements.
+        There is no work done in the constructor apart from checking the validity of parameters.
+        \throw std::invalid_argument if the 1d grids are invalid.
     */
     KernelInterpolator3d(const std::vector<double>& xnodes,
         const std::vector<double>& ynodes, const std::vector<double>& znodes);
@@ -354,6 +357,14 @@ public:
         \throw std::range_error if indComp is out of range.
     */
     double valueOfComponent(const double point[3], unsigned int indComp) const;
+
+    /** Report the region of 3d space where the interpolation kernel of the given component is nonzero.
+        \param[in]  indComp is the index of component;
+        \param[out] xlower  are the coordinates of the lower corner of the region;
+        \param[out] xupper  same for the upper corner;
+        \throw std::range error if indComp >= numComp.
+    */
+    void nonzeroDomain(unsigned int indComp, double xlower[3], double xupper[3]) const;
 
     /** Compute the values of all numComp kernels at the given point.
         \param[in]  point is the array of three coordinates of the point;
@@ -393,7 +404,7 @@ public:
         into the three indices in each of the 1d coordinate grids (no range check is performed!)
     */
     void decomposeIndComp(const unsigned int indComp, unsigned int indices[3]) const {
-        const unsigned int NN_y = znodes.size()+N-1, NN_z = znodes.size()+N-1;
+        const unsigned int NN_y = ynodes.size()+N-1, NN_z = znodes.size()+N-1;
         indices[2] = indComp % NN_z,
         indices[1] = indComp / NN_z % NN_y,
         indices[0] = indComp / NN_z / NN_y;
@@ -419,6 +430,21 @@ typedef KernelInterpolator3d<3> CubicInterpolator3d;
 
 /** fill the array of amplitudes for a 3d interpolator by collecting the values of the source
     function F at the nodes of 3d grid.
+    For the case N=1, the values of source function at grid nodes are identical to the amplitudes,
+    but for higher-order interpolation this is not the case, and the amplitudes are obtained by
+    solving a linear system with the size numComp*numComp, where numComp ~ (grid_size_in_1d+N-1)^3.
+    As no special methods are employed to take advantage of its sparsity, this could be prohibitively
+    expensive if numComp > ~10^3, and hence this routine should be used only for small grid sizes.
+    Keep in mind also that the amplitudes thus obtained may be negative even if the source function
+    is everywhere non-negative.
+    \tparam     N  is the order of interpolator (implemented for N=1 and N=3);
+    \param[in]  F  is the source function of 3 variables, returning one value;
+    \param[in]  xnodes, ynodes, znodes are the grids in each of three coordinates;
+    \return  the array of amplitudes suitable to use with `KernelInterpolator::interpolate()` routine;
+    by construction, the values of interpolant at grid nodes should be equal to the values of source
+    function (but the array of amplitudes does not have a simple interpretation in the case N>1).
+    \throw  std::invalid_argument if the source function has incorrect dimensions, or possibly other
+    exceptions that might arise in the solution of linear system in the case N>1.
 */
 template<int N>
 std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,

@@ -139,6 +139,7 @@ void blas_dtrsm(CBLAS_SIDE Side, CBLAS_UPLO Uplo, CBLAS_TRANSPOSE TransA, CBLAS_
 void LUDecomp(Matrix<double>& A, std::vector<size_t>& perm)
 {
     int dummy;
+    perm.resize(A.cols());
     gsl_permutation p=Per(perm);
     gsl_linalg_LU_decomp(Mat(A), &p, &dummy);
 }

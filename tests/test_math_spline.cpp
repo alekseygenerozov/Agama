@@ -20,7 +20,7 @@ const int NPOINTS = 10000;
 const double XMIN = 0.2;
 const double XMAX = 12.;
 const double DISP = 0.5;  // y-dispersion
-const bool OUTPUT = true;
+const bool OUTPUT = false;
 
 // provides the integral of sin(x)*x^n
 class testfnc: public math::IFunctionIntegral {
@@ -356,10 +356,8 @@ int main()
                 fnc3d.eval(point, &v);
                 double l = lin3d.interpolate(point, lval3d);
                 double c = cub3d.interpolate(point, cval3d);
-                ok &= math::fcmp(v, l, 1e-14)==0 && math::isFinite(c);
-                // cubic interpolation coincides with the original values only at grid corners
-                if((i==0 || i==NNODESX-1) && (j==0 || j==NNODESY-1) && (k==0 || k==NNODESZ-1))
-                    ok &= math::fcmp(v, c, 1e-14)==0;
+                ok &= math::fcmp(v, l, 1e-15)==0;
+                ok &= math::fcmp(v, c, 1e-13)==0;
             }
         }
     }
@@ -394,7 +392,7 @@ int main()
     sumsqerr_c = sqrt(sumsqerr_c / pow_3(NNN+1));
     std::cout << "RMS error in linear 3d interpolator: " << sumsqerr_l << 
         ", cubic 3d interpolator:" << sumsqerr_c << "\n";
-    ok &= sumsqerr_l<0.1 && sumsqerr_c<0.2;
+    ok &= sumsqerr_l<0.1 && sumsqerr_c<0.05;
 
 #ifdef STRESS_TEST
     //----------- test the performance of 2d spline calculation -------------//
