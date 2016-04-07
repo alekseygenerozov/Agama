@@ -26,7 +26,7 @@ public:
 
 #else
 
-/** a simple class for two-dimensional matrices */
+/** a simple class for two-dimensional matrices with dense storage */
 template<typename NumT>
 class Matrix {
 public:
@@ -82,6 +82,73 @@ private:
     std::vector<NumT> arr;  ///< flattened data storage
 };
 #endif
+
+/** An abstract read-only interface for a matrix (dense or sparse).
+    It is used in contexts when only the elementwise access to the matrix is needed
+    for some routine, but we do not want to store the entire matrix in memory,
+    or this matrix is composed of several concatenated matrices and we don't want
+    to create a temporary copy of them.
+    May be used to loop over non-zero elements of the original matrix without
+    the need for a full two-dimensional loop.
+*/
+template<typename NumT>
+class IMatrix {
+public:
+    virtual ~IMatrix() {}
+
+    /// overall size of the matrix (number of possibly nonzero elements)
+    virtual unsigned int size() const = 0;
+
+    /// number of matrix rows
+    virtual unsigned int rows() const = 0;
+
+    /// number of matrix columns
+    virtual unsigned int cols() const = 0;
+
+    /// return an element from the matrix at the specified position
+    virtual NumT operator() (const unsigned int row, const unsigned int col) const = 0;
+
+    /// return an element at the overall `index` from the matrix (0 <= index < size),
+    /// together with its separate row and column indices; used to loop over all nonzero elements
+    virtual NumT elem(const unsigned int index, unsigned int &row, unsigned int &col) const = 0;
+};
+
+/// The interface for dense matrices
+template<typename NumT>
+class IMatrixDense: public IMatrix<NumT> {
+    const Matrix<NumT>& M;  ///< the actual storage of matrix elements
+public:
+    explicit IMatrixDense(const Matrix<NumT>& src): M(src) {};
+    virtual unsigned int size() const { return M.rows() * M.cols(); }
+    virtual unsigned int rows() const { return M.rows(); }
+    virtual unsigned int cols() const { return M.cols(); }
+    virtual NumT operator() (const unsigned int row, const unsigned int col) const {
+        return M(row, col);
+    }
+    virtual NumT elem(const unsigned int index, unsigned int &row, unsigned int &col) const {
+        row = index / M.cols();
+        col = index % M.cols();
+        return M(row, col);
+    }
+};
+
+/// The interface for diagonal matrices
+template<typename NumT>
+class IMatrixDiagonal: public IMatrix<NumT> {
+    const std::vector<NumT>& D;  ///< the actual storage of diagonal elements
+public:
+    explicit IMatrixDiagonal(const std::vector<NumT>& src): D(src) {};
+    virtual unsigned int size() const { return D.size(); }
+    virtual unsigned int rows() const { return D.size(); }
+    virtual unsigned int cols() const { return D.size(); }
+    virtual NumT operator() (const unsigned int row, const unsigned int col) const {
+        return col==row ? D.at(col) : 0;
+    }
+    virtual NumT elem(const unsigned int index, unsigned int &row, unsigned int &col) const {
+        row = col = index;
+        return D.at(index);
+    }
+};
 
 /** zero out array elements with magnitude smaller than the threshold
     times the maximum element of the array;

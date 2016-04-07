@@ -32,6 +32,7 @@ SOURCES   = \
             math_fit.cpp \
             math_linalg.cpp \
             math_ode.cpp \
+            math_optimization.cpp \
             math_sample.cpp \
             math_specfunc.cpp \
             math_sphharm.cpp \
