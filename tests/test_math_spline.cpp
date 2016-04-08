@@ -4,6 +4,7 @@
 #include "math_spline.h"
 #include "math_core.h"
 #include "math_sphharm.h"
+#include "math_sample.h"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -20,7 +21,7 @@ const int NPOINTS = 10000;
 const double XMIN = 0.2;
 const double XMAX = 12.;
 const double DISP = 0.5;  // y-dispersion
-const bool OUTPUT = false;
+const bool OUTPUT = true;
 
 // provides the integral of sin(x)*x^n
 class testfnc: public math::IFunctionIntegral {
@@ -85,7 +86,7 @@ bool test_integral(const math::CubicSpline& f, double x1, double x2)
 class testfnc3d: public math::IFunctionNdim {
 public:
     virtual void eval(const double vars[], double values[]) const {
-        values[0] = sin(vars[0]+0.5*vars[1]+0.25*vars[2]) * cos(-0.2*vars[0]*vars[1]+vars[2]) /
+        values[0] = (sin(vars[0]+0.5*vars[1]+0.25*vars[2]) * cos(-0.2*vars[0]*vars[1]+vars[2]) + 1) /
             sqrt(1 + 0.1*(pow_2(vars[0]) + pow_2(vars[1]) + pow_2(vars[2])));
     }
     virtual unsigned int numVars() const { return 3; }
@@ -340,10 +341,30 @@ int main()
     std::vector<double> zval(NNODESZ,0);
     for(int i=1; i<NNODESZ; i++)
         zval[i] = zval[i-1] + math::random() + 0.5;
+
+    xval=math::createUniformGrid(NNODESX, 0, 6);
+    yval=math::createUniformGrid(NNODESY, 0, 3);
+    zval=math::createUniformGrid(NNODESZ, 0, 5);
+    math::Matrix<double> samples;
     std::vector<double> lval3d(math::createInterpolator3dArray<1>(fnc3d, xval, yval, zval));
     std::vector<double> cval3d(math::createInterpolator3dArray<3>(fnc3d, xval, yval, zval));
+    /*
+    double integr_quad, interr_quad, integr_samp, interr_samp;
+    const double xlower[3] = {xval.front(), yval.front(), zval.front()};
+    const double xupper[3] = {xval.back(),  yval.back(),  zval.back() };
+    math::integrateNdim(fnc3d, xlower, xupper, 1e-3, 1e5, &integr_quad, &interr_quad);
+    math::sampleNdim(fnc3d, xlower, xupper, 1e5, samples, NULL, &integr_samp, &interr_samp);
+    std::cout << "3d function: integral over domain by quadrature=" << integr_quad << " +- " <<
+    interr_quad << ", by sampling=" << integr_samp << " +- " << interr_samp << "\n";
+     
+    std::vector<double> lsam3d(math::createInterpolator3dArrayFromSamples<1>(
+        samples, std::vector<double>(samples.rows(), integr_samp/samples.rows()), xval, yval, zval));
+    std::vector<double> csam3d(math::createInterpolator3dArrayFromSamples<3>(
+        samples, std::vector<double>(samples.rows(), integr_samp/samples.rows()), xval, yval, zval));
+    */
     math::LinearInterpolator3d lin3d(xval, yval, zval);
     math::CubicInterpolator3d  cub3d(xval, yval, zval);
+
     double point[3];
     // test the values of interpolated function at grid nodes
     for(int i=0; i<NNODESX; i++) {
@@ -356,8 +377,8 @@ int main()
                 fnc3d.eval(point, &v);
                 double l = lin3d.interpolate(point, lval3d);
                 double c = cub3d.interpolate(point, cval3d);
-                ok &= math::fcmp(v, l, 1e-15)==0;
                 ok &= math::fcmp(v, c, 1e-13)==0;
+                ok &= math::fcmp(v, l, 1e-15)==0;
             }
         }
     }

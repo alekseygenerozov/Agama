@@ -96,8 +96,12 @@ std::vector<double> linearOptimizationSolve(const IMatrix<NumT>& A,
 
     // retrieve the solution
     std::vector<double> result(numVariables);
-    for(unsigned int v=0; v<numVariables; v++)
-        result[v] = glp_ipt_col_prim(problem, v+1);
+    for(unsigned int v=0; v<numVariables; v++) {
+        double vmin = xmin.empty() ? 0 : xmin[v];
+        double vmax = xmax.empty() ? INFINITY : xmax[v];
+        // correct possible roundoff errors that may lead to the value being outside the limits
+        result[v] = fmax(vmin, fmin(vmax, glp_ipt_col_prim(problem, v+1)));
+    }
     glp_delete_prob(problem);
 
     if(status==0)
@@ -218,9 +222,9 @@ std::vector<double> quadraticOptimizationSolve(
     PyObject *consIneq      = (PyObject*)(SpMatrix_New(numConsIneq, numVariables, numConsIneq, DOUBLE));
     PyObject *consIneqRhs   = (PyObject*)(Matrix_New(numConsIneq, 1, DOUBLE));
     PyObject *coefRhs       = (PyObject*)(Matrix_New(numConstraints, 1, DOUBLE));
-    PyObject *pArgs = PyTuple_New(doQP ? 6 : 5);
+    PyObject *args = PyTuple_New(doQP ? 6 : 5);
     if( !objectiveLin  || (doQP && !objectiveQuad) || !consIneq || !consIneqRhs ||
-        !coefMatrix || !coefRhs || !pArgs)
+        !coefMatrix || !coefRhs || !args)
     {
         PyErr_Print();
         Py_DECREF(problem);
@@ -231,7 +235,7 @@ std::vector<double> quadraticOptimizationSolve(
         Py_XDECREF(consIneqRhs); 
         Py_XDECREF(coefMatrix); 
         Py_XDECREF(coefRhs); 
-        Py_XDECREF(pArgs);
+        Py_XDECREF(args);
         //Py_Finalize();
         throw std::runtime_error("quadraticOptimizationSolve: error allocating matrices");
     }
@@ -261,16 +265,16 @@ std::vector<double> quadraticOptimizationSolve(
 
     // pack matrices into an argument tuple
     if(doQP)
-        PyTuple_SetItem(pArgs, 0, objectiveQuad);
-    PyTuple_SetItem(pArgs, doQP?1:0, objectiveLin);
-    PyTuple_SetItem(pArgs, doQP?2:1, consIneq);
-    PyTuple_SetItem(pArgs, doQP?3:2, consIneqRhs);
-    PyTuple_SetItem(pArgs, doQP?4:3, coefMatrix);
-    PyTuple_SetItem(pArgs, doQP?5:4, coefRhs);
-    PyObject *solver = PyObject_CallObject(problem, pArgs);
+        PyTuple_SetItem(args, 0, objectiveQuad);
+    PyTuple_SetItem(args, doQP?1:0, objectiveLin);
+    PyTuple_SetItem(args, doQP?2:1, consIneq);
+    PyTuple_SetItem(args, doQP?3:2, consIneqRhs);
+    PyTuple_SetItem(args, doQP?4:3, coefMatrix);
+    PyTuple_SetItem(args, doQP?5:4, coefRhs);
+    PyObject *solver = PyObject_CallObject(problem, args);
     if(!solver) {
         PyErr_Print();
-        Py_DECREF(pArgs);
+        Py_DECREF(args);
         Py_DECREF(problem);
         Py_DECREF(solvers);
         //Py_Finalize();
@@ -282,11 +286,15 @@ std::vector<double> quadraticOptimizationSolve(
     PyObject *sol = PyDict_GetItemString(solver, "x");
 
     std::vector<double> result(numVariables);
-    for(unsigned int v=0; feasible && v<numVariables; v++)
-        result[v] = MAT_BUFD(sol)[v];
+    for(unsigned int v=0; feasible && v<numVariables; v++) {
+        double vmin = xmin.empty() ? 0 : xmin[v];
+        double vmax = xmax.empty() ? INFINITY : xmax[v];
+        // correct possible roundoff errors that may lead to the value being outside the limits
+        result[v] = fmax(vmin, fmin(vmax, MAT_BUFD(sol)[v]));
+    }
 
     Py_DECREF(solver);
-    Py_DECREF(pArgs);
+    Py_DECREF(args);
     Py_DECREF(problem);
     Py_DECREF(solvers);
     //Py_Finalize();
@@ -342,8 +350,8 @@ public:
 /// Matrix of quadratic penalties with extra diagonal terms for slack variables
 template<typename NumT>
 class AugmentedQuadMatrix: public IMatrix<NumT> {
-    const IMatrix<NumT>& Q;          ///< the original matrix
-    const std::vector<double>& pen;  ///< additional elements along the main diagonal
+    const IMatrix<NumT>& Q;        ///< the original matrix
+    const std::vector<NumT>& pen;  ///< additional elements along the main diagonal (repeated twice)
     const unsigned int Qsize, Qrows, Nadd;
 public:
     AugmentedQuadMatrix(const IMatrix<NumT>& src, const std::vector<NumT>& _pen):
@@ -365,8 +373,7 @@ public:
         return pen.at((index-Qsize) % Nadd);
     }
 };
-
-}
+}  // internal namespace
 
 template<typename NumT>
 std::vector<double> linearOptimizationSolveApprox(
@@ -434,22 +441,32 @@ std::vector<double> quadraticOptimizationSolveApprox(
         AugmentedMatrix<NumT>(A, numConstraints), rhs, Laug,
         Qempty && consPenaltyQuad.empty() ?   // in this case don't create any quadratic matrix
             static_cast<const IMatrix<NumT>&>(IMatrixDiagonal<NumT>(std::vector<NumT>())) :
+            // if either the original quadratic matrix for numVariables was non-empty,
+            // or the additional diagonal elements for numConstraints penalties were specified,
+            // will create an augmented quadratic matrix, substituting the unspecified elements with zeros
             static_cast<const IMatrix<NumT>&>(AugmentedQuadMatrix<NumT>(Qempty ?
                 static_cast<const IMatrix<NumT>&>(IMatrixDiagonal<NumT>(std::vector<NumT>(numVariables, 0))) :
-                Q, consPenaltyQuad.empty() ? std::vector<double>(numConstraints) : consPenaltyQuad)),
+                Q, consPenaltyQuad.empty() ? std::vector<NumT>(numConstraints) : consPenaltyQuad)),
         xminaug, xmaxaug);
     result.resize(numVariables);  // chop off extra slack variables
     return result;
 }
 
-// explicit instantiations
-template
-std::vector<double> linearOptimizationSolveApprox(const IMatrix<double>&,
+// explicit instantiations for NumT = float and double
+template std::vector<double> linearOptimizationSolveApprox(const IMatrix<float>&,
+    const std::vector<float>&, const std::vector<float>&, const std::vector<float>&,
+    const std::vector<float>&, const std::vector<float>&);
+
+template std::vector<double> linearOptimizationSolveApprox(const IMatrix<double>&,
     const std::vector<double>&, const std::vector<double>&, const std::vector<double>&,
     const std::vector<double>&, const std::vector<double>&);
 
-template
-std::vector<double> quadraticOptimizationSolveApprox(const IMatrix<double>&, 
+template std::vector<double> quadraticOptimizationSolveApprox(const IMatrix<float>&, 
+    const std::vector<float>&, const std::vector<float>&, const IMatrix<float>&,
+    const std::vector<float>&, const std::vector<float>&,
+    const std::vector<float>&, const std::vector<float>&);
+
+template std::vector<double> quadraticOptimizationSolveApprox(const IMatrix<double>&, 
     const std::vector<double>&, const std::vector<double>&, const IMatrix<double>&,
     const std::vector<double>&, const std::vector<double>&,
     const std::vector<double>&, const std::vector<double>&);

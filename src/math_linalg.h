@@ -6,22 +6,70 @@
 #pragma once
 #include <vector>
 #ifdef HAVE_EIGEN
-#define EIGEN_DEFAULT_TO_ROW_MAJOR
+// don't use internal OpenMP parallelization at the level of internal Eigen routines
+#define EIGEN_DONT_PARALLELIZE
 #include <Eigen/Core>
 #endif
 
 namespace math{
 
+/// \name Matrix class
+///@{
+
 #ifdef HAVE_EIGEN
 
-/** class for two-dimensional matrices that is simply a renamed matrix class from Eigen */
+/** class for two-dimensional matrices that is simply a wrapper around the Matrix class from Eigen.
+    We can't partially specialize the Eigen matrix template in pre-C++11 standard,
+    so need to define a container class that transparently exposes the basic methods of Eigen::Matrix */
 template<typename NumT>
-class Matrix: public Eigen::Matrix<NumT, Eigen::Dynamic, Eigen::Dynamic> {
-public:
-    Matrix() :
-        Eigen::Matrix<NumT, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>() {}
-    Matrix(unsigned int nRows, unsigned int nCols) :
-        Eigen::Matrix<NumT, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>(nRows, nCols) {}
+struct Matrix {
+    /// a workaround for template typedef that can only be defined inside another class
+    typedef Eigen::Matrix<NumT, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> type;
+
+    /// the actual Eigen matrix object
+    type impl;
+
+    /// create an empty matrix
+    Matrix() {}
+
+    /// create a matrix of given size (values are not initialized!)
+    Matrix(unsigned int nRows, unsigned int nCols) : impl(nRows, nCols) {}
+
+    /// create a matrix of given size and initialize it with the given value
+    Matrix(unsigned int nRows, unsigned int nCols, double val) :
+        impl(nRows, nCols) { impl.fill(val); }
+
+    /// fill the matrix with the given value
+    void fill(const NumT value) { impl.fill(value); };
+
+    /// resize an existing matrix while preserving its existing elements
+    void conservativeResize(unsigned int newRows, unsigned int newCols) {
+        impl.conservativeResize(newRows, newCols); }
+
+    /// resize matrix without preserving its elements
+    void resize(unsigned int newRows, unsigned int newCols) {
+        impl.resize(newRows, newCols); }
+
+    /// access the matrix element for reading
+    const NumT& operator() (unsigned int row, unsigned int col) const {
+        return impl.operator()(row, col); }
+
+    /// access the matrix element for writing
+    NumT& operator() (unsigned int row, unsigned int col) {
+        return impl.operator()(row, col); }
+
+    /// get the number of matrix rows
+    unsigned int rows() const { return impl.rows(); }
+
+    /// get the number of matrix columns
+    unsigned int cols() const { return impl.cols(); }
+
+    /// access raw data for reading (2d array in row-major order:
+    /// indexing scheme is  `M(row, column) = M.data[ row*M.cols() + column ]` )
+    const NumT* data() const { return impl.data(); }
+
+    /// access raw data for writing (2d array in row-major order)
+    NumT* data() { return impl.data(); }
 };
 
 #else
@@ -33,9 +81,9 @@ public:
     /// create an empty matrix
     Matrix() : nRows(0), nCols(0) {};
 
-    /// create a matrix of given size
-    Matrix(unsigned int _nRows, unsigned int _nCols) :
-        nRows(_nRows), nCols(_nCols), arr(nRows*nCols) {};
+    /// create a matrix of given size, initialized to the given value (0 by default)
+    Matrix(unsigned int _nRows, unsigned int _nCols, double val=0) :
+        nRows(_nRows), nCols(_nCols), arr(nRows*nCols, val) {};
 
     /// create a matrix of given size from a flattened array of values:
     /// M(row, column) = data[ row*nCols + column ]
@@ -64,10 +112,10 @@ public:
     NumT& operator() (unsigned int row, unsigned int column) {
         return arr[row*nCols+column]; }
 
-    /// number of matrix rows
+    /// get the number of matrix rows
     unsigned int rows() const { return nRows; }
 
-    /// number of matrix columns
+    /// get the number of matrix columns
     unsigned int cols() const { return nCols; }
 
     /// access raw data for reading (2d array in row-major order:
@@ -150,16 +198,50 @@ public:
     }
 };
 
+///@}
+/// \name Utility routines
+///@{
+
+/** check whether all elements of an array are zeros (return true for an empty array as well) */
+template<typename NumT>
+bool allZeros(const std::vector<NumT>& vec)
+{
+    for(unsigned int i=0; i<vec.size(); i++)
+        if(vec[i]!=0)
+            return false;
+    return true;
+}
+
+/** check if all elements of a matrix are zeros */
+template<typename NumT>
+bool allZeros(const Matrix<NumT>& mat)
+{
+    for(unsigned int i=0; i<mat.rows(); i++)
+        for(unsigned int j=0; j<mat.cols(); j++)
+            if(mat(i,j) != 0)
+                return false;
+    return true;
+}
+
+/** check if all elements of a matrix accessed through IMatrix interface are zeros */
+template<typename NumT>
+bool allZeros(const IMatrix<NumT>& mat)
+{
+    for(unsigned int k=0; k<mat.size(); k++) {
+        unsigned int i,j;
+        if(mat.elem(k, i, j) != 0)
+            return false;
+    }
+    return true;
+}
+
 /** zero out array elements with magnitude smaller than the threshold
     times the maximum element of the array;
 */
 void eliminateNearZeros(std::vector<double>& vec, double threshold=1e-15);
 void eliminateNearZeros(Matrix<double>& mat, double threshold=1e-15);
 
-/** check whether all elements of an array are zeros (return true for an empty array as well) */
-bool allZeros(const std::vector<double>& vec);
-bool allZeros(const Matrix<double>& mat);
-
+///@}
 /// \name  BLAS wrappers - same calling conventions as GSL BLAS but with STL vector and our matrix types
 ///@{
 
@@ -183,7 +265,7 @@ void blas_dgemv(CBLAS_TRANSPOSE TransA,
     double alpha, const Matrix<double>& A, const std::vector<double>& X, double beta,
     std::vector<double>& Y);
 
-/// matrix-vector multiplocation for triangular matrix A:  X := A * X
+/// matrix-vector multiplication for triangular matrix A:  X := A * X
 void blas_dtrmv(CBLAS_UPLO Uplo, CBLAS_TRANSPOSE TransA, CBLAS_DIAG Diag,
     const Matrix<double>& A, std::vector<double>& X);
 
@@ -200,15 +282,18 @@ void blas_dtrsm(CBLAS_SIDE Side, CBLAS_UPLO Uplo, CBLAS_TRANSPOSE TransA, CBLAS_
 /// \name  Linear algebra routines
 ///@{
 
-/** perform in-place LU decomposition of a square matrix A into lower and upper triangular matrices,
-    both of which are stored in the same matrix A, and the list of column permutations stored
-    in the vector perm.
-*/
-void LUDecomp(Matrix<double>& A, std::vector<size_t>& perm);
-
-/** solve a linear system  A x = y,  using a previously computed LU decomposition of matrix A */
-void linearSystemSolveLU(const Matrix<double>& LU, const std::vector<size_t>& perm,
-    const std::vector<double>& y, std::vector<double>& x);
+/** LU decomposition of a generic square matrix M into lower and upper triangular matrices:
+    once created, it may be used to solve a linear system `M x = rhs` multiple times
+    with different rhs */
+class LUDecomp {
+    const void* impl;  ///< opaque implementation details
+public:
+    /// Construct a decomposition for the given matrix M
+    LUDecomp(const Matrix<double>& M);
+    ~LUDecomp();
+    /// Solve the matrix equation `M x = rhs` for x, using the LU decomposition of matrix M
+    std::vector<double> solve(const std::vector<double>& rhs) const;
+};
 
 /** perform in-place Cholesky decomposition of a symmetric positive-definite matrix A
     into a product of L L^T, where L is a lower triangular matrix.  

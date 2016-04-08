@@ -242,7 +242,8 @@ void HermiteSpline::evalDeriv(const double x, double* val, double* deriv, double
     if(x < xval.front()) {
         if(val)
             *val   = yval.front() +
-            (yder.front()==0 ? 0 : yder.front() * (x-xval.front()));  // if der==0, correct result even for infinite x
+            (yder.front()==0 ? 0 : yder.front() * (x-xval.front()));
+            // if der==0, will give correct result even for infinite x
         if(deriv)
             *deriv = yder.front();
         if(deriv2)
@@ -420,11 +421,14 @@ BaseInterpolator2d::BaseInterpolator2d(
     const unsigned int xsize = xgrid.size();
     const unsigned int ysize = ygrid.size();
     if(xsize<2 || ysize<2)
-        throw std::invalid_argument("Error in 2d interpolator initialization: number of nodes should be >=2 in each direction");
+        throw std::invalid_argument(
+            "Error in 2d interpolator initialization: number of nodes should be >=2 in each direction");
     if(zvalues.rows() != xsize)
-        throw std::invalid_argument("Error in 2d interpolator initialization: x and z array lengths differ");
+        throw std::invalid_argument(
+            "Error in 2d interpolator initialization: x and z array lengths differ");
     if(zvalues.cols() != ysize)
-        throw std::invalid_argument("Error in 2d interpolator initialization: y and z array lengths differ");
+        throw std::invalid_argument(
+            "Error in 2d interpolator initialization: y and z array lengths differ");
 }
 
 // ------- Bilinear interpolation in 2d ------- //
@@ -790,7 +794,6 @@ void QuinticSpline2d::evalDeriv(const double x, const double y,
 }
 
 // ------- Some machinery for B-splines ------- //
-
 namespace {
 
 /// linear interpolation on a grid with a special treatment for indices outside the grid
@@ -808,7 +811,7 @@ static inline double linInt(const double x, const double grid[], int size, int i
 /** Compute the weights of kernel B-spline functions used for 1d interpolation.
     For any point inside the grid, at most N+1 basis functions are non-zero out of the entire set
     of (N_grid+N-1) basis functions; this routine reports only the nontrivial ones.
-    \tparam N   is the order of spline basis functions;
+    \tparam N   is the degree of spline basis functions;
     \param[in]  x  is the input position on the grid;
     \param[in]  grid  is the array of grid nodes;
     \param[in]  size  is the length of this array;
@@ -826,7 +829,7 @@ inline int bsplineWeights(const double x, const double grid[], int size, double 
     }
     const int ind = binSearch(x, grid, size);
     // de Boor's algorithm:
-    // 0th order basis functions are all zero except the one on the grid segment `ind`
+    // 0th degree basis functions are all zero except the one on the grid segment `ind`
     for(int i=0; i<=N; i++)
         B[i] = i==N ? 1 : 0;
     for(int l=1; l<=N; l++) {
@@ -852,10 +855,10 @@ static inline double denom(const double grid[], int size, int i1, int i2)
 /// recursive template definition for B-spline derivatives through B-spline derivatives
 /// of lower degree and order; this is probably not very efficient but good enough for our purposes;
 /// the arguments are the same as for `bsplineWeights`, and `order` is the order of derivative.
-template<int N, int order>
+template<int N, int Order>
 inline int bsplineDerivs(const double x, const double grid[], int size, double B[])
 {
-    int ind = bsplineDerivs<N-1, order-1>(x, grid, size, B+1);
+    int ind = bsplineDerivs<N-1, Order-1>(x, grid, size, B+1);
     B[0] = 0;
     for(int i=0, j=ind-N; i<=N; i++, j++) {
         B[i] = N * (B[i]   * denom(grid, size, j, j+N)
@@ -867,6 +870,10 @@ inline int bsplineDerivs(const double x, const double grid[], int size, double B
 /// the above recursion terminates when the order of derivative is zero, returning B-spline values;
 /// however, C++ rules do not permit to declare a partial function template specialization
 /// (for arbitrary N and order 0), therefore we use full specializations for several values of N
+template<>
+inline int bsplineDerivs<0,0>(const double x, const double grid[], int size, double B[]) {
+    return bsplineWeights<0>(x, grid, size, B);
+}
 template<>
 inline int bsplineDerivs<1,0>(const double x, const double grid[], int size, double B[]) {
     return bsplineWeights<1>(x, grid, size, B);
@@ -885,6 +892,69 @@ inline int bsplineDerivs<1,2>(const double, const double[], int, double B[]) {
     B[0] = B[1] = 0;  // for the sake of completeness...
     return 0;
 }
+
+/** Compute the matrix of overlap integrals for the array of 1d B-spline functions or their derivs.
+    Let N>=1 be the degree of B-splines, and Order - the order of derivative in question.
+    There are numBasisFnc = numKnots+N-1 basis functions B_p(x) on the entire interval spanned by knots,
+    and each of them is nonzero on at most 4 consecutive sub-intervals between knots.
+    Define the matrix M_{pq}, 0<=p<=q<numBasisFnc, to be the symmetric matrix of overlap intervals:
+    \f$  M_{pq} = \int dx B_p(x) B_q(x)  \f$, where the integrand is nonzero on at most q-p+N+1 
+    consecutive sub-intervals.
+    This routine fills the values of this matrix passed as the output argument `mat`.
+*/
+template<int N, int Order>
+Matrix<double> computeOverlapMatrix(const std::vector<double> &knots)
+{
+    int numKnots = knots.size(), numBasisFnc = numKnots+N-1;
+    // B-spline of degree N is a polynomial of degree N, so its Order'th derivative is a polynomial
+    // of degree N-Order. To compute the integral of a product of two such functions over a sub-interval,
+    // it is sufficient to employ a Gauss-Legendre quadrature rule with the number of nodes = N-Order+1.
+    const int Nnodes = N-Order+1;
+    double glnodes[Nnodes], glweights[Nnodes];
+    prepareIntegrationTableGL(0, 1, Nnodes, glnodes, glweights);
+
+    // Collect the values of all possibly non-zero basis functions (or their Order'th derivatives)
+    // at Nnodes points of each sub-interval between knots. There are at most N+1 such non-zero functions,
+    // so these values are stored in a 2d array [N+1] x [number of subintervals * number of GL nodes].
+    Matrix<double> values(N+1, (numKnots-1)*Nnodes);
+    for(int k=0; k<numKnots-1; k++) {
+        double der[N+1];
+        for(int n=0; n<Nnodes; n++) {
+            // evaluate the possibly non-zero functions and keep track of the index of the leftmost one
+            int ind = bsplineDerivs<N, Order> ( knots[k] + (knots[k+1] - knots[k]) * glnodes[n],
+                &knots.front(), numKnots, der);
+            for(int b=0; b<=N; b++)
+                values(b, k*Nnodes+n) = der[b+k-ind];
+        }
+    }
+    
+    // evaluate overlap integrals and store them in the symmetric matrix M_pq, which is a banded matrix
+    // with nonzero values only within N+1 cells from the diagonal
+    Matrix<double> mat(numBasisFnc, numBasisFnc);
+    mat.fill(0);
+    for(int p=0; p<numBasisFnc; p++) {
+        int kmin = std::max<int>(p-N, 0);   // index of leftmost knot of the integration sub-intervals
+        int kmax = std::min<int>(p+1, numKnots-1);     // same for the rightmost
+        int qmax = std::min<int>(p+N+1, numBasisFnc);  // max index of the column of the banded matrix
+        for(int q=p; q<qmax; q++) {
+            double result = 0;
+            // loop over sub-intervals where the integrand might be nonzero
+            for(int k=kmin; k<kmax; k++) {
+                double dx = knots[k+1]-knots[k];
+                // loop over nodes of GL quadrature rule over the sub-interval
+                for(int n=0; n<Nnodes; n++) {
+                    double P = p>=k && p<=k+N ? values(p-k, k*Nnodes+n) : 0;
+                    double Q = q>=k && q<=k+N ? values(q-k, k*Nnodes+n) : 0;
+                    result  += P * Q * glweights[n] * dx;
+                }
+            }
+            mat(p, q) = result;
+            mat(q, p) = result;  // it is symmetric
+        }
+    }
+    return mat;
+}
+    
 }  // internal namespace
 
 // ------- Interpolation in 3d ------- //
@@ -960,7 +1030,7 @@ template<int N>
 double KernelInterpolator3d<N>::valueOfComponent(const double point[3], unsigned int indComp) const
 {
     if(indComp>=numComp)
-        throw std::range_error("InterpolatedDF: component index out of range");
+        throw std::range_error("KernelInterpolator3d: component index out of range");
     unsigned int leftInd[3], indices[3];
     double weights[(N+1)*(N+1)*(N+1)];
     nonzeroComponents(point, leftInd, weights);
@@ -979,7 +1049,7 @@ void KernelInterpolator3d<N>::nonzeroDomain(unsigned int indComp,
     double xlower[3], double xupper[3]) const
 {
     if(indComp>=numComp)
-        throw std::range_error("InterpolatedDF: component index out of range");
+        throw std::range_error("KernelInterpolator3d: component index out of range");
     unsigned int indices[3];
     decomposeIndComp(indComp, indices);
     for(int d=0; d<3; d++) {
@@ -987,6 +1057,53 @@ void KernelInterpolator3d<N>::nonzeroDomain(unsigned int indComp,
         xlower[d] = nodes[ indices[d]<N ? 0 : indices[d]-N ];
         xupper[d] = nodes[ std::min<unsigned int>(indices[d]+1, nodes.size()-1) ];
     }
+}
+
+template<int N>
+Matrix<double> KernelInterpolator3d<N>::computeRoughnessPenaltyMatrix() const
+{
+    Matrix<double> M(numComp, numComp, 0),
+    X0(computeOverlapMatrix<N,0>(xnodes)),
+    X1(computeOverlapMatrix<N,1>(xnodes)),
+    X2(computeOverlapMatrix<N,2>(xnodes)),
+    Y0(computeOverlapMatrix<N,0>(ynodes)),
+    Y1(computeOverlapMatrix<N,1>(ynodes)),
+    Y2(computeOverlapMatrix<N,2>(ynodes)),
+    Z0(computeOverlapMatrix<N,0>(znodes)),
+    Z1(computeOverlapMatrix<N,1>(znodes)),
+    Z2(computeOverlapMatrix<N,2>(znodes));
+    for(unsigned int index1=0; index1<numComp; index1++) {
+        unsigned int ind[3];
+        decomposeIndComp(index1, ind);
+        // use the fact that in each dimension, the overlap matrix elements are zero if
+        // |rowIndex-colIndex| > N (i.e. it is a band matrix with width 2N+1).
+        unsigned int
+        imin = ind[0]<N ? 0 : ind[0]-N,
+        jmin = ind[1]<N ? 0 : ind[1]-N,
+        kmin = ind[2]<N ? 0 : ind[2]-N,
+        imax = std::min<unsigned int>(ind[0]+N+1, xnodes.size()+N-1),
+        jmax = std::min<unsigned int>(ind[1]+N+1, ynodes.size()+N-1),
+        kmax = std::min<unsigned int>(ind[2]+N+1, znodes.size()+N-1);
+        for(unsigned int i=imin; i<imax; i++) {
+            for(unsigned int j=jmin; j<jmax; j++) {
+                for(unsigned int k=kmin; k<kmax; k++) {
+                    unsigned int index2 = indComp(i, j, k);
+                    if(index2>index1)
+                        continue;  // will initialize from a symmetric element
+                    double val =
+                        X2(ind[0], i) * Y0(ind[1], j) * Z0(ind[2], k) +
+                        X0(ind[0], i) * Y2(ind[1], j) * Z0(ind[2], k) + 
+                        X0(ind[0], i) * Y0(ind[1], j) * Z2(ind[2], k) + 
+                        X1(ind[0], i) * Y1(ind[1], j) * Z0(ind[2], k) * 2 +
+                        X0(ind[0], i) * Y1(ind[1], j) * Z1(ind[2], k) * 2 +
+                        X1(ind[0], i) * Y0(ind[1], j) * Z1(ind[2], k) * 2;
+                    M(index1, index2) = val;
+                    M(index2, index1) = val;
+                }
+            }
+        }
+    }
+    return M;
 }
 
 template<int N>
@@ -1021,8 +1138,7 @@ std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
         return fncvalues;
 
     // the matrix of values of kernel functions at grid nodes ( could be *BIG* )
-    Matrix<double> coefs(interp.numValues(), interp.numValues());
-    coefs.fill(0);
+    Matrix<double> coefs(interp.numValues(), interp.numValues(), 0.);
     const std::vector<double>* nodes[3] = {&xnodes, &ynodes, &znodes};
     // values of 1d kernels (B-splines) at each grid node in each of the three dimensions, or -
     // for the last two rows in each matrix - 2nd derivatives of B-splines at the first/last grid nodes
@@ -1042,7 +1158,6 @@ std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
         leftInd[d][Ngrid]   = bsplineDerivs<N,2>(arr[0],       arr, Ngrid, &weights[d](Ngrid,   0));
         leftInd[d][Ngrid+1] = bsplineDerivs<N,2>(arr[Ngrid-1], arr, Ngrid, &weights[d](Ngrid+1, 0));
     }
-
     // each row of the matrix corresponds to the value of source function at a given grid point,
     // or to its the second derivative at the endpoints of grid which is assumed to be zero
     // (i.e. natural cubic spline boundary condition);
@@ -1067,28 +1182,49 @@ std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
     }
 
     // solve the linear system (could take *LONG* )
-    std::vector<double> amplitudes;
-    std::vector<size_t> perm;
-    LUDecomp(coefs, perm);
-    linearSystemSolveLU(coefs, perm, fncvalues, amplitudes);
-    return amplitudes;
+    return LUDecomp(coefs).solve(fncvalues);
 }
 
+template<int N>
+std::vector<double> createInterpolator3dArrayFromSamples(
+    const Matrix<double>& points, const std::vector<double>& pointWeights,
+    const std::vector<double>& xnodes,
+    const std::vector<double>& ynodes,
+    const std::vector<double>& znodes)
+{
+    assert(N==1 || N==3);
+    if(points.rows() != pointWeights.size() || points.cols() != 3)
+        throw std::invalid_argument("createInterpolator3dArrayFromSamples: invalid size of input arrays");
+    KernelInterpolator3d<N> interp(xnodes, ynodes, znodes);
+
+    std::vector<double> amplitudes(interp.numValues());
+    // NOT IMPLEMENTED
+    return amplitudes;
+}
 
 // force the template instantiations to compile
 template class KernelInterpolator3d<1>;
 template class KernelInterpolator3d<3>;
 
-template
-std::vector<double> createInterpolator3dArray<1>(const IFunctionNdim& F,
+template std::vector<double> createInterpolator3dArray<1>(const IFunctionNdim& F,
     const std::vector<double>& xnodes,
     const std::vector<double>& ynodes,
     const std::vector<double>& znodes);
-template
-std::vector<double> createInterpolator3dArray<3>(const IFunctionNdim& F,
+template std::vector<double> createInterpolator3dArray<3>(const IFunctionNdim& F,
     const std::vector<double>& xnodes,
     const std::vector<double>& ynodes,
     const std::vector<double>& znodes);
+template std::vector<double> createInterpolator3dArrayFromSamples<1>(
+    const Matrix<double>& points, const std::vector<double>& pointWeights,
+    const std::vector<double>& xnodes,
+    const std::vector<double>& ynodes,
+    const std::vector<double>& znodes);
+template std::vector<double> createInterpolator3dArrayFromSamples<3>(
+    const Matrix<double>& points, const std::vector<double>& pointWeights,
+    const std::vector<double>& xnodes,
+    const std::vector<double>& ynodes,
+    const std::vector<double>& znodes);
+
 
 //-------------- PENALIZED SPLINE APPROXIMATION ---------------//
 
@@ -1203,51 +1339,6 @@ private:
 };
 
 namespace{
-/// convenience function returning values from band matrix or zero if indexes are outside the band
-static inline double getVal(const Matrix<double>& deriv, unsigned int row, unsigned int col)
-{
-    if(row<col || row>=col+3) return 0;
-    else return deriv(row-col, col);
-}
-
-/// init matrix with roughness penalty (integrals of product of second derivatives of basis functions
-/// (B-splines) determined by the knots vector)
-static void initRoughnessMatrix(const std::vector<double> &knots, Matrix<double> &MMatrix)
-{
-    int numKnots = knots.size();
-    MMatrix.resize(numKnots+2, numKnots+2);   // matrix R_pq
-    Matrix<double> derivs(3, numKnots);
-
-    for(int k=0; k<numKnots; k++) {
-        double der[4];
-        int ind = bsplineDerivs<3,2>(knots[k], &knots.front(), numKnots, der);
-        for(int b=0; b<3; b++)  // out of 4 derivatives, only 3 may be non-zero
-            derivs(b, k) = der[b+k-ind];
-    }
-
-    // evaluate integrals analytically
-    for(int p=0; p<numKnots+2; p++) {
-        int kmin = p>3 ? p-3 : 0;
-        int kmax = std::min<int>(p+3, numKnots-1);
-        int qmax = std::min<int>(p+4, numKnots+2);
-        for(int q=p; q<qmax; q++) {
-            double result=0;
-            for(int k=kmin; k<kmax; k++) {
-                double x0 = knots[k];
-                double x1 = knots[k+1];
-                double Gp = getVal(derivs,p,k)*x1 - getVal(derivs,p,k+1)*x0;
-                double Hp = getVal(derivs,p,k+1)  - getVal(derivs,p,k);
-                double Gq = getVal(derivs,q,k)*x1 - getVal(derivs,q,k+1)*x0;
-                double Hq = getVal(derivs,q,k+1)  - getVal(derivs,q,k);
-                result += (Hp*Hq*(pow(x1,3.0)-pow(x0,3.0))/3.0 +
-                           (Gp*Hq+Gq*Hp)*(pow_2(x1)-pow_2(x0))/2.0 + Gp*Gq*(x1-x0)) / pow_2(x1-x0);
-            }
-            MMatrix(p, q) = result;
-            MMatrix(q, p) = result;  // it is symmetric
-        }
-    }
-}
-
 //-------- helper class for root-finder -------//
 class SplineAICRootFinder: public IFunctionNoDeriv {
     const SplineApproxImpl& impl; ///< the fitting interface
@@ -1308,7 +1399,7 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const st
 
         // if that worked, compute the roughness matrix R (integrals over products of second derivatives
         // of basis functions) and transform it into a more suitable form M+singValues
-        initRoughnessMatrix(knots, MMatrix);  // now MMatrix contains R
+        MMatrix = computeOverlapMatrix<3,2>(knots);  // now MMatrix contains R
 
         // obtain Q = L^{-1} R L^{-T}, where R is the roughness penalty matrix
         blas_dtrsm(CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit, 1, LMatrix, MMatrix);
@@ -1622,7 +1713,8 @@ std::vector<double> createNonuniformGrid(unsigned int nnodes, double xmin, doubl
 }
 
 /// creation of a grid with minimum guaranteed number of input points per bin
-static void makegrid(std::vector<double>::iterator begin, std::vector<double>::iterator end, double startval, double endval)
+static void makegrid(std::vector<double>::iterator begin, std::vector<double>::iterator end,
+    double startval, double endval)
 {
     double step=(endval-startval)/(end-begin-1);
     while(begin!=end){

@@ -14,8 +14,8 @@ BaseDoublePowerLaw::BaseDoublePowerLaw(const DoublePowerLawParam &inparams) :
         throw std::invalid_argument("DoublePowerLaw DF: core action jcore must be non-negative");
     if(par.jmax<0)
         throw std::invalid_argument("DoublePowerLaw DF: cutoff action jmax must be non-negative");
-    if(par.alpha<0)
-        throw std::invalid_argument("DoublePowerLaw DF: inner slope alpha must be non-negative");
+    //if(par.alpha<0)
+    //    throw std::invalid_argument("DoublePowerLaw DF: inner slope alpha must be non-negative");
     if(par.beta<=3 && par.jmax==0)
         throw std::invalid_argument(
             "DoublePowerLaw DF: mass diverges at large J (outer slope beta must be > 3)");

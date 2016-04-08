@@ -79,4 +79,13 @@ template<int N>
 InterpolatedDFParam createInterpolatedDFParam(
     const BaseDistributionFunction& df, unsigned int gridSize[3], double J0, double Jmax);
 
+/** Initialize the parameters used to create an interpolated DF from the array of actions
+    computed from an N-body snapshot, assuming that this array represents particles sampled
+    from this DF.
+*/
+template<int N>
+InterpolatedDFParam createInterpolatedDFParamFromActionSamples(
+    const std::vector<actions::Actions>& actions, const std::vector<double>& masses,
+    unsigned int gridSize[3], double J0, double Jmax);
+
 }  // namespace df

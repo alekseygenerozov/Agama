@@ -44,12 +44,12 @@ int main()
     potential::Plummer pot(1., 1.);
     const actions::ActionFinderSpherical af(pot);
     const df::DoublePowerLaw dfO(paramDPL);    // original distribution function
-    unsigned int gridSize[3] = {40, 5, 2};
+    unsigned int gridSize[3] = {40, 5, 5};
     df::InterpolatedDFParam paramL = df::createInterpolatedDFParam<1>(dfO, gridSize, 0.3, 5);
     const df::InterpolatedDF<1> dfL(paramL); // linearly-interpolated DF
     df::InterpolatedDFParam paramC = df::createInterpolatedDFParam<3>(dfO, gridSize, 0.3, 5);
     const df::InterpolatedDF<3> dfC(paramC); // cubic-interpolated DF
-    
+    std::cout << "Constructed interpolated DFs\n";
     std::ofstream strm("test_df_interpolated.dfval");
     for(unsigned int i=0; i<gridSize[0]; i++) {
         for(unsigned int j=0; j<gridSize[1]; j++) {

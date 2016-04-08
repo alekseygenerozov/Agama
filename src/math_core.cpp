@@ -153,7 +153,7 @@ void getNormalRandomNumbers(double& num1, double& num2) {
 // if f(x) is exactly zero at one of the endpoints, and we want to locate the root inside the interval,
 // then we need to shift slightly the endpoint to ensure that f(x) is strictly positive (or negative).
 
-PointNeighborhood::PointNeighborhood(const IFunction& fnc, double _x0) : x0(_x0)
+PointNeighborhood::PointNeighborhood(const IFunction& fnc, double x0) : absx0(fabs(x0))
 {
     // small offset used in computing numerical derivatives, if the analytic ones are not available
     double delta = fmax(fabs(x0) * GSL_ROOT3_DBL_EPSILON, 16*GSL_DBL_EPSILON);
@@ -192,7 +192,7 @@ double PointNeighborhood::dxToPosneg(double sgn) const
     // offset should be no larger than the scale of variation of the function,
     // but no smaller than the minimum resolvable distance between floating point numbers
     const double delta = fmin(fabs(fder/fder2)*0.5,
-        fmax(16*GSL_DBL_EPSILON, fabs(f0))/fabs(sder)*fabs(x0));
+        fmax(1000*GSL_DBL_EPSILON * absx0, fabs(f0)) / fabs(sder));  //TODO!! this is not satisfactory
     if(s0>0)
         return 0;  // already there
     if(sder==0) {
@@ -787,6 +787,10 @@ void integrateNdim(const IFunctionNdim& F, const double xlower[], const double x
         KEY, NULL/*STATEFILE*/, NULL/*spin*/,
         &nregions, numEval!=NULL ? numEval : &neval, &fail, 
         result, error, &tempProb.front());
+    if(fail==-1)
+        throw std::runtime_error("integrateNdim: number of dimensions is too large");
+    if(fail==-2)
+        throw std::runtime_error("integrateNdim: number of components is too large");
     // need to scale the result to account for coordinate transformation [xlower:xupper] => [0:1]
     double scaleFactor = 1.;
     for(unsigned int n=0; n<numVars; n++)

@@ -72,6 +72,16 @@ public:
 };
 
 
+/** Compute the entropy  \f$  S = -\int d^3 J f(J) ln(f(J))  \f$.
+    \param[in]  DF is the distribution function;
+    \param[in]  reqRelError - relative tolerance;
+    \param[in]  maxNumEval - maximum number of evaluations of DF during integration;
+    \return  the value of entropy S.
+*/
+double totalEntropy(const BaseDistributionFunction& DF,
+    const double reqRelError=1e-4, const int maxNumEval=1e6);
+
+
 /** Sample the distribution function in actions.
     In other words, draw N sampling points from the action space, so that the density of points 
     in the neighborhood of any point is proportional to the value of DF at this point 
@@ -86,6 +96,7 @@ public:
  */
 void sampleActions(const BaseDistributionFunction& DF, const int numSamples,
     std::vector<actions::Actions>& samples, double* totalMass=0, double* totalMassErr=0);
+
 
 /// convert from scaled variables to the actual actions to be passed to DF
 /// if jac!=NULL, store the value of jacobian of transformation in this variable

@@ -8,6 +8,7 @@
 #include "actions_base.h"
 #include "math_core.h"
 #include "math_fit.h"
+#include "math_linalg.h"
 #include <cmath>
 #include <ostream>
 
@@ -208,5 +209,19 @@ inline std::ostream& operator<< (std::ostream& s, const actions::ActionAngles& a
 }
 inline std::ostream& operator<< (std::ostream& s, const actions::Frequencies& f) {
     s << "Omegar: "<< f.Omegar <<"  Omegaz: "<< f.Omegaz <<"  Omegaphi: "<< f.Omegaphi <<"  ";
+    return s;
+}
+
+inline std::ostream& operator<< (std::ostream& s, const std::vector<double>& v) {
+    for(unsigned int i=0; i<v.size(); i++)
+        s << v[i] << '\n';
+    return s;
+}
+inline std::ostream& operator<< (std::ostream& s, const math::Matrix<double>& m) {
+    for(unsigned int i=0; i<m.rows(); i++) {
+        for(unsigned int j=0; j<m.cols(); j++)
+            s << m(i,j) << ' ';
+        s << '\n';
+    }
     return s;
 }

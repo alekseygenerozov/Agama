@@ -3,8 +3,77 @@
     \author  Eugene Vasiliev
     \date    2011-2016
 
+This module implements various interpolation and smoothing algorithms in 1,2,3 dimensions.
+
+###  1-dimensional case.
+Let x[i], y[i], i=0..M-1  be two one-dimensional arrays of 'coordinates' and 'values'.
+An interpolating function f(x) passing through these points may be constructed by several
+different methods:
+- Cubic spline with natural or clamped boundary conditions. In the most familiar case of
+natural boundary condition the second derivatives of f(x) at the left- and rightmost grid point
+are set to zero; in the case of clamped spline instead the value of first derivative at these
+boundaries must be provided.
+In both cases the function and its first two derivatives are continuous on the entire domain.
+- If in addition to the values of function at grid points, its first derivatives y'[i]
+are also given at all points, then a quintic spline is the right choice for interpolation.
+It provides piecewise 5-th degree polynomial interpolation with three continuous derivatives
+on the entire domain.
+- Alternatively, a cubic Hermite spline may be constructed from the same arrays x, y and y',
+which provides locally cubic interpolation on each segment, but the values of 2nd derivative
+are not continuous across segments. On the other hand, since the interpolation is local,
+it is easy to ensure monotonic behaviour of the function by adjusting the derivatives
+at the boundaries of segments where the monotonicity is violated (presently not implemented).
+
+###  2-dimensional case.
+In this case, {x[i], y[j]}, i=0..Mx-1, j=0..My-1  are the pairs of coordinates of nodes
+on a separable 2d grid covering a rectangular domain, and z[i,j] are the values of a 2d function.
+The interpolant can be constructed using several different methods:
+- (bi-)linear interpolation yields only a continuous function but not its derivatives,
+however it is guaranteed to preserve minima/maxima of the original data.
+- (bi-)cubic interpolation is constructed globally and provides piecewise 3rd degree polynomials
+in each coordinate on each cell of the 2d grid, with first and second derivatives being continuous
+across the entire domain. Again the natural or clamped boundary conditions may be specified.
+- If in addition to the function values z[i,j]=f(x[i], y[j]), its derivatives along each
+coordinate df/dx and df/dy are known at each node, then a two-dimensional quintic spline may be
+constructed which provides globally three times continuously differentiable interpolant.
+
+In both 1d and 2d cases, quintic splines are better approximating a smooth function,
+but only if its derivatives at grid nodes are known with sufficiently high accuracy
+(i.e. trying to obtain them by finite differences is useless).
+
+###  3-dimensional case.
+In this case, the strategy is somewhat different: instead of a single object encapsulating
+all data needed for interpolation, we provide the interface based on tensor product of B-spline
+kernels in each dimension, and the amplitudes of these kernels are provided by the user.
+In other words, the value of function is represented as a sum of interpolating kernels with
+adjustable amplitudes, and each kernel is a separable function of three coordinates, i.e.
+a product of three one-dimensional kernels. These 1d kernels are piecewise polynomials of degree N
+with compact support spanning at most N+1 adjacent intervals between nodes on their respective axis.
+Thus the interpolation is local, i.e. is determined by the amplitudes of at most (N+1)^3 kernels
+that are possibly non-zero at the given point; however, to find the amplitudes that yield the given
+values of function at all nodes of a 3d grid, one needs to solve a global linear system for all
+nodes, except the case of a linear interpolator (N=1).
+
+###  Penalized spline smoothing.
+The approach based on B-spline kernels can be used also for constructing a smooth approximation
+to the set of 'measurements'.
+For instance, in one-dimensional case  {x[p], y[p], p=0..P-1}  are the data points, and we seek
+a smooth function that passes close to these points but does not necessarily through them,
+and moreover has an adjustable tradeoff between smoothness and mean-square deviation from data.
+This approximating function is given as a weighted sum of 1d B-spline kernels of degree 3,
+where the amplitudes (or weights of these kernels) are obtained from a linear system for
+the given data points and given amount of smoothing.
+The formulation in terms of 1d third-degree kernels is equivalent to a clamped cubic spline,
+which is more efficient to compute, so after obtaining the amplitudes they should be converted
+to the values of interpolating function at its nodes, plus two endpoint derivatives, and used to
+construct a cubic spline.
+The same approach works in more than one dimension. The amplitudes of a 2d kernel interpolator
+may be converted into its values and derivatives, and used to construct a 2d quintic spline.
+In the 3d case, the amplitudes are directly used with a cubic (N=3) 3d kernel interpolator.
+
+##  Code origin
 1d cubic spline is based on the GSL implementation by G.Jungman;
-2d cubic spline is based on interp2d library by D.Zaslavsky;
+2d cubic spline is based on the interp2d library by D.Zaslavsky;
 1d and 2d quintic splines are based on the code by W.Dehnen.
 */
 #pragma once
@@ -110,7 +179,7 @@ private:
 
 /** Class that defines a quintic spline.
     Given y and dy/dx on a grid, d^3y/dx^3 is computed such that the (unique) 
-    polynomials of 5th order between two adjacent grid points that give y,dy/dx,
+    polynomials of 5th degree between two adjacent grid points that give y,dy/dx,
     and d^3y/dx^3 on the grid are continuous in d^2y/dx^2, i.e. give the same
     value at the grid points. At the grid boundaries  d^3y/dx^3=0  is adopted.
 */
@@ -293,7 +362,8 @@ private:
     The value of interpolant is given by a weighted sum of components:
     \f$  f(x,y,z) = \sum_n  A_n  K_n(x,y,z) ,  0 <= n < numComp  \f$,
     where A_n are the amplitudes and K_n are 3d interpolation kernels, obtained by a tensor product
-    of three 1d interpolating kernels of order N>=1 that use N+1 grid points in each dimension.
+    of three 1d interpolating kernels, which are piecewise polynomials (B-splines) of degree N>=1
+    that are nonzero on a finite interval between at most N+1 grid points in each dimension.
     The interpolation is local - at any point, at most (N+1)^3 kernels are non-zero.
     The total number of components numComp = (N_x+N-1) * (N_y+N-1) * (N_z+N-1), where N_x,N_y,N_z
     are the grid sizes in each dimension; the correspondence between the triplet of indices {i,j,k}
@@ -311,7 +381,7 @@ private:
     of all numComp kernels at the given point, and `interpolate()` computes the value of interpolant
     at the given point from the provided array of amplitudes, summing only over the relevant kernels.
     The sum of all kernel functions is always unity, and the kernels themselves are non-negative.
-    \tparam  N is the order of 1d interpolation kernels
+    \tparam  N is the degree of 1d interpolation kernels
     (N=1 - linear, N=3 - cubic, other cases are not implemented).
 */
 template<int N>
@@ -417,7 +487,9 @@ public:
     double ymax() const { return ynodes.back();  }
     double zmin() const { return znodes.front(); }
     double zmax() const { return znodes.back();  }
-    
+
+    Matrix<double> computeRoughnessPenaltyMatrix() const;
+
 private:
     std::vector<double> xnodes, ynodes, znodes;  ///< grid nodes in x, y and z directions
     const unsigned int numComp;                  ///< total number of components
@@ -428,26 +500,43 @@ typedef KernelInterpolator3d<1> LinearInterpolator3d;
 /// tricubic interpolator
 typedef KernelInterpolator3d<3> CubicInterpolator3d;
 
-/** fill the array of amplitudes for a 3d interpolator by collecting the values of the source
+/** Fill the array of amplitudes for a 3d interpolator by collecting the values of the source
     function F at the nodes of 3d grid.
     For the case N=1, the values of source function at grid nodes are identical to the amplitudes,
-    but for higher-order interpolation this is not the case, and the amplitudes are obtained by
+    but for higher-degree interpolation this is not the case, and the amplitudes are obtained by
     solving a linear system with the size numComp*numComp, where numComp ~ (grid_size_in_1d+N-1)^3.
     As no special methods are employed to take advantage of its sparsity, this could be prohibitively
     expensive if numComp > ~10^3, and hence this routine should be used only for small grid sizes.
     Keep in mind also that the amplitudes thus obtained may be negative even if the source function
     is everywhere non-negative.
-    \tparam     N  is the order of interpolator (implemented for N=1 and N=3);
+    \tparam     N  is the degree of interpolator (implemented for N=1 and N=3);
     \param[in]  F  is the source function of 3 variables, returning one value;
     \param[in]  xnodes, ynodes, znodes are the grids in each of three coordinates;
     \return  the array of amplitudes suitable to use with `KernelInterpolator::interpolate()` routine;
     by construction, the values of interpolant at grid nodes should be equal to the values of source
     function (but the array of amplitudes does not have a simple interpretation in the case N>1).
-    \throw  std::invalid_argument if the source function has incorrect dimensions, or possibly other
-    exceptions that might arise in the solution of linear system in the case N>1.
+    \throw  std::invalid_argument if the source function has incorrect dimensions,
+    or possibly other exceptions that might arise in the solution of linear system in the case N>1.
 */
 template<int N>
 std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
+    const std::vector<double>& xnodes,
+    const std::vector<double>& ynodes,
+    const std::vector<double>& znodes);
+
+/** Construct the array of amplitudes for a 3d interpolator representing a probability distribution
+    function (PDF) from the provided array of points with weights, sampled from this PDF.
+    \tparam     N  is the degree of interpolator (1 or 3);
+    \param[in]  points  is the matrix with N_p rows and 3 columns, representing the sampled points;
+    \param[in]  weights  is the array of point weights;
+    \param[in]  xnodes, ynodes, znodes are the grids in each of three coordinates;
+    \return  the array of amplitudes suitable to use with `KernelInterpolator::interpolate()` routine;
+    \throw  std::invalid_argument if the array sizes are incorrect, or std::runtime_error in case
+    of other possible problems.
+*/
+template<int N>
+std::vector<double> createInterpolator3dArrayFromSamples(
+    const Matrix<double>& points, const std::vector<double>& weights,
     const std::vector<double>& xnodes,
     const std::vector<double>& ynodes,
     const std::vector<double>& znodes);
