@@ -312,6 +312,8 @@ std::vector<double> quadraticOptimizationSolve(
 #ifdef HAVE_GLPK
     if(Q.size()==0)  // linear problems will be redirected to the appropriate solver
         return linearOptimizationSolve(A, rhs, L, xmin, xmax);
+    else
+        throw std::runtime_error("quadraticOptimizationSolve not implemented")
 #else
     throw std::runtime_error("quadraticOptimizationSolve not implemented");
 #endif

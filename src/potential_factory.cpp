@@ -504,7 +504,7 @@ static void writeSphericalHarmonics(std::ostream& strm,
     const std::vector< std::vector<double> > &coefs)
 {
     assert(coefs.size()>0);
-    int lmax = sqrt(coefs[0].size())-1;
+    int lmax = static_cast<int>(sqrt(static_cast<double>(coefs[0].size()))-1);
     for(int l=0; l<=lmax; l++)
         for(int m=-l; m<=l; m++)
             strm << "\tl="<<l<<",m="<<m;  // header line
@@ -554,7 +554,7 @@ static void writePotentialMultipole(std::ostream& strm, const Multipole& potMul)
     std::vector< std::vector<double> > Phi, dPhi;
     potMul.getCoefs(radii, Phi, dPhi);
     assert(Phi.size() > 0 && Phi.size() == radii.size() && dPhi.size() == Phi.size());
-    int lmax = sqrt(Phi[0].size())-1;
+    int lmax = static_cast<int>(sqrt(static_cast<double>(Phi[0].size()))-1);
     strm << Multipole::myName() << "\t#header\n" << 
         Phi.size() << "\t#n_radial\n" << 
         lmax << "\t#l_max\n" <<
@@ -569,7 +569,7 @@ static void writeAzimuthalHarmonics(std::ostream& strm,
     const std::vector<double>& gridz,
     const std::vector< math::Matrix<double> >& data)
 {
-    int mmax = (-1+data.size())/2;
+    int mmax = (static_cast<int>(data.size())-1)/2;
     assert(mmax>=0);
     for(unsigned int mm=0; mm<data.size(); mm++) 
         if(data[mm].rows()*data[mm].cols()>0) {

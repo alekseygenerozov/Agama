@@ -87,8 +87,8 @@ public:
 
     /// create a matrix of given size from a flattened array of values:
     /// M(row, column) = data[ row*nCols + column ]
-    Matrix(unsigned int _nRows, unsigned int _nCols, double* val) :
-        nRows(_nRows), nCols(_nCols), arr(val, val+nRows*nCols) {};
+    /*Matrix(unsigned int _nRows, unsigned int _nCols, double* val) :
+        nRows(_nRows), nCols(_nCols), arr(val, val+nRows*nCols) {};*/
 
     /// fill the matrix with the given value
     void fill(const NumT value) { arr.assign(arr.size(), value); };

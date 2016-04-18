@@ -101,11 +101,12 @@ int main()
     std::ofstream strmC("test_df_interpolated.denscompC");
     for(double r=0; r<20; r<1 ? r+=0.1 : r*=1.1) {
         coord::PosCyl point(r, 0, 0);
-        std::vector<double> densArrL =
-            galaxymodel::computeMulticomponentDensity(pot, af, dfL, point, 1e-3, 10000);
-        std::vector<double> densArrC =
-            galaxymodel::computeMulticomponentDensity(pot, af, dfC, point, 1e-3, 10000);
+        std::vector<double> densArrL(dfL.size()), densArrC(dfC.size());
         double densOrig, densIntL, densIntC;
+        computeMoments(galaxymodel::GalaxyModelMulticomponent(pot, af, dfL),
+            point, 1e-3, 10000, &densArrL[0], NULL, NULL, NULL, NULL, NULL);
+        computeMoments(galaxymodel::GalaxyModelMulticomponent(pot, af, dfC),
+            point, 1e-3, 10000, &densArrC[0], NULL, NULL, NULL, NULL, NULL);
         computeMoments(galaxymodel::GalaxyModel(pot, af, dfO),
             point, 1e-3, 100000, &densOrig, NULL, NULL, NULL, NULL, NULL);
         computeMoments(galaxymodel::GalaxyModel(pot, af, dfL),

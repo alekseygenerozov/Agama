@@ -76,7 +76,7 @@ void computeFourierCoefs(const BaseDensityOrPotential &src,
     if(!isZReflSymmetric(src) && gridz[0]==0)
         throw std::invalid_argument("computeFourierCoefs: input density is not symmetric "
             "under z-reflection, the grid in z must cover both positive and negative z");
-    int mmin = isYReflSymmetric(src) ? 0 : -1*mmax;
+    int mmin = isYReflSymmetric(src) ? 0 : -static_cast<int>(mmax);
     bool useSine = mmin<0;
     math::FourierTransformForward trans(mmax, useSine);
     std::vector<int> indices = math::getIndicesAzimuthal(mmax, src.symmetry());
@@ -256,8 +256,9 @@ void computePotentialCoefsFromDensity(const BaseDensity &src,
             gridz[sizez/2]==0 ? gridz[sizez/2+1] * 0.01 : Rmin;
         double delta=0.1;  // relative difference between grid nodes = log(x[n+1]/x[n])
         // create a density interpolator; it will be automatically deleted upon return
-        densInterp = DensityAzimuthalHarmonic::create(
-            src, mmax, log(Rmax/Rmin)/delta, Rmin, Rmax, log(zmax/zmin)/delta, zmin, zmax);
+        densInterp = DensityAzimuthalHarmonic::create(src, mmax,
+            static_cast<unsigned int>(log(Rmax/Rmin)/delta), Rmin, Rmax,
+            static_cast<unsigned int>(log(zmax/zmin)/delta), zmin, zmax);
         // and use it for computing the potential
         dens = densInterp.get();
     }

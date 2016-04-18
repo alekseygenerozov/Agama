@@ -32,14 +32,6 @@ private:
     gsl_vector_const_view v;
 };
 
-struct Mat {
-    explicit Mat(Matrix<double>& mat) :
-        m(gsl_matrix_view_array(mat.data(), mat.rows(), mat.cols())) {}
-    operator gsl_matrix* () { return &m.matrix; }
-private:
-    gsl_matrix_view m;
-};
-
 struct MatC {
     explicit MatC(const Matrix<double>& mat) :
         m(gsl_matrix_const_view_array(mat.data(), mat.rows(), mat.cols())) {}

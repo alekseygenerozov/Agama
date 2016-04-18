@@ -3,6 +3,7 @@
 #include "utils.h"
 #include <algorithm>
 #include <cmath>
+#include <cassert>
 #include <stdexcept>
 
 namespace potential{

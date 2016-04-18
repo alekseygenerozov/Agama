@@ -1144,7 +1144,7 @@ std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
     // for the last two rows in each matrix - 2nd derivatives of B-splines at the first/last grid nodes
     Matrix<double> weights[3];
     // indices of first non-trivial B-spline functions at each grid node in each dimension
-    std::vector<double> leftInd[3];
+    std::vector<int> leftInd[3];
 
     // collect the values of all kernels at each grid node in each dimension
     for(int d=0; d<3; d++) {

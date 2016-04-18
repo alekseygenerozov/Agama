@@ -52,6 +52,7 @@ public:
         if(mode==MODE_OMEGAZ) return L/(r*r*vr) - 1/(sqrt(pow_2(r/R1)-1)*r);
         // in the latter case, a singular term with analytic antiderivative is subtracted from the integrand
         assert("Invalid mode in action integrand"==0);
+        return 0;
     }
 };
 
@@ -69,6 +70,7 @@ public:
         if(mode==MODE_JR)     return vr;
         if(mode==MODE_OMEGAZ) return v/(x*x*vr) - 1/(sqrt(pow_2(x/R1)-1)*x);
         assert("Invalid mode in power-law action integrand"==0);
+        return 0;
     }
 };
 

@@ -227,7 +227,7 @@ static double hypergeom_m(int m, double x, double* deriv)
 
 double legendreQ(const double n, const double x, double* deriv)
 {
-    int m = n+0.5;
+    int m = static_cast<int>(n+0.5);
     double prefactor, F;
     if(m == n+0.5 && m >= 0 && m<= MMAX_HYPERGEOM) {
         prefactor = Q_PREFACTOR[m] / sqrt(x) / powInt(x, m);

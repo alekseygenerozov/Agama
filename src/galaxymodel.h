@@ -32,9 +32,28 @@ public:
     potential(pot), actFinder(af), distrFunc(df) {}
 };
 
+/** Data-only structure defining a galaxy model with a multicomponent distribution function
+*/
+struct GalaxyModelMulticomponent{
+public:
+    const potential::BasePotential&  potential;  ///< gravitational potential
+    const actions::BaseActionFinder& actFinder;  ///< action finder for the given potential
+    const df::BaseMulticomponentDF&  distrFunc;  ///< distribution function expressed in terms of actions
+    
+    /** Create an instance of the galaxy model from the three ingredients */
+    GalaxyModelMulticomponent(
+        const potential::BasePotential& pot,
+        const actions::BaseActionFinder& af,
+        const df::BaseMulticomponentDF& df) :
+    potential(pot), actFinder(af), distrFunc(df) {}
+};
+
 /** Compute density, first-order, and second-order moments of velocity 
     in polar cyclindrical coordinates; if some of them are not needed,
     pass NULL as the corresponding argument, and it will not be computed.
+    \tparam     GalaxyModelType  is either GalaxyModel or GalaxyModelMulticomponent,
+    in the latter case all non-NULL output arguments must point to arrays of length equal to the
+    number of components of the DF, which will be filled with separate values for each DF component.
     \param[in]  model  is the galaxy model (potential + DF + action finder);
     \param[in]  point  is the position at which the quantities should be computed;
     \param[in]  reqRelError is the required relative error in the integral;
@@ -46,20 +65,11 @@ public:
     \param[out] velocityFirstMomentErr  will contain the error estimate of 1st velocity moment;
     \param[out] velocitySecondMomentErr will contain the error estimate of 2nd velocity moment;
 */
-void computeMoments(const GalaxyModel& model,
+template<typename GalaxyModelType>
+void computeMoments(const GalaxyModelType& model,
     const coord::PosCyl& point, const double reqRelError, const int maxNumEval,
     double* density, coord::VelCyl* velocityFirstMoment, coord::Vel2Cyl* velocitySecondMoment,
     double* densityErr, coord::VelCyl* velocityFirstMomentErr, coord::Vel2Cyl* velocitySecondMomentErr);
-
-
-std::vector<double> computeMulticomponentDensity(
-    const potential::BasePotential& pot,
-    const actions::BaseActionFinder& af,
-    const df::BaseMulticomponentDF&  df,
-    const coord::PosCyl& point,
-    const double reqRelError,
-    const int maxNumEval);
-
 
 /** Compute the value of 'projected distribution function' at the given point
     specified by two coordinates in the sky plane and line-of-sight velocity.

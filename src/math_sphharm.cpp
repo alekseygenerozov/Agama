@@ -174,7 +174,7 @@ SphHarmIndices::SphHarmIndices(int _lmax, int _mmax, coord::SymmetryType _sym) :
 
 int SphHarmIndices::index_l(unsigned int c) 
 {
-    return sqrt(c);
+    return (int)sqrt(c);
 }
 
 int SphHarmIndices::index_m(unsigned int c)
@@ -185,7 +185,7 @@ int SphHarmIndices::index_m(unsigned int c)
 
 SphHarmIndices getIndicesFromCoefs(const std::vector<double> &C)
 {
-    int lmax = sqrt(C.size())-1;
+    int lmax = (int)sqrt((double)C.size())-1;
     if(lmax<0 || (int)C.size() != pow_2(lmax+1))
         throw std::invalid_argument("getIndicesFromCoefs: invalid size of coefs array");
     int sym  = coord::ST_SPHERICAL;

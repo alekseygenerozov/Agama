@@ -113,7 +113,7 @@ int convertToInt(const char* val) {
     return strtol(val, NULL, 10);
 }
 float convertToFloat(const char* val) {
-    return strtod(val, NULL);
+    return strtof(val, NULL);
 }
 double convertToDouble(const char* val) {
     return strtod(val, NULL);

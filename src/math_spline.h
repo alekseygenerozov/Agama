@@ -52,26 +52,29 @@ with compact support spanning at most N+1 adjacent intervals between nodes on th
 Thus the interpolation is local, i.e. is determined by the amplitudes of at most (N+1)^3 kernels
 that are possibly non-zero at the given point; however, to find the amplitudes that yield the given
 values of function at all nodes of a 3d grid, one needs to solve a global linear system for all
-nodes, except the case of a linear interpolator (N=1).
+nodes, except the case of a linear (N=1) interpolator.
 
 ###  Penalized spline smoothing.
 The approach based on B-spline kernels can be used also for constructing a smooth approximation
 to the set of 'measurements'.
+ 
 For instance, in one-dimensional case  {x[p], y[p], p=0..P-1}  are the data points, and we seek
 a smooth function that passes close to these points but does not necessarily through them,
 and moreover has an adjustable tradeoff between smoothness and mean-square deviation from data.
 This approximating function is given as a weighted sum of 1d B-spline kernels of degree 3,
 where the amplitudes (or weights of these kernels) are obtained from a linear system for
 the given data points and given amount of smoothing.
+ 
 The formulation in terms of 1d third-degree kernels is equivalent to a clamped cubic spline,
 which is more efficient to compute, so after obtaining the amplitudes they should be converted
 to the values of interpolating function at its nodes, plus two endpoint derivatives, and used to
 construct a cubic spline.
+ 
 The same approach works in more than one dimension. The amplitudes of a 2d kernel interpolator
 may be converted into its values and derivatives, and used to construct a 2d quintic spline.
 In the 3d case, the amplitudes are directly used with a cubic (N=3) 3d kernel interpolator.
 
-##  Code origin
+###  Code origin
 1d cubic spline is based on the GSL implementation by G.Jungman;
 2d cubic spline is based on the interp2d library by D.Zaslavsky;
 1d and 2d quintic splines are based on the code by W.Dehnen.
