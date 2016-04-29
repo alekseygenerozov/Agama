@@ -6,6 +6,7 @@
 #pragma once
 #include "df_base.h"
 #include "math_spline.h"
+#include "smart.h"
 
 namespace df{
 
@@ -20,22 +21,20 @@ namespace df{
     moreover, in the latter case the number of components (elements in the amplitudes array)
     is larger than the number of nodes in the 3d grid.
 */
-struct InterpolatedDFParam{
-    double J0;                      ///< scale action used for log transformation of the grid
-    std::vector<double> gridJsum;   ///< grid in the log-transformed magnitude of action Jsum
-    std::vector<double> gridJrrel;  ///< grid in the direction Jr/Jsum
-    std::vector<double> gridJphirel;///< grid in the direction Jphi/L
-    std::vector<double> amplitudes; ///< the amplitudes of interpolation kernels
-};
 
 template<int N>
 class InterpolatedDF: public BaseMulticomponentDF{
 public:
-    /** Create an instance of interpolated distribution function with given parameters
-        \param[in] params  are the parameters of DF
-        \throws std::invalid_argument exception if parameters are nonsense
+    /** Create an instance of interpolated distribution function with the given parameters.
+        \param[in] scaling  is the instance of class that performs scaling transformation
+        in action space, mapping the entire range of actions into a unit cube;
+        \param[in] gridU, gridV, gridW  are the nodes of 1d grids in each of the scaled coordinate;
+        \param[in] amplitudes  is the flattened array of amplitudes of basis functions;
+        \throws std::invalid_argument exception if parameters are nonsense.
     */
-    InterpolatedDF(const InterpolatedDFParam &params);
+    InterpolatedDF(const PtrActionSpaceScaling& scaling,
+        const std::vector<double> &gridU, const std::vector<double> &gridV,
+        const std::vector<double> &gridW, const std::vector<double> &amplitudes);
 
     /// the value of interpolated DF at the given actions
     virtual double value(const actions::Actions &J) const;
@@ -62,30 +61,33 @@ public:
     double computePhaseVolume(const unsigned int indComp, const double reqRelError=1e-3) const;
 
 private:
+    /// converter between actions and coordinates on the interpolation grid
+    PtrActionSpaceScaling scaling;
+
     /// the interpolator defined on the scaled grid in action space
     const math::KernelInterpolator3d<N> interp;
 
     /// the amplitudes of 3d interpolation kernels
     const std::vector<double> amplitudes;
-
-    /// characteristic value of actions used for scaling
-    const double J0;
 };
 
 /** Initialize the parameters used to create an interpolated DF by collecting the values
     of the provided source DF at the nodes of a 3d grid in action space.
 */
 template<int N>
-InterpolatedDFParam createInterpolatedDFParam(
-    const BaseDistributionFunction& df, unsigned int gridSize[3], double J0, double Jmax);
+std::vector<double> createInterpolatedDFAmplitudes(
+    const BaseDistributionFunction& df, const BaseActionSpaceScaling& scaling,
+    const std::vector<double> &gridU, const std::vector<double> &gridV,
+    const std::vector<double> &gridW);
 
 /** Initialize the parameters used to create an interpolated DF from the array of actions
     computed from an N-body snapshot, assuming that this array represents particles sampled
     from this DF.
 */
 template<int N>
-InterpolatedDFParam createInterpolatedDFParamFromActionSamples(
+std::vector<double> createInterpolatedDFAmplitudesFromActionSamples(
     const std::vector<actions::Actions>& actions, const std::vector<double>& masses,
-    unsigned int gridSize[3], double J0, double Jmax);
+    const BaseActionSpaceScaling& scaling, const std::vector<double> &gridU,
+    const std::vector<double> &gridV, const std::vector<double> &gridW);
 
 }  // namespace df

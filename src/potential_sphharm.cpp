@@ -1842,7 +1842,9 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gr
 void DensitySphericalHarmonic::getCoefs(
     std::vector<double> &radii, std::vector< std::vector<double> > &coefs) const
 {
-    radii = spl[0].xvalues();
+    radii.resize(spl[0].xvalues().size());
+    for(unsigned int k=0; k<radii.size(); k++)
+        radii[k] = exp(spl[0].xvalues()[k]);
     computeDensityCoefsSph(*this, ind, radii, coefs);
 }
 

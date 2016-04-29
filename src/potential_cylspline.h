@@ -142,6 +142,7 @@ public:
 private:
     std::vector<math::CubicSpline2d> spl;  ///< spline for rho_m(R,z)
     coord::SymmetryType sym;  ///< type of symmetry deduced from coefficients
+    double Rscale;            ///< radial scaling factor
 
     virtual double densityCar(const coord::PosCar &pos) const {
         return densityCyl(toPosCyl(pos)); }

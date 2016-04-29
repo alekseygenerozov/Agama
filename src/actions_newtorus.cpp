@@ -585,14 +585,13 @@ double Mapping::fitAngleMap(const double params[],
 
     // solve the overdetermined linear system in the least-square sense:
     // step 1: prepare the SVD of coefs matrix
-    math::Matrix<double> tmpV;
-    std::vector <double> tmpSV, dSdJr, dSdJz, dSdJphi;
-    math::singularValueDecomp(coefsdHdS, tmpV, tmpSV);
+    math::SVDecomp SVD(coefsdHdS);
 
     // step 2: solve three linear systems with the same matrix but different rhs
-    math::linearSystemSolveSVD(coefsdHdS, tmpV, tmpSV, dHdJr, dSdJr);
-    math::linearSystemSolveSVD(coefsdHdS, tmpV, tmpSV, dHdJz, dSdJz);
-    math::linearSystemSolveSVD(coefsdHdS, tmpV, tmpSV, dHdJphi, dSdJphi);
+    std::vector<double>
+        dSdJr(SVD.solve(dHdJr)),
+        dSdJz(SVD.solve(dHdJz)),
+        dSdJphi(SVD.solve(dHdJphi));
 
     // store output
     freqs.Omegar   = dSdJr[0];

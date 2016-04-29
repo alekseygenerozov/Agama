@@ -71,6 +71,40 @@ public:
     }
 };
 
+/** Helper class for scaling transformations in the action space,
+    mapping the entire possible range of actions into a unit cube */
+class BaseActionSpaceScaling {
+public:
+    virtual ~BaseActionSpaceScaling() {}
+
+    /** Convert from scaled variables to the values of actions.
+        \param[in]  vars  are the coordinates in the unit cube;
+        \param[out] jac   if not NULL, will contain the value of jacobian of transformation;
+        \return  the values of actions.
+    */
+    virtual actions::Actions toActions(const double vars[3], double *jac=0) const = 0;
+
+    /** Convert from actions to scaled variables.
+        \param[in]  acts  are the actions;
+        \param[out] vars  will contain the scaled variables in the unit cube;
+    */
+    virtual void toScaled(const actions::Actions &acts, double vars[3]) const = 0;
+};
+
+class ActionSpaceScalingTriangLog: public BaseActionSpaceScaling {
+public:
+    virtual actions::Actions toActions(const double vars[3], double *jac=0) const;
+    virtual void toScaled(const actions::Actions &acts, double vars[3]) const;
+};
+
+class ActionSpaceScalingRect: public BaseActionSpaceScaling {
+    double scaleJm, scaleJphi;
+public:
+    ActionSpaceScalingRect(double scaleJm, double scaleJphi);
+    virtual actions::Actions toActions(const double vars[3], double *jac=0) const;
+    virtual void toScaled(const actions::Actions &acts, double vars[3]) const;
+};
+
 
 /** Compute the entropy  \f$  S = -\int d^3 J f(J) ln(f(J))  \f$.
     \param[in]  DF is the distribution function;
@@ -96,10 +130,5 @@ double totalEntropy(const BaseDistributionFunction& DF,
  */
 void sampleActions(const BaseDistributionFunction& DF, const int numSamples,
     std::vector<actions::Actions>& samples, double* totalMass=0, double* totalMassErr=0);
-
-
-/// convert from scaled variables to the actual actions to be passed to DF
-/// if jac!=NULL, store the value of jacobian of transformation in this variable
-actions::Actions unscaleActions(const double vars[], double* jac=0);
 
 }  // namespace df

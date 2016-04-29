@@ -6,9 +6,6 @@
 #include <cassert>
 #include <cmath>
 
-#include <fstream>
-#include <iomanip>
-
 namespace actions{
 
 namespace {
@@ -562,7 +559,7 @@ Actions ActionFinderSpherical::actions(const coord::PosVelCyl& point) const
     double L  = Ltotal(point);
     acts.Jphi = Lz(point);
     acts.Jz   = point.z==0 && point.vz==0 ? 0 : fmax(0, L - fabs(acts.Jphi));
-    acts.Jr   = Jr(E, L);
+    acts.Jr   = E<=0 ? Jr(E, L) : NAN;
     return acts;
 }
 

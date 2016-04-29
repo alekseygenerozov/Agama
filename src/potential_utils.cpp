@@ -150,6 +150,8 @@ double v_circ(const BasePotential& potential, double radius)
     if(!isZRotSymmetric(potential))
         throw std::invalid_argument("Potential is not axisymmetric, "
             "no meaningful definition of circular velocity is possible");
+    if(radius==0)
+        return 0;  // this is not quite true for a singular potential at origin..
     coord::GradCyl deriv;
     potential.eval(coord::PosCyl(radius, 0, 0), NULL, &deriv);
     return sqrt(radius*deriv.dR);
@@ -547,6 +549,7 @@ Interpolator2d::Interpolator2d(const BasePotential& potential) :
             gridR2(iE, iL) = pow_2((R2-Rc)/Rc);
             // compute derivatives of Rperi/apo w.r.t. E and L/Lcirc
             potential.eval(coord::PosCyl(R1,0,0), &Phi, &grad);
+            if(R1==0) grad.dR=0;   // it won't be used anyway, but prevents a possible NaN
             double dR1dE = (1 - 2*(E-Phi) * dLcdE / Lc) / (grad.dR - 2*(E-Phi) / R1);
             double dR1dZ = -Lc * sqrt(2*(E-Phi)) / (grad.dR * R1 - 2*(E-Phi));
             potential.eval(coord::PosCyl(R2,0,0), &Phi, &grad);

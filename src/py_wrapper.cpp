@@ -536,6 +536,7 @@ static PyObject* callAnyFunctionOnArray(void* params, PyObject* args, anyFunctio
             // allocate an appropriate output object
             PyObject* resultObj = allocOutputArr<numOutput>(numpt);
             // loop over input array
+#pragma omp parallel for
             for(int i=0; i<numpt; i++) {
                 fnc(params, static_cast<double*>(PyArray_GETPTR2(arr, i, 0)), result);
                 formatOutputArr<numOutput>(result, i, resultObj);
@@ -1068,7 +1069,8 @@ static const char* docstringActions =
     "Arguments: \n"
     "    point - a sextet of floats (x,y,z,vx,vy,vz) or array of such sextets;\n"
     "    pot - Potential object that defines the gravitational potential;\n"
-    "    ifd (float) - interfocal distance for the prolate spheroidal coordinate system.\n"
+    "    ifd (float) - interfocal distance for the prolate spheroidal coordinate system "
+    "(not necessary if the potential is spherical).\n"
     "Returns: float or array of floats (for each point: Jr, Jz, Jphi)";
 static PyObject* find_actions(PyObject* /*self*/, PyObject* args, PyObject* namedArgs)
 {
@@ -1076,7 +1078,7 @@ static PyObject* find_actions(PyObject* /*self*/, PyObject* args, PyObject* name
     double ifd = 0;
     PyObject *points_obj = NULL, *pot_obj = NULL;
     if(!PyArg_ParseTupleAndKeywords(args, namedArgs, "|OOd", const_cast<char**>(keywords),
-        &points_obj, &pot_obj, &ifd) || ifd<=0)
+        &points_obj, &pot_obj, &ifd) || ifd<0)
     {
         PyErr_SetString(PyExc_ValueError, "Invalid arguments passed to actions()");
         return NULL;

@@ -72,6 +72,7 @@ TORUSFLAGS = -Wreorder -Wno-unused-variable
 
 # test programs
 TESTSRCS  = test_math_core.cpp \
+            test_math_linalg.cpp \
             test_math_spline.cpp \
             test_coord.cpp \
             test_units.cpp \
@@ -115,7 +116,7 @@ $(PY_WRAPPER): $(SRCDIR)/py_wrapper.cpp $(LIBNAME)
 	$(CXX) -c $(CXXFLAGS) $(PYFLAGS) $(SRCDIR)/py_wrapper.cpp -o $(OBJDIR)/py_wrapper.o
 	$(CXX) -shared -o $(PY_WRAPPER) $(OBJDIR)/py_wrapper.o $(LIBNAME) $(LFLAGS) $(PYFLAGS)
 
-$(OBJDIR)/%.o:  $(SRCDIR)/%.cpp $(SRCDIR)/%.h
+$(OBJDIR)/%.o:  $(SRCDIR)/%.cpp $(SRCDIR)/%.h Makefile.local
 	@mkdir -p $(OBJDIR)
 	$(CXX) -c $(CXXFLAGS) -o "$@" "$<"
 

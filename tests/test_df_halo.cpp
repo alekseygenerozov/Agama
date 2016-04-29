@@ -40,6 +40,28 @@ bool testTotalMass(const galaxymodel::GalaxyModel& galmod, double massExact)
     return ok;
 }
 
+// return a random number or 0 or 1, to test all possibilities including the boundary cases
+inline double rnd(int i) { return (i<=1) ? i*1. : math::random(); }
+bool testActionSpaceScaling(const df::BaseActionSpaceScaling& s)
+{
+    for(int i=0; i<1000; i++) {
+        double v[3] = { rnd(i%10), rnd(i/10%10), rnd(i/100) };
+        actions::Actions J = s.toActions(v);
+        if(J.Jr!=J.Jr || J.Jz!=J.Jz || J.Jphi!=J.Jphi)
+            return false;
+        double w[3];
+        s.toScaled(J, w);
+        if(!(w[0]>=0 && w[0]<=1 && w[1]>=0 && w[1]<=1 && w[2]>=0 && w[2]<=1))
+            return false;
+        actions::Actions J1 = s.toActions(w);
+        if( J1.Jr!=J1.Jr || J1.Jz!=J1.Jz || J1.Jphi!=J1.Jphi ||
+            math::isFinite(J1.Jr+J1.Jz+fabs(J1.Jphi)) && (math::fcmp(J.Jr, J1.Jr, 1e-10)!=0 ||
+            math::fcmp(J.Jz, J1.Jz, 1e-10)!=0 || math::fcmp(J.Jphi, J1.Jphi, 1e-10)!=0) )
+            return false;
+    }
+    return true;
+}
+
 bool testDFmoments(const galaxymodel::GalaxyModel& galmod, const coord::PosVelCyl& point,
     double dfExact, double densExact, double sigmaExact)
 {
@@ -110,6 +132,8 @@ const double testPointsH[NUM_POINTS_H][6] = {
 
 int main(){
     bool ok = true;
+    ok &= testActionSpaceScaling(df::ActionSpaceScalingTriangLog());
+    ok &= testActionSpaceScaling(df::ActionSpaceScalingRect(0.765432,0.234567));
 
     // test double-power-law distribution function in a spherical Hernquist potential
     // NB: parameters obtained by fitting (test_df_fit.cpp)

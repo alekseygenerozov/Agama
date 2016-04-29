@@ -383,7 +383,7 @@ void computeMoments(const GalaxyModelType& model,
         double densVal = result[ic], densRelErr2 = pow_2(error[ic]/result[ic]);
         unsigned int im=1;  // index of the computed moment in the results array
         if(velocityFirstMoment!=NULL) {
-            velocityFirstMoment[ic] = coord::VelCyl(
+            velocityFirstMoment[ic] = densVal==0 ? coord::VelCyl(0,0,0) : coord::VelCyl(
                 result[ic + (im+0)*numCompDF] / densVal,
                 result[ic + (im+1)*numCompDF] / densVal,
                 result[ic + (im+2)*numCompDF] / densVal);
@@ -402,12 +402,12 @@ void computeMoments(const GalaxyModelType& model,
             im+=3;
         }
         if(velocitySecondMoment!=NULL) {
-            velocitySecondMoment[ic].vR2    = result[ic + (im+0)*numCompDF] / densVal;
-            velocitySecondMoment[ic].vz2    = result[ic + (im+1)*numCompDF] / densVal;
-            velocitySecondMoment[ic].vphi2  = result[ic + (im+2)*numCompDF] / densVal;
-            velocitySecondMoment[ic].vRvz   = result[ic + (im+3)*numCompDF] / densVal;
-            velocitySecondMoment[ic].vRvphi = result[ic + (im+4)*numCompDF] / densVal;
-            velocitySecondMoment[ic].vzvphi = result[ic + (im+5)*numCompDF] / densVal;
+            velocitySecondMoment[ic].vR2    = densVal ? result[ic + (im+0)*numCompDF] / densVal : 0;
+            velocitySecondMoment[ic].vz2    = densVal ? result[ic + (im+1)*numCompDF] / densVal : 0;
+            velocitySecondMoment[ic].vphi2  = densVal ? result[ic + (im+2)*numCompDF] / densVal : 0;
+            velocitySecondMoment[ic].vRvz   = densVal ? result[ic + (im+3)*numCompDF] / densVal : 0;
+            velocitySecondMoment[ic].vRvphi = densVal ? result[ic + (im+4)*numCompDF] / densVal : 0;
+            velocitySecondMoment[ic].vzvphi = densVal ? result[ic + (im+5)*numCompDF] / densVal : 0;
             if(velocitySecondMomentErr!=NULL) {
                 velocitySecondMomentErr[ic].vR2 =
                     fabs(velocitySecondMoment[ic].vR2) * sqrt(densRelErr2 +

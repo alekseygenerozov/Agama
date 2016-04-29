@@ -67,7 +67,7 @@ std::vector<double> quadraticOptimizationSolve(
     const IMatrix<NumT>& A,
     const std::vector<NumT>& rhs,
     const std::vector<NumT>& L=std::vector<NumT>(),
-    const IMatrix<NumT>& Q=IMatrixDiagonal<NumT>(std::vector<NumT>()),
+    const IMatrix<NumT>& Q=DiagonalMatrix<NumT>(),
     const std::vector<NumT>& xmin=std::vector<NumT>(),
     const std::vector<NumT>& xmax=std::vector<NumT>());
 
@@ -132,7 +132,7 @@ std::vector<double> quadraticOptimizationSolveApprox(
     const IMatrix<NumT>& A,
     const std::vector<NumT>& rhs,
     const std::vector<NumT>& L=std::vector<NumT>(),
-    const IMatrix<NumT>& Q=IMatrixDiagonal<NumT>(std::vector<NumT>()),
+    const IMatrix<NumT>& Q=DiagonalMatrix<NumT>(),
     const std::vector<NumT>& consPenaltyLin=std::vector<NumT>(),
     const std::vector<NumT>& consPenaltyQuad=std::vector<NumT>(),
     const std::vector<NumT>& xmin=std::vector<NumT>(),

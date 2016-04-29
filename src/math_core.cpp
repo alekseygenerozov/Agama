@@ -83,7 +83,8 @@ double unwrapAngle(double x, double xprev) {
     return x - 2*M_PI * nwraps;
 }
 
-unsigned int binSearch(const double x, const double arr[], unsigned int size)
+template<typename NumT>
+unsigned int binSearch(const NumT x, const NumT arr[], unsigned int size)
 {
     if(size<2)
         throw std::invalid_argument("Error in binSearch: should have at least one bin");
@@ -111,7 +112,14 @@ unsigned int binSearch(const double x, const double arr[], unsigned int size)
     }
     return index;
 }
-    
+
+// template instantiations
+template unsigned int binSearch(const double x, const double arr[], unsigned int size);
+template unsigned int binSearch(const float x, const float arr[], unsigned int size);
+template unsigned int binSearch(const int x, const int arr[], unsigned int size);
+template unsigned int binSearch(const unsigned int x, const unsigned int arr[], unsigned int size);
+template unsigned int binSearch(const size_t x, const size_t arr[], unsigned int size);
+
 /* --------- random numbers -------- */
 class RandGenStorage{
 public:

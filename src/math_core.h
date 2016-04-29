@@ -57,15 +57,17 @@ double unwrapAngle(double x, double xprev);
 
 /** Perform a binary search in an array of sorted numbers x_0 < x_1 < ... < x_N
     to locate the index of bin that contains a given value x.
+    \tparam  NumT is the numeric type of data in the array (double, float, int or unsigned int);
     \param[in]  x is the position, which must lie in the interval x_0 <= x <= x_N;
     \param[in]  arr is the array of bin boundaries sorted in ascending order (NOT CHECKED!)
     \param[in]  size is the number of elements in the array (i.e., number of bins plus 1);
     since this header does not include <vector>, we shall pass the array in the traditional
     way, as a pointer to the first element plus the number of elements.
-    \returns the index k of the bin such that x_k <= x < x_{k+1}, where the last inequality
-    may be inexact for the last bin (x=x_N still returns N-1).
+    \returns the index k of the bin such that x_k <= x < x_{k+1}, where the last strict inequality
+    is replaced by <= for the last bin (x=x_N still returns N-1).
     \throws std::invalid_argument exception if the point is outside the interval */
-unsigned int binSearch(const double x, const double arr[], const unsigned int size);
+template<typename NumT>
+unsigned int binSearch(const NumT x, const NumT arr[], const unsigned int size);
 
 /** linearly interpolate the value y(x) between y1 and y2, for x between x1 and x2 */
 inline double linearInterp(double x, double x1, double x2, double y1, double y2) {

@@ -123,15 +123,19 @@ typedef std::tr1::shared_ptr<const BaseActionFinder> PtrActionFinder;
 
 
 namespace Torus {
-    class Torus;
-    typedef std::tr1::shared_ptr<Torus> PtrTorus;
+
+class Torus;
+typedef std::tr1::shared_ptr<Torus> PtrTorus;
+
 }  // namespace Torus
 
 
 namespace df{
 
 class BaseDistributionFunction;
+class BaseActionSpaceScaling;
 
 typedef std::tr1::shared_ptr<const BaseDistributionFunction> PtrDistributionFunction;
+typedef std::tr1::shared_ptr<const BaseActionSpaceScaling> PtrActionSpaceScaling;
 
 }  // namespace df

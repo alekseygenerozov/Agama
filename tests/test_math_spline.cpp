@@ -107,8 +107,6 @@ int main()
         yvalues2[i] = cos(4*sqrt(xvalues[i])) + DISP*(math::random()-0.5)*4;
     }
     math::SplineApprox appr(xvalues, xnodes);
-    if(appr.isSingular())
-        std::cout << "Warning, matrix is singular\n";
 
     std::vector<double> ynodes1, ynodes2;
     double deriv_left, deriv_right, rms, edf, lambda;

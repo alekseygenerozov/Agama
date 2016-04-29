@@ -491,7 +491,8 @@ public:
     double zmin() const { return znodes.front(); }
     double zmax() const { return znodes.back();  }
 
-    Matrix<double> computeRoughnessPenaltyMatrix() const;
+    /** return the (sparse) matrix of roughness penalties */
+    SpMatrix<double> computeRoughnessPenaltyMatrix() const;
 
 private:
     std::vector<double> xnodes, ynodes, znodes;  ///< grid nodes in x, y and z directions
@@ -595,10 +596,6 @@ public:
         between knots.front() and knots.back()   */
     SplineApprox(const std::vector<double> &xvalues, const std::vector<double> &knots);
     ~SplineApprox();
-
-    /** check if the basis-function matrix A is singular: if this is the case, 
-        fitting procedure is much slower and cannot accomodate any smoothing */
-    bool isSingular() const;
 
     /** perform actual fitting for the array of y values with the given smoothing parameter.
         \param[in]  yvalues is the array of data points corresponding to x values

@@ -4,6 +4,7 @@
 #include <cassert>
 #include <stdexcept>
 
+#include <iostream>
 namespace math {
 
 //-------------- CUBIC SPLINE --------------//
@@ -1060,10 +1061,11 @@ void KernelInterpolator3d<N>::nonzeroDomain(unsigned int indComp,
 }
 
 template<int N>
-Matrix<double> KernelInterpolator3d<N>::computeRoughnessPenaltyMatrix() const
+SpMatrix<double> KernelInterpolator3d<N>::computeRoughnessPenaltyMatrix() const
 {
-    Matrix<double> M(numComp, numComp, 0),
-    X0(computeOverlapMatrix<N,0>(xnodes)),
+    std::vector<math::Triplet> values;      // elements of sparse matrix will be accumulated here
+    Matrix<double>
+    X0(computeOverlapMatrix<N,0>(xnodes)),  // matrices of products of 1d basis functions or derivs
     X1(computeOverlapMatrix<N,1>(xnodes)),
     X2(computeOverlapMatrix<N,2>(xnodes)),
     Y0(computeOverlapMatrix<N,0>(ynodes)),
@@ -1097,13 +1099,14 @@ Matrix<double> KernelInterpolator3d<N>::computeRoughnessPenaltyMatrix() const
                         X1(ind[0], i) * Y1(ind[1], j) * Z0(ind[2], k) * 2 +
                         X0(ind[0], i) * Y1(ind[1], j) * Z1(ind[2], k) * 2 +
                         X1(ind[0], i) * Y0(ind[1], j) * Z1(ind[2], k) * 2;
-                    M(index1, index2) = val;
-                    M(index2, index1) = val;
+                    values.push_back(math::Triplet(index1, index2, val));
+                    if(index1!=index2)
+                        values.push_back(math::Triplet(index2, index1, val));
                 }
             }
         }
     }
-    return M;
+    return SpMatrix<double>(numComp, numComp, values);
 }
 
 template<int N>
@@ -1137,8 +1140,8 @@ std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
         // are identical to the amplitudes used in the interpolation
         return fncvalues;
 
-    // the matrix of values of kernel functions at grid nodes ( could be *BIG* )
-    Matrix<double> coefs(interp.numValues(), interp.numValues(), 0.);
+    // the matrix of values of kernel functions at grid nodes (could be *BIG*, although it is sparse)
+    std::vector<math::Triplet> values;  // elements of sparse matrix will be accumulated here
     const std::vector<double>* nodes[3] = {&xnodes, &ynodes, &znodes};
     // values of 1d kernels (B-splines) at each grid node in each of the three dimensions, or -
     // for the last two rows in each matrix - 2nd derivatives of B-splines at the first/last grid nodes
@@ -1172,8 +1175,8 @@ std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
                         for(int tk=0; tk<=N; tk++) {
                             unsigned int indCol = interp.indComp(
                                 ti + leftInd[0][i], tj + leftInd[1][j], tk + leftInd[2][k]);
-                            coefs(indRow, indCol) = weights[0](i, ti) *
-                                weights[1](j, tj) * weights[2](k, tk);
+                            values.push_back(Triplet(indRow, indCol, 
+                                weights[0](i, ti) * weights[1](j, tj) * weights[2](k, tk)));
                         }
                     }
                 }
@@ -1182,7 +1185,7 @@ std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
     }
 
     // solve the linear system (could take *LONG* )
-    return LUDecomp(coefs).solve(fncvalues);
+    return LUDecomp(SpMatrix<double>(interp.numValues(), interp.numValues(), values)).solve(fncvalues);
 }
 
 template<int N>
@@ -1236,18 +1239,9 @@ class SplineApproxImpl {
     const std::vector<double> knots;   ///< b-spline knots  X[k], k=0..numKnots-1
     const std::vector<double> xvalues; ///< x[i], i=0..numDataPoints-1
 
-    /// matrix  C  containing the values of each basis function at each data point:
-    /// (size: numDataPoints rows, numBasisFnc columns - the largest matrix in use).
-    /// In the case that this matrix is singular, normal equations cannot be used, and this matrix
-    /// is replaced by the U-component of its singular value decomposition (of the same size).
-    Matrix<double> CMatrix;
-
-    /// in the case of singular matrix C, this holds the V-component of its SVD (size: numBasisFnc^2)
-    Matrix<double> VMatrix;
-
-    /// in the case of singular matrix C, this vector contains its inverse singular values,
-    /// or zeros in place of zero or extremely small values (size: numBasisFnc)
-    std::vector<double> invSingValuesC;
+    /// sparse matrix  C  containing the values of each basis function at each data point:
+    /// (size: numDataPoints rows, numBasisFnc columns, with only 4 nonzero values in each row)
+    SpMatrix<double> CMatrix;
 
     /// in the non-singular case, the matrix A = C^T C  of the system of normal equations is formed,
     /// and the lower triangular matrix L contains its Cholesky decomposition (size: numBasisFnc^2)
@@ -1258,7 +1252,7 @@ class SplineApproxImpl {
     Matrix<double> MMatrix;
 
     /// part of the decomposition of the matrix M (size: numBasisFnc)
-    std::vector<double> singValuesM;
+    std::vector<double> singValues;
 
 public:
     /// Auxiliary data used in the fitting process, pre-initialized for each set of data points `y`
@@ -1272,9 +1266,6 @@ public:
     /** Prepare internal tables for fitting the data points at the given set of x-coordinates
         and the given array of knots which determine the basis functions */
     SplineApproxImpl(const std::vector<double> &xvalues, const std::vector<double> &knots);
-
-    /** check if the matrix L of the system of normal equation is singular */
-    bool isSingular() const { return LMatrix.rows()==0; }
 
     /** find the weights of basis functions that provide the best fit to the data points `y`
         for the given value of smoothing parameter `lambda`.
@@ -1330,12 +1321,6 @@ private:
         \param[out] fitData is the data structure used by other methods later in the fitting process
     */
     void initFit(const std::vector<double> &yvalues, FitData &fitData) const;
-
-    /** In the unfortunate case that the matrix  C  appears to be singular,
-        we solve the linear least-square fit directly, using the pre-initialized SVD of matrix C
-        (this cannot accomodate nonzero smoothing). */
-    void computeWeightsSingular(const std::vector<double> &yvalues,
-        std::vector<double> &weights, double &RSS, double &EDF) const;
 };
 
 namespace{
@@ -1359,10 +1344,7 @@ public:
 
 SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const std::vector<double> &_knots) :
     numDataPoints(_xvalues.size()), numKnots(_knots.size()),
-    knots(_knots),
-    xvalues(_xvalues),
-    CMatrix(numDataPoints, numKnots+2),
-    LMatrix(numKnots+2, numKnots+2)
+    knots(_knots), xvalues(_xvalues)
 {
     // first check for validity of input range
     bool range_ok = (numDataPoints>2 && numKnots>2);
@@ -1377,75 +1359,60 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const st
                 "source data points must lie within spline definition region");
     }
 
+    // compute the roughness matrix R (integrals over products of second derivatives of basis functions)
+    Matrix<double> RMatrix(computeOverlapMatrix<3,2>(knots));
+    
     // initialize b-spline matrix C
+    std::vector<Triplet> Cvalues;
+    Cvalues.reserve(numDataPoints * 4);
     for(unsigned int i=0; i<numDataPoints; i++) {
         // for each input point, at most 4 basis functions are non-zero, starting from index 'ind'
         double B[4];
         unsigned int ind = bsplineWeights<3>(xvalues[i], &knots.front(), numKnots, B);
         assert(ind<=numKnots-2);
-        // the matrix is rather sparse and it might be possible to use an optimized representation of it?
-        for(unsigned int k=0; k<numKnots+2; k++)
-            CMatrix(i, k) = 0;
         // store non-zero elements of the matrix
-        for(unsigned int k=0; k<4; k++)
-            CMatrix(i, k+ind) = B[k];
+        for(int k=0; k<4; k++)
+            Cvalues.push_back(Triplet(i, k+ind, B[k]));
     }
+    CMatrix = SpMatrix<double>(numDataPoints, numKnots+2, Cvalues);
+    Cvalues.clear();
 
-    // pre-compute matrix L which is the Cholesky decomposition of matrix of normal equations A = C^T C
-    blas_dgemm(CblasTrans, CblasNoTrans, 1, CMatrix, CMatrix, 0, LMatrix); // now LMatrix contains A
-    try {
-        // this may fail if A is not positive definite, in which case smoothing is not (yet?) possible
-        choleskyDecomp(LMatrix);
+    SpMatrix<double> SpA(numKnots+2, numKnots+2);  // temporary sparse matrix containing A = C^T C
+    blas_dgemm(CblasTrans, CblasNoTrans, 1, CMatrix, CMatrix, 0, SpA);
+    Matrix<double> AMatrix(SpA);
 
-        // if that worked, compute the roughness matrix R (integrals over products of second derivatives
-        // of basis functions) and transform it into a more suitable form M+singValues
-        MMatrix = computeOverlapMatrix<3,2>(knots);  // now MMatrix contains R
+    // to prevent a failure of Cholesky decomposition in the case if A is not positive definite,
+    // we add a small multiple of R to A (following the recommendation in Ruppert,Wand&Carroll)
+    blas_daxpy(1e-10, RMatrix, AMatrix);
+        
+    // pre-compute matrix L which is the Cholesky decomposition of matrix of normal equations A
+    CholeskyDecomp CholA(AMatrix);
+    LMatrix = CholA.L();
 
-        // obtain Q = L^{-1} R L^{-T}, where R is the roughness penalty matrix
-        blas_dtrsm(CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit, 1, LMatrix, MMatrix);
-        blas_dtrsm(CblasRight, CblasLower,  CblasTrans, CblasNonUnit, 1, LMatrix, MMatrix);
-        // now MMatrix contains Q = L^{-1} R L^(-T}
+    // transform the roughness matrix R into a more suitable form M+singValues:
+    // obtain Q = L^{-1} R L^{-T}, where R is the roughness penalty matrix (replace R by Q)
+    blas_dtrsm(CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit, 1, LMatrix, RMatrix);
+    blas_dtrsm(CblasRight, CblasLower,  CblasTrans, CblasNonUnit, 1, LMatrix, RMatrix);
 
-        // next decompose this Q via singular value decomposition: Q = U * diag(SV) * V^T
-        singValuesM = std::vector<double>(numKnots+2);    // vector SV of singular values of matrix Q
-        Matrix<double> tempm(numKnots+2, numKnots+2);     // temporary workspace
-        singularValueDecomp(MMatrix, tempm, singValuesM); // now MMatrix contains U, and tempm contains V^T
+    // decompose this Q via singular value decomposition: Q = U * diag(S) * V^T
+    SVDecomp SVD(RMatrix);
+    singValues = SVD.S();       // vector of singular values of matrix Q:
+    singValues[numKnots] = 0;   // the smallest two singular values must be zero;
+    singValues[numKnots+1] = 0; // set it explicitly to avoid roundoff error
 
-        // Because Q was symmetric and positive definite, we expect that U=V, but don't actually check it.
-        // the smallest two singular values must be zero; set explicitly to avoid roundoff error
-        singValuesM[numKnots] = 0;
-        singValuesM[numKnots+1] = 0;
-
-        // precompute M = L^{-T} U  which is used in computing basis weight coefs.
-        blas_dtrsm(CblasLeft, CblasLower, CblasTrans, CblasNonUnit, 1, LMatrix, MMatrix);
-        // now M is finally in place, and the weight coefs for any lambda are given by
-        // w = M (I + lambda * diag(singValues))^{-1} M^T  z
-    }
-    catch(std::domain_error&) {   // means that the matrix is not positive definite, i.e. fit is singular
-        LMatrix = Matrix<double>();  // raise the flag of a singular case
-
-        // in this case we will solve the linear least-square fit using SVD of the original matrix C,
-        // which is pre-initialized here
-        std::vector<double> singValuesC;
-        singularValueDecomp(CMatrix, VMatrix, singValuesC);
-
-        // eliminate singular values smaller than threshold, and replace the other ones with their inverse
-        double maxSV=0;
-        for(unsigned int i=0; i<singValuesC.size(); i++)
-            maxSV = fmax(maxSV, fabs(singValuesC[i]));
-        invSingValuesC.resize(singValuesC.size());
-        for(unsigned int i=0; i<singValuesC.size(); i++)
-            invSingValuesC[i] = fabs(singValuesC[i]) < maxSV * 1e-10  ?  0  :  1/invSingValuesC[i];
-    }
+    // precompute M = L^{-T} U  which is used in computing basis weight coefs.
+    MMatrix = SVD.U();
+    blas_dtrsm(CblasLeft, CblasLower, CblasTrans, CblasNonUnit, 1, LMatrix, MMatrix);
+    // now M is finally in place, and the weight coefs for any lambda are given by
+    // w = M (I + lambda * diag(singValues))^{-1} M^T  z
 }
 
 // initialize the temporary arrays used in the fitting process
 void SplineApproxImpl::initFit(const std::vector<double> &yvalues, FitData &fitData) const
 {
-    assert(!isSingular());
     if(yvalues.size() != numDataPoints) 
         throw std::invalid_argument("SplineApprox: input array sizes do not match");
-    fitData.ynorm2  = pow_2(blas_dnrm2(yvalues));
+    fitData.ynorm2  = blas_ddot(yvalues, yvalues);
     fitData.zRHS.resize(numKnots+2);
     fitData.MTz. resize(numKnots+2);
     blas_dgemv(CblasTrans, 1, CMatrix, yvalues, 0, fitData.zRHS);     // precompute z = C^T y
@@ -1458,22 +1425,18 @@ void SplineApproxImpl::initFit(const std::vector<double> &yvalues, FitData &fitD
 double SplineApproxImpl::computeWeights(const FitData &fitData, const double lambda,
     std::vector<double> &weights, double &RSS, double &EDF) const
 {
-    std::vector<double>tempv(numKnots+2);
-    if(lambda==0) {
-        linearSystemSolveCholesky(LMatrix, fitData.zRHS, weights);
-    } else {
-        for(unsigned int p=0; p<numKnots+2; p++) {
-            double sv = singValuesM[p];
-            tempv[p]  = fitData.MTz[p] / (1 + (sv>0 ? sv*lambda : 0));
-        }
-        weights.resize(numKnots+2);
-        blas_dgemv(CblasNoTrans, 1, MMatrix, tempv, 0, weights);
+    std::vector<double> tempv(numKnots+2);
+    for(unsigned int p=0; p<numKnots+2; p++) {
+        double sv = singValues[p];
+        tempv[p]  = fitData.MTz[p] / (1 + (sv>0 ? sv*lambda : 0));
     }
-    // compute the residual sum of squares (TODO: rewrite in a way that avoids cancellation!)
+    weights.resize(numKnots+2);
+    blas_dgemv(CblasNoTrans, 1, MMatrix, tempv, 0, weights);
+    // compute the residual sum of squares (note: may be prone to cancellation errors?)
     tempv = weights;
-    blas_dtrmv(CblasLower, CblasTrans, CblasNonUnit, LMatrix, tempv);
+    blas_dtrmv(CblasLower, CblasTrans, CblasNonUnit, LMatrix, tempv); // tempv = L^T w
     double wTz = blas_ddot(weights, fitData.zRHS);
-    RSS = (fitData.ynorm2 - 2*wTz + pow_2(blas_dnrm2(tempv)));
+    RSS = (fitData.ynorm2 - 2*wTz + blas_ddot(tempv, tempv));
     // compute the number of equivalent degrees of freedom
     if(!isFinite(lambda))  // infinite smoothing leads to a straight line (2 d.o.f)
         EDF = 2;
@@ -1482,34 +1445,9 @@ double SplineApproxImpl::computeWeights(const FitData &fitData, const double lam
     else {
         EDF = 0;
         for(unsigned int c=0; c<numKnots+2; c++)
-            EDF += 1 / (1 + lambda * singValuesM[c]);
+            EDF += 1 / (1 + lambda * singValues[c]);
     }
     return log(RSS) + 2*EDF / (numDataPoints-EDF-1);  // AIC
-}
-
-void SplineApproxImpl::computeWeightsSingular(const std::vector<double> &yvalues,
-    std::vector<double> &weights, double &RSS, double &EDF) const
-{
-    assert(isSingular());
-    if(yvalues.size() != numDataPoints) 
-        throw std::invalid_argument("SplineApprox: input array sizes do not match");
-    weights.resize(numKnots+2);
-    // solve the linear system  C w = y  in the least-square sense,
-    // using a pre-computed SVD of matrix C = U diag(SV) V^T.
-    // CMatrix stores the U component, VMatrix - the V component, and invSingValuesC is the vector
-    // containing _inverse_ singular values, or zeros in place of zero or very small singular values)
-    std::vector<double> UTy(numKnots+2), tmp(numKnots+2);
-    blas_dgemv(CblasTrans, 1, CMatrix, yvalues, 0, UTy);
-    // multiply each element of  U^T y  by a corresponding inverse singular value of matrix C
-    for(unsigned int i=0; i<numKnots+2; i++)
-        tmp[i] = UTy[i] * invSingValuesC[i];
-    // finally multiply this temp.vector by V to obtain the solution w
-    blas_dgemv(CblasNoTrans, 1, VMatrix, tmp, 0, weights);
-    // compute the residuals  C w - y,  using the relation  C w = U ( U^T y )
-    std::vector<double> resid(yvalues);
-    blas_dgemv(CblasNoTrans, 1, CMatrix, UTy, -1, resid);
-    RSS = pow_2(blas_dnrm2(resid));
-    EDF = static_cast<double>(numKnots+2);    
 }
 
 /// after the weights of basis functions have been determined, evaluate the values
@@ -1542,10 +1480,6 @@ void SplineApproxImpl::convertToCubicSpline(const std::vector<double>& weights,
 void SplineApproxImpl::solveForWeightsWithLambda(const std::vector<double> &yvalues, const double lambda,
     std::vector<double> &weights, double &RSS, double &EDF) const
 {
-    if(isSingular()) {
-        computeWeightsSingular(yvalues, weights, RSS, EDF);
-        return;
-    }
     if(lambda < 0)
         throw std::invalid_argument("SplineApprox: lambda must be non-negative");
     FitData fitData;
@@ -1557,10 +1491,6 @@ void SplineApproxImpl::solveForWeightsWithAIC(const std::vector<double> &yvalues
     std::vector<double> &weights, double &RSS, double &EDF, double &lambda) const
 {
     lambda=0;
-    if(isSingular()) {
-        computeWeightsSingular(yvalues, weights, RSS, EDF);
-        return;
-    }
     FitData fitData;
     initFit(yvalues, fitData);
     if(deltaAIC < 0)
@@ -1591,10 +1521,6 @@ SplineApprox::SplineApprox(const std::vector<double> &xvalues, const std::vector
 SplineApprox::~SplineApprox()
 {
     delete impl;
-}
-
-bool SplineApprox::isSingular() const {
-    return impl->isSingular();
 }
 
 void SplineApprox::fitData(const std::vector<double> &yvalues, const double lambda,

@@ -128,7 +128,7 @@ void computeFourierCoefs(const BaseDensityOrPotential &src,
 // returning the value of m-th harmonic at the given (R,z).
 
 inline double density_rho_m(const BaseDensity& dens, int m, double R, double z) {
-    if(dens.name() == DensityAzimuthalHarmonic::myName())
+    if(dens.name() == DensityAzimuthalHarmonic::myName())  // quickly compare char* pointers, not strings
         return static_cast<const DensityAzimuthalHarmonic&>(dens).rho_m(m, R, z);
     return m==0 ? dens.density(coord::PosCyl(R, z, 0)) : 0;
 }
@@ -588,10 +588,11 @@ DensityAzimuthalHarmonic::DensityAzimuthalHarmonic(
         gridz = gridz_orig;
         mysym &= ~coord::ST_ZREFLECTION;
     }
+    Rscale = gridR_orig[sizeR/2];  // take some reasonable value for scale radius for coord transformation
     for(unsigned int iR=0; iR<sizeR; iR++)
-        gridR[iR] = log(1+gridR[iR]);
+        gridR[iR] = log(1+gridR[iR]/Rscale);
     for(unsigned int iz=0; iz<sizez; iz++)
-        gridz[iz] = log(1+fabs(gridz[iz]))*math::sign(gridz[iz]);
+        gridz[iz] = log(1+fabs(gridz[iz])/Rscale)*math::sign(gridz[iz]);
 
     math::Matrix<double> val(sizeR, sizez);
     int mmax = (coefs.size()-1)/2;
@@ -629,7 +630,7 @@ DensityAzimuthalHarmonic::DensityAzimuthalHarmonic(
 double DensityAzimuthalHarmonic::rho_m(int m, double R, double z) const
 {
     int mmax = (spl.size()-1)/2;
-    double lR = log(1+R), lz = log(1+fabs(z))*math::sign(z);
+    double lR = log(1+R/Rscale), lz = log(1+fabs(z)/Rscale)*math::sign(z);
     if(math::abs(m)>mmax || spl[m+mmax].isEmpty() ||
         //R<spl[m+mmax].xmin() || z<spl[m+mmax].ymin() || R>spl[m+mmax].xmax() || z>spl[m+mmax].ymax())
        lR<spl[mmax].xmin() || lz<spl[mmax].ymin() ||
@@ -641,7 +642,7 @@ double DensityAzimuthalHarmonic::rho_m(int m, double R, double z) const
 double DensityAzimuthalHarmonic::densityCyl(const coord::PosCyl &pos) const
 {
     int mmax = (spl.size()-1)/2;
-    double lR = log(1+pos.R), lz = log(1+fabs(pos.z))*math::sign(pos.z);
+    double lR = log(1+pos.R/Rscale), lz = log(1+fabs(pos.z)/Rscale)*math::sign(pos.z);
     if( lR<spl[mmax].xmin() || lz<spl[mmax].ymin() ||
         lR>spl[mmax].xmax() || lz>spl[mmax].ymax() )
         return 0;
@@ -666,9 +667,9 @@ void DensityAzimuthalHarmonic::getCoefs(
     unsigned int mmax = (spl.size()-1)/2;
     assert(mmax>=0 && spl.size() == mmax*2+1 && !spl[mmax].isEmpty());
     coefs.resize(2*mmax+1);
-    gridR = spl[mmax].xvalues();
-    unsigned int sizeR = gridR.size();
+    unsigned int sizeR = spl[mmax].xvalues().size();
     unsigned int sizez = spl[mmax].yvalues().size();
+    gridR = spl[mmax].xvalues();
     if(isZReflSymmetric(sym)) {
         // output only coefs for half-space z>=0
         sizez = (sizez+1) / 2;
@@ -683,6 +684,11 @@ void DensityAzimuthalHarmonic::getCoefs(
                     coefs[mm](iR, iz) = spl[mm].value(gridR[iR], gridz[iz]);
             //math::eliminateNearZeros(coefs[mm]);
         }
+    // unscale the grid coordinates
+    for(unsigned int iR=0; iR<sizeR; iR++)
+        gridR[iR] = Rscale * (exp(gridR[iR]) - 1);
+    for(unsigned int iz=0; iz<sizez; iz++)
+        gridz[iz] = Rscale * (exp(fabs(gridz[iz])) - 1) * math::sign(gridz[iz]);
 }
 
 // -------- public classes: CylSpline --------- //

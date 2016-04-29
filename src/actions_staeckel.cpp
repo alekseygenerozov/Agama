@@ -434,16 +434,17 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
     }
 
     // sanity check
-    if(!math::isFinite(lim.lambda_min+lim.lambda_max+lim.nu_max+lim.nu_min)
+    /*if(!math::isFinite(lim.lambda_min+lim.lambda_max+lim.nu_max+lim.nu_min)
         || fabs(fnc.point.nu) > lim.nu_max
         || fnc.point.lambda < lim.lambda_min
         || fnc.point.lambda > lim.lambda_max)
         throw std::invalid_argument("findIntegrationLimitsAxisym failed");
+    */
 
     // ignore extremely small intervals
-    if(lim.nu_max < delta * MINIMUM_RANGE)
+    if(!(lim.nu_max >= delta * MINIMUM_RANGE))
         lim.nu_max = 0;
-    if(lim.lambda_max-lim.lambda_min < delta * MINIMUM_RANGE)
+    if(!(lim.lambda_max-lim.lambda_min >= delta * MINIMUM_RANGE))
         lim.lambda_min = lim.lambda_max = fnc.point.lambda;
 
     return lim;
