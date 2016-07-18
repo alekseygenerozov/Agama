@@ -380,7 +380,7 @@ int main()
     std::cout << "Monte Carlo Volume of a 3d torus = "<<result<<" +- "<<error<<
         " (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
     ok &= fabs(result-exact)<error*2;  // loose tolerance on MC error estimate
-    if(0) {
+    if(1) {
         std::ofstream fout("torus.dat");
         for(unsigned int i=0; i<points.rows(); i++)
             fout << points(i,0) << "\t" << points(i,1) << "\t" << points(i,2) << "\n";

@@ -143,7 +143,7 @@ class CPotential(galpy.potential.Potential):
            2014-12-05 EV
         """
         coord=R*math.cos(phi), R*math.sin(phi)
-        force,deriv=self._pot.force_deriv(coord[0], coord[1], z)
+        force,deriv=self._pot.forceDeriv(coord[0], coord[1], z)
         return -(deriv[0]*coord[0]**2+deriv[1]*coord[1]**2+2*deriv[3]*coord[0]*coord[1])/R**2
 
     def _z2deriv(self,R,z,phi=0.,t=0.):
@@ -162,7 +162,7 @@ class CPotential(galpy.potential.Potential):
         HISTORY:
            2014-12-05 EV
         """
-        return -self._pot.force_deriv(R*math.cos(phi), R*math.sin(phi), z)[1][2]
+        return -self._pot.forceDeriv(R*math.cos(phi), R*math.sin(phi), z)[1][2]
 
     def _phi2deriv(self,R,z,phi=0.,t=0.):
         """
@@ -181,7 +181,7 @@ class CPotential(galpy.potential.Potential):
            2014-12-05 EV
         """
         coord=R*math.cos(phi), R*math.sin(phi)
-        force,deriv=self._pot.force_deriv(coord[0], coord[1], z)
+        force,deriv=self._pot.forceDeriv(coord[0], coord[1], z)
         return -(deriv[0]*coord[1]**2 + deriv[1]*coord[0]**2 - 2*deriv[3]*coord[0]*coord[1]
                  - force[0]*coord[0] - force[1]*coord[1])
 
@@ -202,7 +202,7 @@ class CPotential(galpy.potential.Potential):
            2014-12-05 EV
         """
         coord=R*math.cos(phi), R*math.sin(phi)
-        force,deriv=self._pot.force_deriv(coord[0], coord[1], z)
+        force,deriv=self._pot.forceDeriv(coord[0], coord[1], z)
         return -(deriv[5]*coord[0]+deriv[4]*coord[1])/R
 
     def _Rphideriv(self,R,z,phi=0.,t=0.):
@@ -222,7 +222,7 @@ class CPotential(galpy.potential.Potential):
            2014-12-05 EV
         """
         coord=R*math.cos(phi), R*math.sin(phi)
-        force,deriv=self._pot.force_deriv(coord[0], coord[1], z)
+        force,deriv=self._pot.forceDeriv(coord[0], coord[1], z)
         return -((deriv[1]-deriv[0])*coord[1]*coord[0] + deriv[3]*(coord[0]**2-coord[1]**2)
                  - force[0]*coord[1] + force[1]*coord[0])/R
 
@@ -243,5 +243,5 @@ class CPotential(galpy.potential.Potential):
            2014-12-05 EV
         """
         coord=R*math.cos(phi), R*math.sin(phi)
-        force,deriv=self._pot.force_deriv(coord[0], coord[1], z)
+        force,deriv=self._pot.forceDeriv(coord[0], coord[1], z)
         return -(deriv[4]*coord[0]-deriv[5]*coord[1])/R

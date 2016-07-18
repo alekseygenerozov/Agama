@@ -404,6 +404,11 @@ double blas_ddot(const std::vector<double>& X, const std::vector<double>& Y);
 template<typename Type>
 void blas_daxpy(double alpha, const Type& X, Type& Y);
 
+/// multiply vector or matrix by a number:  Y := alpha * Y
+/// \tparam Type may be std::vector<double> or Matrix<double>
+template<typename Type>
+void blas_dmul(double alpha, Type& Y) { blas_daxpy(alpha-1, Y, Y); }
+
 /// matrix-vector multiplication:  Y := alpha * A * X + beta * Y
 /// \tparam MatrixType is either Matrix<double> or SpMatrix<double>
 template<typename MatrixType>

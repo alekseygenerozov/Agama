@@ -19,7 +19,7 @@ from scipy.optimize import minimize
 # compute log-likelihood of DF with given params against an array of actions
 def df_likelihood(dfparams, actions):
     dpl = agama.DistributionFunction(**dfparams)
-    norm = dpl.total_mass()
+    norm = dpl.totalMass()
     sumlog = numpy.sum( numpy.log(dpl(actions)/norm) )
     if numpy.isnan(sumlog): sumlog = -numpy.inf
     return sumlog, norm

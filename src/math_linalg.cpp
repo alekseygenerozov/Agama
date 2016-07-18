@@ -9,9 +9,13 @@
 // skip assert-based boundary checks
 #define NDEBUG
 #include <Eigen/LU>
-#include <Eigen/Cholesky>
 #include <Eigen/SparseLU>
+#include <Eigen/Cholesky>
+#if EIGEN_VERSION_AT_LEAST(3,2,92)
+#include <Eigen/SVD>
+#else
 #include <unsupported/Eigen/SVD>
+#endif
 
 #else
 

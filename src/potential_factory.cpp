@@ -9,6 +9,7 @@
 #include "potential_sphharm.h"
 #include "particles_io.h"
 #include "math_core.h"
+#include "math_linalg.h"
 #include "utils.h"
 #include "utils_config.h"
 #include <cmath>
@@ -39,12 +40,12 @@ enum PotentialType {
     PT_UNKNOWN,      ///< undefined
     PT_COEFS,        ///< pre-computed coefficients of potential expansion loaded from a coefs file
     PT_NBODY,        ///< N-body snapshot that is used for initializing a potential expansion
+    PT_COMPOSITE,    ///< a superposition of multiple potential instances:  `CompositeCyl`
 
     //  Density models without a corresponding potential
 //    PT_ELLIPSOIDAL,  ///< a generalization of spherical mass profile with arbitrary axis ratios:  CDensityEllipsoidal
 //    PT_MGE,          ///< Multi-Gaussian expansion:  CDensityMGE
 //    PT_SERSIC,       ///< Sersic density profile:  CDensitySersic
-//    PT_EXPDISK,      ///< exponential (in R) disk with a choice of vertical density profile:  CDensityExpDisk
 
     //  Generic potential expansions
     PT_BSE,          ///< basis-set expansion for infinite systems:  `BasisSetExp`
@@ -61,7 +62,6 @@ enum PotentialType {
     PT_DENS_CYLGRID, ///< DensityCylGrid
 
     //  Potentials with possibly infinite mass that can't be used as source density for a potential expansion
-    PT_COMPOSITE,    ///< a superposition of multiple potential instances:  `CompositeCyl`
     PT_LOG,          ///< triaxial logaritmic potential:  `Logarithmic`
     PT_HARMONIC,     ///< triaxial simple harmonic oscillator:  `Harmonic`
 //    PT_SCALEFREE,    ///< triaxial single power-law density profile:  CPotentialScaleFree
@@ -74,7 +74,7 @@ enum PotentialType {
     PT_DEHNEN,       ///< spherical, axisymmetric or triaxial Dehnen(1993) density model:  `Dehnen`
     PT_FERRERS,      ///< triaxial Ferrers model with finite extent:  `Ferrers`
     PT_PLUMMER,      ///< spherical Plummer model:  `Plummer`
-//    PT_ISOCHRONE,    ///< spherical isochrone model:  `Isochrone`
+    PT_ISOCHRONE,    ///< spherical isochrone model:  `Isochrone`
     PT_PERFECTELLIPSOID,  ///< oblate axisymmetric Perfect Ellipsoid of Kuzmin/de Zeeuw :  `OblatePerfectEllipsoid`
 };
 
@@ -83,7 +83,7 @@ struct ConfigPotential
 {
     PotentialType potentialType;   ///< type of the potential
     PotentialType densityType;     ///< specifies the density model used for initializing a potential expansion
-    coord::SymmetryType symmetryType; ///< degree of symmetry (mainly used to explicitly disregard certain terms in a potential expansion)
+    coord::SymmetryType symmetryType; ///< degree of symmetry
     double mass;                   ///< total mass of the model (not applicable to all potential types)
     double scaleRadius;            ///< scale radius of the model (if applicable)
     double scaleRadius2;           ///< second scale radius of the model (if applicable)
@@ -131,6 +131,7 @@ static bool mapinitialized = false;
 static void initPotentialAndSymmetryNameMap()
 {
     PotentialNames.clear();
+    PotentialNames[PT_COMPOSITE] = CompositeCyl::myName();
     PotentialNames[PT_LOG]       = Logarithmic::myName();
     PotentialNames[PT_HARMONIC]  = Harmonic::myName();
     PotentialNames[PT_NFW]       = NFW::myName();
@@ -152,18 +153,18 @@ static void initPotentialAndSymmetryNameMap()
     DensityNames.clear();
 //    DensityNames[PT_ELLIPSOIDAL] = CDensityEllipsoidal::myName();
 //    DensityNames[PT_MGE] = CDensityMGE::myName();
-    DensityNames[PT_COEFS]   = "Coefs";  // denotes that potential expansion coefs are loaded from a text file rather than computed from a density model
+//    DensityNames[PT_SERSIC] = CDensitySersic::myName();
+    DensityNames[PT_COEFS]   = "Coefs"; // denotes that potential expansion coefs are loaded from a text file
     DensityNames[PT_NBODY]   = "Nbody"; // denotes a density model from discrete points in Nbody file
+    DensityNames[PT_COMPOSITE] = CompositeDensity::myName();
     DensityNames[PT_PLUMMER] = Plummer::myName();
     DensityNames[PT_MIYAMOTONAGAI] = MiyamotoNagai::myName();
     DensityNames[PT_DEHNEN]  = Dehnen::myName();
     DensityNames[PT_FERRERS] = Ferrers::myName();
+    DensityNames[PT_ISOCHRONE] = Isochrone::myName();
     DensityNames[PT_PERFECTELLIPSOID] = OblatePerfectEllipsoid::myName();
     DensityNames[PT_DENS_CYLGRID] = DensityAzimuthalHarmonic::myName();
     DensityNames[PT_DENS_SPHHARM] = DensitySphericalHarmonic::myName();
-//    DensityNames[PT_ISOCHRONE] = CDensityIsochrone::myName();
-//    DensityNames[PT_EXPDISK] = CDensityExpDisk::myName();
-//    DensityNames[PT_SERSIC] = CDensitySersic::myName();
 
     SymmetryNames[coord::ST_NONE]         = "None";
     SymmetryNames[coord::ST_REFLECTION]   = "Reflection";
@@ -233,6 +234,7 @@ static const char* getCoefFileExtension(PotentialType pottype)
         case PT_SPLINE:     return ".coef_spl";
         case PT_CYLSPLINE:  return ".coef_cyl";
         case PT_MULTIPOLE:  return ".coef_mul";
+        case PT_COMPOSITE:  return ".composite";
         default: return "";
     }
 }
@@ -283,6 +285,11 @@ static DiskParam parseDiskParams(const utils::KeyValueMap& params, const units::
     config.scaleHeight         = params.getDouble("scaleHeight") * conv.lengthUnit;
     config.innerCutoffRadius   = params.getDouble("innerCutoffRadius") * conv.lengthUnit;
     config.modulationAmplitude = params.getDouble("modulationAmplitude");
+    // alternative way: specifying the total model mass instead of surface density at R=0
+    if(params.contains("mass") && !params.contains("surfaceDensity")) {
+        config.surfaceDensity = 1;
+        config.surfaceDensity = params.getDouble("mass") * conv.massUnit / config.mass();
+    }
     return config;
 };
 
@@ -295,6 +302,11 @@ static SphrParam parseSphrParams(const utils::KeyValueMap& params, const units::
     config.beta               = params.getDouble("beta");
     config.scaleRadius        = params.getDouble("scaleRadius") * conv.lengthUnit;
     config.outerCutoffRadius  = params.getDouble("outerCutoffRadius") * conv.lengthUnit;
+    // alternative way: specifying the total model mass instead of volume density at r=scaleRadius
+    if(params.contains("mass") && !params.contains("densityNorm")) {
+        config.densityNorm = 1;
+        config.densityNorm = params.getDouble("mass") * conv.massUnit / config.mass();
+    }
     return config;
 }
 
@@ -305,7 +317,7 @@ static SphrParam parseSphrParams(const utils::KeyValueMap& params, const units::
 
 /// attempt to load coefficients of BasisSetExp or SplineExp stored in a text file
 static PtrPotential readPotentialSphHarmExp(
-    std::istream& strm, const PotentialType potentialType)
+    std::istream& strm, const units::ExternalUnits& converter, const PotentialType potentialType)
 {
     std::string buffer;
     std::vector<std::string> fields;
@@ -354,6 +366,11 @@ static PtrPotential readPotentialSphHarmExp(
     if(!ok)
         throw std::runtime_error(std::string("Error loading potential ") +
             getPotentialNameByType(potentialType));
+    math::blas_dmul(converter.lengthUnit, radii);
+    for(unsigned int i=0; i<coefs.size(); i++) {
+        math::blas_dmul(pow_2(converter.velocityUnit), coefs[i]);
+        math::blas_dmul(pow_2(converter.velocityUnit)/converter.lengthUnit, coefs1[i]);
+    }        
     switch(potentialType)
     {
     case PT_BSE: 
@@ -421,7 +438,7 @@ static bool readAzimuthalHarmonics(std::istream& strm,
 }
 
 /// attempt to load coefficients of CylSplineExp stored in a text file
-static PtrPotential readPotentialCylSpline(std::istream& strm)
+static PtrPotential readPotentialCylSpline(std::istream& strm, const units::ExternalUnits& converter)
 {
     std::string buffer;
     std::vector<std::string> fields;
@@ -455,13 +472,21 @@ static PtrPotential readPotentialCylSpline(std::istream& strm)
     }
     if(!ok)
         throw std::runtime_error(std::string("Error loading potential ") + CylSplineExp::myName());
+    // convert units
+    math::blas_dmul(converter.lengthUnit, gridR);
+    math::blas_dmul(converter.lengthUnit, gridz);
+    for(unsigned int i=0; i<Phi.size(); i++) {
+        math::blas_dmul(pow_2(converter.velocityUnit), Phi[i]);
+        math::blas_dmul(pow_2(converter.velocityUnit)/converter.lengthUnit, dPhidR[i]);
+        math::blas_dmul(pow_2(converter.velocityUnit)/converter.lengthUnit, dPhidz[i]);
+    }
     return PtrPotential(new CylSplineExp(gridR, gridz, Phi, dPhidR, dPhidz));
 }
 
 }  // end internal namespace
 
 // Main routine: load potential expansion coefficients from a text file
-PtrPotential readPotential(const std::string& fileName)
+PtrPotential readPotential(const std::string& fileName, const units::ExternalUnits& converter)
 {
     if(fileName.empty()) {
         throw std::runtime_error("readPotentialCoefs: empty file name");
@@ -477,16 +502,23 @@ PtrPotential readPotential(const std::string& fileName)
         std::vector<std::string> fields;
         utils::splitString(buffer, "# \t", fields);
         if(fields[0] == BasisSetExp::myName()) {
-            return readPotentialSphHarmExp(strm, PT_BSE);
+            return readPotentialSphHarmExp(strm, converter, PT_BSE);
         }
         if(fields[0] == SplineExp::myName()) {
-            return readPotentialSphHarmExp(strm, PT_SPLINE);
+            return readPotentialSphHarmExp(strm, converter, PT_SPLINE);
         }
         if(fields[0] == Multipole::myName()) {
-            return readPotentialSphHarmExp(strm, PT_MULTIPOLE);
+            return readPotentialSphHarmExp(strm, converter, PT_MULTIPOLE);
         }
         if(fields[0] == CylSplineExp::myName()) {
-            return readPotentialCylSpline(strm);
+            return readPotentialCylSpline(strm, converter);
+        }
+        if(fields[0] == CompositeCyl::myName()) {
+            // each line is a name of a file with the given component
+            std::vector<PtrPotential> components;
+            while(ok && std::getline(strm, buffer) && !strm.eof())
+                components.push_back(readPotential(buffer, converter));
+            return PtrPotential(new CompositeCyl(components));
         }
     }
     throw std::runtime_error("readPotentialCoefs: cannot find "
@@ -516,53 +548,6 @@ static void writeSphericalHarmonics(std::ostream& strm,
         strm << "\n";
     }
 }
-    
-static void writePotentialBSE(std::ostream& strm, const BasisSetExp& potBSE)
-{
-    std::vector<double> indices;
-    std::vector< std::vector<double> > coefs;
-    indices.resize(potBSE.getNumCoefsRadial()+1);
-    for(size_t i=0; i<indices.size(); i++) indices[i]=i*1.0;
-    potBSE.getCoefs(coefs);
-    assert(coefs.size() == indices.size());
-    int lmax = potBSE.getNumCoefsAngular();
-    strm << BasisSetExp::myName() << "\t#header\n" << 
-        (potBSE.getNumCoefsRadial()+1) << "\t#n_radial\n" << 
-        lmax << "\t#l_max\n" << 
-        potBSE.getAlpha() <<"\t#alpha\n0\t#time\n#index";
-    writeSphericalHarmonics(strm, indices, coefs);
-}
-
-static void writePotentialSpline(std::ostream& strm, const SplineExp& potSpline)
-{
-    std::vector<double> radii;
-    std::vector< std::vector<double> > coefs;
-    potSpline.getCoefs(radii, coefs);
-    assert(radii[0] == 0 && coefs.size() == radii.size());
-    coefs[0].resize(1);       // retain only l=0 term for r=0, the rest is supposed to be zero
-    int lmax = potSpline.getNumCoefsAngular();
-    strm << SplineExp::myName() << "\t#header\n" << 
-        (potSpline.getNumCoefsRadial()+1) << "\t#n_radial\n" << 
-        lmax << "\t#l_max\n" <<
-        0 <<"\t#unused\n0\t#time\n#radius";
-    writeSphericalHarmonics(strm, radii, coefs);
-}
-
-static void writePotentialMultipole(std::ostream& strm, const Multipole& potMul)
-{
-    std::vector<double> radii;
-    std::vector< std::vector<double> > Phi, dPhi;
-    potMul.getCoefs(radii, Phi, dPhi);
-    assert(Phi.size() > 0 && Phi.size() == radii.size() && dPhi.size() == Phi.size());
-    int lmax = static_cast<int>(sqrt(static_cast<double>(Phi[0].size()))-1);
-    strm << Multipole::myName() << "\t#header\n" << 
-        Phi.size() << "\t#n_radial\n" << 
-        lmax << "\t#l_max\n" <<
-        0 <<"\t#unused\nPhi\n#radius";
-    writeSphericalHarmonics(strm, radii, Phi);
-    strm << "dPhi/dr\n#radius";
-    writeSphericalHarmonics(strm, radii, dPhi);
-}
 
 static void writeAzimuthalHarmonics(std::ostream& strm,
     const std::vector<double>& gridR,
@@ -571,7 +556,7 @@ static void writeAzimuthalHarmonics(std::ostream& strm,
 {
     int mmax = (static_cast<int>(data.size())-1)/2;
     assert(mmax>=0);
-    for(unsigned int mm=0; mm<data.size(); mm++) 
+    for(int mm=0; mm<static_cast<int>(data.size()); mm++) 
         if(data[mm].rows()*data[mm].cols()>0) {
             strm << (-mmax+mm) << "\t#m\n#z\\R";
             for(unsigned int iR=0; iR<gridR.size(); iR++)
@@ -585,12 +570,86 @@ static void writeAzimuthalHarmonics(std::ostream& strm,
             }
         }
 }
+    
+static void writePotentialBSE(std::ostream& strm, const BasisSetExp& potBSE,
+    const units::ExternalUnits& converter)
+{
+    std::vector<double> indices;
+    std::vector< std::vector<double> > coefs;
+    indices.resize(potBSE.getNumCoefsRadial()+1);
+    for(size_t i=0; i<indices.size(); i++) indices[i]=i*1.0;
+    potBSE.getCoefs(coefs);
+    assert(coefs.size() == indices.size());
+    // convert units
+    for(unsigned int i=0; i<coefs.size(); i++) {
+        math::blas_dmul(1/pow_2(converter.velocityUnit), coefs[i]);
+    }
+    int lmax = potBSE.getNumCoefsAngular();
+    strm << BasisSetExp::myName() << "\t#header\n" << 
+        (potBSE.getNumCoefsRadial()+1) << "\t#n_radial\n" << 
+        lmax << "\t#l_max\n" << 
+        potBSE.getAlpha() <<"\t#alpha\n0\t#time\n#index";
+    writeSphericalHarmonics(strm, indices, coefs);
+}
 
-static void writePotentialCylSpline(std::ostream& strm, const CylSplineExp& potential)
+static void writePotentialSpline(std::ostream& strm, const SplineExp& potSpline,
+    const units::ExternalUnits& converter)
+{
+    std::vector<double> radii;
+    std::vector< std::vector<double> > coefs;
+    potSpline.getCoefs(radii, coefs);
+    assert(radii[0] == 0 && coefs.size() == radii.size());
+    coefs[0].resize(1);       // retain only l=0 term for r=0, the rest is supposed to be zero
+    // convert units
+    math::blas_dmul(1/converter.lengthUnit, radii);
+    for(unsigned int i=0; i<coefs.size(); i++) {
+        math::blas_dmul(1/pow_2(converter.velocityUnit), coefs[i]);
+    }
+    int lmax = potSpline.getNumCoefsAngular();
+    strm << SplineExp::myName() << "\t#header\n" << 
+        (potSpline.getNumCoefsRadial()+1) << "\t#n_radial\n" << 
+        lmax << "\t#l_max\n" <<
+        0 <<"\t#unused\n0\t#time\n#radius";
+    writeSphericalHarmonics(strm, radii, coefs);
+}
+
+static void writePotentialMultipole(std::ostream& strm, const Multipole& potMul,
+    const units::ExternalUnits& converter)
+{
+    std::vector<double> radii;
+    std::vector< std::vector<double> > Phi, dPhi;
+    potMul.getCoefs(radii, Phi, dPhi);
+    assert(Phi.size() > 0 && Phi.size() == radii.size() && dPhi.size() == Phi.size());
+    // convert units
+    math::blas_dmul(1/converter.lengthUnit, radii);
+    for(unsigned int i=0; i<Phi.size(); i++) {
+        math::blas_dmul(1/pow_2(converter.velocityUnit), Phi[i]);
+        math::blas_dmul(1/pow_2(converter.velocityUnit)*converter.lengthUnit, dPhi[i]);
+    }
+    int lmax = static_cast<int>(sqrt(static_cast<double>(Phi[0].size()))-1);
+    strm << Multipole::myName() << "\t#header\n" << 
+        Phi.size() << "\t#n_radial\n" << 
+        lmax << "\t#l_max\n" <<
+        0 <<"\t#unused\nPhi\n#radius";
+    writeSphericalHarmonics(strm, radii, Phi);
+    strm << "dPhi/dr\n#radius";
+    writeSphericalHarmonics(strm, radii, dPhi);
+}
+
+static void writePotentialCylSpline(std::ostream& strm, const CylSplineExp& potential,
+    const units::ExternalUnits& converter)
 {
     std::vector<double> gridR, gridz;
     std::vector<math::Matrix<double> > Phi, dPhidR, dPhidz;
     potential.getCoefs(gridR, gridz, Phi, dPhidR, dPhidz);
+    // convert units
+    math::blas_dmul(1/converter.lengthUnit, gridR);
+    math::blas_dmul(1/converter.lengthUnit, gridz);
+    for(unsigned int i=0; i<Phi.size(); i++) {
+        math::blas_dmul(1/pow_2(converter.velocityUnit), Phi[i]);
+        math::blas_dmul(1/pow_2(converter.velocityUnit)*converter.lengthUnit, dPhidR[i]);
+        math::blas_dmul(1/pow_2(converter.velocityUnit)*converter.lengthUnit, dPhidz[i]);
+    }
     int mmax = Phi.size()/2;
     strm << CylSplineExp::myName() << "\t#header\n" << gridR.size() << "\t#size_R\n" << mmax << "\t#m_max\n" <<
         gridz.size() << "\t#size_z\n" << std::setprecision(12);
@@ -602,26 +661,38 @@ static void writePotentialCylSpline(std::ostream& strm, const CylSplineExp& pote
     writeAzimuthalHarmonics(strm, gridR, gridz, dPhidz);
 }
 
-static void writeDensitySphericalHarmonic(std::ostream& strm, const DensitySphericalHarmonic& density)
+static void writeDensitySphericalHarmonic(std::ostream& strm, const DensitySphericalHarmonic& density,
+    const units::ExternalUnits& converter)
 {
     std::vector<double> radii;
     std::vector<std::vector<double> > coefs;
     density.getCoefs(radii, coefs);
+    // convert units
+    math::blas_dmul(1/converter.lengthUnit, radii);
+    for(unsigned int i=0; i<coefs.size(); i++)
+        math::blas_dmul(1/converter.massUnit*pow_3(converter.lengthUnit), coefs[i]);
     strm << "radius";
     writeSphericalHarmonics(strm, radii, coefs);
 }
 
-static void writeDensityCylGrid(std::ostream& strm, const DensityAzimuthalHarmonic& density)
+static void writeDensityCylGrid(std::ostream& strm, const DensityAzimuthalHarmonic& density,
+    const units::ExternalUnits& converter)
 {
     std::vector<double> gridR, gridz;
     std::vector<math::Matrix<double> > coefs;
     density.getCoefs(gridR, gridz, coefs);
+    // convert units
+    math::blas_dmul(1/converter.lengthUnit, gridR);
+    math::blas_dmul(1/converter.lengthUnit, gridz);
+    for(unsigned int i=0; i<coefs.size(); i++)
+        math::blas_dmul(1/converter.massUnit*pow_3(converter.lengthUnit), coefs[i]);
     writeAzimuthalHarmonics(strm, gridR, gridz, coefs);
 }
 
 } // end internal namespace
 
-bool writeDensity(const std::string& fileName, const BaseDensity& dens)
+bool writeDensity(const std::string& fileName, const BaseDensity& dens,
+    const units::ExternalUnits& converter)
 {
     if(fileName.empty())
         return false;
@@ -633,23 +704,50 @@ bool writeDensity(const std::string& fileName, const BaseDensity& dens)
         type = getDensityTypeByName(dens.name());
     switch(type) {
     case PT_BSE:
-        writePotentialBSE(strm, dynamic_cast<const BasisSetExp&>(dens));
+        writePotentialBSE(strm, dynamic_cast<const BasisSetExp&>(dens), converter);
         break;
     case PT_SPLINE:
-        writePotentialSpline(strm, dynamic_cast<const SplineExp&>(dens));
+        writePotentialSpline(strm, dynamic_cast<const SplineExp&>(dens), converter);
         break;
     case PT_MULTIPOLE:
-        writePotentialMultipole(strm, dynamic_cast<const Multipole&>(dens));
+        writePotentialMultipole(strm, dynamic_cast<const Multipole&>(dens), converter);
         break;
     case PT_CYLSPLINE:
-        writePotentialCylSpline(strm, dynamic_cast<const CylSplineExp&>(dens));
+        writePotentialCylSpline(strm, dynamic_cast<const CylSplineExp&>(dens), converter);
         break;
     case PT_DENS_CYLGRID:
-        writeDensityCylGrid(strm, dynamic_cast<const DensityAzimuthalHarmonic&>(dens));
+        writeDensityCylGrid(strm, dynamic_cast<const DensityAzimuthalHarmonic&>(dens), converter);
         break;
     case PT_DENS_SPHHARM:
-        writeDensitySphericalHarmonic(strm, dynamic_cast<const DensitySphericalHarmonic&>(dens));
+        writeDensitySphericalHarmonic(strm, dynamic_cast<const DensitySphericalHarmonic&>(dens), converter);
         break;
+    case PT_COMPOSITE: {  // could be either composite density or composite potential
+        strm << dens.name() << "\n";
+        const CompositeDensity* compDens = NULL;
+        const CompositeCyl* compPot = NULL;
+        unsigned int numComp = 0;
+        if(dens.name() == CompositeDensity::myName()) {
+            compDens = dynamic_cast<const CompositeDensity*>(&dens);
+            numComp  = compDens->size();
+        }
+        if(dens.name() == CompositeCyl::myName()) {
+            compPot = dynamic_cast<const CompositeCyl*>(&dens);
+            numComp = compPot->size();
+        }
+        assert(compDens!=NULL ^ compPot!=NULL);
+        for(unsigned int i=0; i<numComp; i++) {
+            const BaseDensity* dens=NULL;
+            if(compDens)
+                dens = compDens->component(i).get();
+            else
+                dens = compPot->component(i).get();
+            assert(dens);
+            std::string fileNameComp = fileName+'_'+utils::convertToString(i);
+            if(writeDensity(fileNameComp, *dens, converter))
+                strm << fileNameComp << '\n';
+        }
+        break;
+    }
     default:
         strm << "Unsupported type: " << dens.name() << "\n";
         return false;
@@ -683,7 +781,8 @@ PtrPotential readGalaxyPotential(const std::string& filename, const units::Exter
     if(num<0 || num>10 || !strm) ok=false;
     for(int i=0; i<num && ok; i++) {
         DiskParam dp;
-        strm>>dp.surfaceDensity >> dp.scaleRadius >> dp.scaleHeight >> dp.innerCutoffRadius >> dp.modulationAmplitude;
+        strm >> dp.surfaceDensity >> dp.scaleRadius >> dp.scaleHeight >>
+            dp.innerCutoffRadius >> dp.modulationAmplitude;
         swallowRestofLine(strm);
         dp.surfaceDensity *= conv.massUnit/pow_2(conv.lengthUnit);
         dp.scaleRadius *= conv.lengthUnit;
@@ -697,7 +796,8 @@ PtrPotential readGalaxyPotential(const std::string& filename, const units::Exter
     ok=ok && strm;
     for(int i=0; i<num && ok; i++) {
         SphrParam sp;
-        strm>>sp.densityNorm >> sp.axisRatio >> sp.gamma >> sp.beta >> sp.scaleRadius >> sp.outerCutoffRadius;
+        strm>>sp.densityNorm >> sp.axisRatio >> sp.gamma >> sp.beta >>
+            sp.scaleRadius >> sp.outerCutoffRadius;
         swallowRestofLine(strm);
         sp.densityNorm *= conv.massUnit/pow_3(conv.lengthUnit);
         sp.scaleRadius *= conv.lengthUnit;
@@ -783,6 +883,16 @@ static PtrDensity createAnalyticDensity(const ConfigPotential& config)
             return PtrDensity(new Plummer(config.mass, config.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Plummer is not supported");
+    case PT_ISOCHRONE:
+        if(config.q==1 && config.p==1)
+            return PtrDensity(new Isochrone(config.mass, config.scaleRadius));
+        else
+            throw std::invalid_argument("Non-spherical Isochrone is not supported");
+    case PT_NFW:
+        if(config.q==1 && config.p==1)
+            return PtrDensity(new NFW(config.mass, config.scaleRadius));
+        else
+            throw std::invalid_argument("Non-spherical Navarro-Frenk-White is not supported");
     case PT_PERFECTELLIPSOID:
         if(config.q==1 && config.p<1)
             return PtrDensity(new OblatePerfectEllipsoid(
@@ -824,6 +934,11 @@ static PtrPotential createAnalyticPotential(const ConfigPotential& config)
             return PtrPotential(new Plummer(config.mass, config.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Plummer is not supported");
+    case PT_ISOCHRONE:
+        if(config.q==1 && config.p==1)
+            return PtrPotential(new Isochrone(config.mass, config.scaleRadius));
+        else
+            throw std::invalid_argument("Non-spherical Isochrone is not supported");
     case PT_NFW:
         if(config.q==1 && config.p==1)
             return PtrPotential(new NFW(config.mass, config.scaleRadius));
@@ -844,10 +959,11 @@ static PtrPotential createAnalyticPotential(const ConfigPotential& config)
 static PtrPotential createPotentialExpansion(const ConfigPotential& config)
 {
     switch(config.potentialType) {
-    case PT_BSE:
+    case PT_BSE: {
         return PtrPotential(new BasisSetExp(
             config.alpha, config.numCoefsRadial, config.numCoefsAngular,
             *createAnalyticDensity(config)));
+    }
     case PT_SPLINE: {
         return PtrPotential(new SplineExp(
             config.numCoefsRadial, config.numCoefsAngular,
@@ -868,6 +984,11 @@ static PtrPotential createPotentialExpansion(const ConfigPotential& config)
                 *createAnalyticDensity(config), 
                 config.splineRMin, config.splineRMax, config.splineZMin, config.splineZMax));
         }
+    }
+    case PT_MULTIPOLE: {
+        return Multipole::create(*createAnalyticDensity(config), 
+            config.numCoefsAngular, config.numCoefsAngular,
+            config.numCoefsRadial, config.splineRMin, config.splineRMax);
     }
     default: throw std::invalid_argument("Unknown potential expansion type");
     }

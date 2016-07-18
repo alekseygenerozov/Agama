@@ -83,7 +83,7 @@ PtrPotential createPotential(
     number of terms, prescribed symmetry, etc.).
     \param[in] converter is the unit converter for transforming the dimensional parameters 
     (min/max radii of grid) into internal units; can be a trivial converter. 
-    Coordinates and masses of particles are not transformed: if they are loaded from an external 
+    Coordinates and masses of particles are _not_ transformed: if they are loaded from an external 
     N-body snapshot file, the conversion is applied at that stage, and if they come from 
     other routines in the library, they are already in internal units.
     \param[in] points is the array of particle positions and masses.
@@ -133,32 +133,42 @@ inline PtrPotential readGalaxyPotential(
 /** Create a potential expansion from coefficients stored in a text file.
     The file must contain coefficients for BasisSetExp, SplineExp, CylSplineExp, or Multipole;
     the potential type is determined automatically from the first line of the file.
-    \param[in] coefFileName specifies the file to read.
-    \return    a new instance of PtrPotential on success.
+    \param[in] coefFileName specifies the file to read;
+    \param[in] converter is the unit converter for transforming the potential coefficients;
+    from dimensional into internal units; can be a trivial converter;
+    \return    a new instance of PtrPotential on success;
     \throws    std::invalid_argument or std::runtime_error or other potential-specific exception
-    on failure (e.g., if the file does not exist, or does not contain valid coefficients)
+    on failure (e.g., if the file does not exist, or does not contain valid coefficients).
 */
-PtrPotential readPotential(const std::string& coefFileName);
+PtrPotential readPotential(const std::string& coefFileName,
+    const units::ExternalUnits& converter = units::ExternalUnits());
 
 /** Write density or potential expansion coefficients to a text file.
     The potential must be one of the following expansion classes: 
     `BasisSetExp`, `SplineExp`, `CylSplineExp`, `Multipole`,
     or the density may be `DensitySphericalHarmonic` or `DensityCylGrid`.
     The coefficients stored in a file may be later loaded by `readPotential()` function.
-    \param[in] fileName is the output file
-    \param[in] density is the reference to density or potential object
+    If the potential or density is composite, each component is saved into a separate file
+    with suffixes "_0", "_1", etc. attached to the name, and the list of these files is
+    stored in the main file.
+    \param[in] fileName is the output file;
+    \param[in] density is the reference to density or potential object;
+    \param[in] converter is the unit converter for transforming the density or potential
+    coefficients from internal into dimensional units; can be a trivial converter;
     \return    success or failure (the latter may also mean that export is 
-    not available for this type of potential.
+    not available for this type of potential).
 */
-bool writeDensity(const std::string& fileName, const BaseDensity& density);
+bool writeDensity(const std::string& fileName, const BaseDensity& density,
+    const units::ExternalUnits& converter = units::ExternalUnits());
 
 /// alias to writeDensity
-inline bool writePotential(const std::string& fileName, const BasePotential& potential) {
-    return writeDensity(fileName, potential); }
+inline bool writePotential(const std::string& fileName, const BasePotential& potential,
+    const units::ExternalUnits& converter = units::ExternalUnits()) {
+    return writeDensity(fileName, potential, converter); }
 
 
 /// return file extension for writing the coefficients of a given potential type,
-/// or empty string if it is not one of the expansion types
+/// or empty string if it is neither one of the expansion types nor a composite potential
 const char* getCoefFileExtension(const std::string& potName);
 
 /// return file extension for writing the coefficients of a given potential object,

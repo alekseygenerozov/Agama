@@ -32,7 +32,11 @@ using potential::PtrDensity;
 using potential::PtrPotential;
 
 // define internal unit system - arbitrary numbers here!
-const units::InternalUnits intUnits(6.666*units::Kpc, 42*units::Myr);
+//const units::InternalUnits intUnits(6.666*units::Kpc, 42*units::Myr);
+const units::InternalUnits intUnits(2.7183*units::Kpc, 3.1416*units::Myr);
+
+// define external unit system describing the data (including the parameters in INI file)
+const units::ExternalUnits extUnits(intUnits, 1.*units::Kpc, 1.*units::kms, 1.*units::Msun);
 
 // various auxiliary functions for printing out information are non-essential
 // for the modelling itself; the essential workflow is contained in main()
@@ -40,22 +44,23 @@ const units::InternalUnits intUnits(6.666*units::Kpc, 42*units::Myr);
 /// print the rotation curve for a collection of potential components into a text file
 void writeRotationCurve(const std::string& fileName, const PtrPotential& potential)
 {
+    writePotential(fileName, *potential, extUnits);
     PtrPotential comp = potential->name()==potential::CompositeCyl::myName() ? potential :
         PtrPotential(new potential::CompositeCyl(std::vector<PtrPotential>(1, potential)));
     const potential::CompositeCyl& pot = dynamic_cast<const potential::CompositeCyl&>(*comp);
     std::ofstream strm(fileName.c_str());
     strm << "#radius";
     for(unsigned int i=0; i<pot.size(); i++) {
-        writePotential(fileName+"_"+pot.component(i)->name(), *pot.component(i));
         strm << "\t"<<pot.component(i)->name();
     }
     if(pot.size()>1)
         strm << "\ttotal\n";
     // print values at certain radii, expressed in units of Kpc
-    for(double r=1./8; r<=100; r<1 ? r*=2 : r<16 ? r+=0.5 : r<30 ? r+=2 : r+=5) {
-        strm << r;         // output radius in kpc
+    std::vector<double> radii = math::createExpGrid(71, 0.0316227766016838, 100);
+    for(unsigned int i=0; i<radii.size(); i++) {
+        strm << radii[i];  // output radius in kpc
         double v2sum = 0;  // accumulate squared velocity in internal units
-        double r_int = r * intUnits.from_Kpc;  // radius in internal units
+        double r_int = radii[i] * intUnits.from_Kpc;  // radius in internal units
         for(unsigned int i=0; i<pot.size(); i++) {
             coord::GradCyl deriv;  // potential derivatives in internal units
             pot.component(i)->eval(coord::PosCyl(r_int, 0, 0), NULL, &deriv);
@@ -142,7 +147,7 @@ void writeVerticalDensityProfile(const std::string& fileName,
             coord::PosCyl(R,heights[ih],0), 1e-3, 1e5, &dens[ih*nc+ic],
             NULL, NULL, NULL, NULL, NULL);
     }
-    
+
     std::ofstream strm((fileName+".vertical").c_str());
     strm << "#z";
     for(int ic=0; ic<nc; ic++)
@@ -163,19 +168,19 @@ void printoutInfo(const galaxymodel::SelfConsistentModel& model, const std::stri
     const potential::BaseDensity& compDisc = *model.components[1]->getDensity();
     coord::PosCyl pt0(8.3 * intUnits.from_Kpc, 0, 0);
     coord::PosCyl pt1(8.3 * intUnits.from_Kpc, 1 * intUnits.from_Kpc, 0);
-    std::cout << 
-        "Disk total mass="      << (compDisc.totalMass()  * intUnits.to_Msun) << " Msun"
+    std::cout <<
+        "Disc total mass="      << (compDisc.totalMass()  * intUnits.to_Msun) << " Msun"
         ", rho(Rsolar,z=0)="    << (compDisc.density(pt0) * intUnits.to_Msun_per_pc3) <<
         ", rho(Rsolar,z=1kpc)=" << (compDisc.density(pt1) * intUnits.to_Msun_per_pc3) << " Msun/pc^3\n"
-        "Halo inner density slope=" << getInnerDensitySlope(compHalo) <<
-        ", total mass="         << (compHalo.totalMass()  * intUnits.to_Msun) << " Msun"
+        "Halo total mass="      << (compHalo.totalMass()  * intUnits.to_Msun) << " Msun"
         ", rho(Rsolar,z=0)="    << (compHalo.density(pt0) * intUnits.to_Msun_per_pc3) <<
-        ", rho(Rsolar,z=1kpc)=" << (compHalo.density(pt1) * intUnits.to_Msun_per_pc3) << " Msun/pc^3\n"
-        "Potential at origin=-("<< 
+        ", rho(Rsolar,z=1kpc)=" << (compHalo.density(pt1) * intUnits.to_Msun_per_pc3) << " Msun/pc^3"
+        ", inner density slope="<< getInnerDensitySlope(compHalo) << "\n"
+        "Potential at origin=-("<<
         (sqrt(-model.totalPotential->value(coord::PosCyl(0,0,0))) * intUnits.to_kms) << " km/s)^2"
         ", total mass=" << (model.totalPotential->totalMass() * intUnits.to_Msun) << " Msun\n";
-    writeDensity("dens_disc_iter"+iterationStr, compDisc);
-    writeDensity("dens_halo_iter"+iterationStr, compHalo);
+    writeDensity("dens_disc_iter"+iterationStr, compDisc, extUnits);
+    writeDensity("dens_halo_iter"+iterationStr, compHalo, extUnits);
     writeRotationCurve("rotcurve_iter"+iterationStr, model.totalPotential);
 }
 
@@ -184,7 +189,7 @@ int main()
     // read parameters from the INI file
     const std::string iniFileName = "../data/SCM.ini";
     utils::ConfigFile ini(iniFileName);
-    utils::KeyValueMap 
+    utils::KeyValueMap
         iniPotenThinDisc = ini.findSection("Potential thin disc"),
         iniPotenThickDisc= ini.findSection("Potential thick disc"),
         iniPotenGasDisc  = ini.findSection("Potential gas disc"),
@@ -197,23 +202,21 @@ int main()
         iniSCMHalo       = ini.findSection("SelfConsistentModel halo"),
         iniSCMDisc       = ini.findSection("SelfConsistentModel disc"),
         iniSCM           = ini.findSection("SelfConsistentModel");
-    if(!iniSCM.contains("rminSphGrid")) {  // most likely file doesn't exist
+    if(!iniSCM.contains("rminSph")) {  // most likely file doesn't exist
         std::cout << "Invalid INI file " << iniFileName << "\n";
         return -1;
     }
-    // define external unit system describing the data (including the parameters in INI file)
-    const units::ExternalUnits extUnits(intUnits, 1.*units::Kpc, 1.*units::kms, 1.*units::Msun);
 
     // set up parameters of the entire Self-Consistent Model
     galaxymodel::SelfConsistentModel model;
-    model.rminSph         = iniSCM.getDouble("rminSphGrid") * extUnits.lengthUnit;
-    model.rmaxSph         = iniSCM.getDouble("rmaxSphGrid") * extUnits.lengthUnit;
+    model.rminSph         = iniSCM.getDouble("rminSph") * extUnits.lengthUnit;
+    model.rmaxSph         = iniSCM.getDouble("rmaxSph") * extUnits.lengthUnit;
     model.sizeRadialSph   = iniSCM.getInt("sizeRadialSph");
     model.lmaxAngularSph  = iniSCM.getInt("lmaxAngularSph");
-    model.RminCyl         = iniSCM.getDouble("RminCylGrid") * extUnits.lengthUnit;
-    model.RmaxCyl         = iniSCM.getDouble("RmaxCylGrid") * extUnits.lengthUnit;
-    model.zminCyl         = iniSCM.getDouble("zminCylGrid") * extUnits.lengthUnit;
-    model.zmaxCyl         = iniSCM.getDouble("zmaxCylGrid") * extUnits.lengthUnit;
+    model.RminCyl         = iniSCM.getDouble("RminCyl") * extUnits.lengthUnit;
+    model.RmaxCyl         = iniSCM.getDouble("RmaxCyl") * extUnits.lengthUnit;
+    model.zminCyl         = iniSCM.getDouble("zminCyl") * extUnits.lengthUnit;
+    model.zmaxCyl         = iniSCM.getDouble("zmaxCyl") * extUnits.lengthUnit;
     model.sizeRadialCyl   = iniSCM.getInt("sizeRadialCyl");
     model.sizeVerticalCyl = iniSCM.getInt("sizeVerticalCyl");
 
@@ -240,7 +243,7 @@ int main()
     updateTotalPotential(model);
     writeRotationCurve("rotcurve_init", model.totalPotential);
 
-    std::cout << "**** STARTING ONE-COMPONENT MODELLING ****\nMasses are: "
+    std::cout << "**** STARTING ONE-COMPONENT MODELLING ****\nMasses are:  "
         "Mbulge=" << (densityBulge->totalMass() * intUnits.to_Msun) << " Msun, "
         "Mgas="   << (densityGasDisc->totalMass() * intUnits.to_Msun) << " Msun, "
         "Mdisc="  << (model.components[1]->getDensity()->totalMass() * intUnits.to_Msun) << " Msun, "
@@ -253,9 +256,9 @@ int main()
 
     // replace the halo SCM component with the DF-based one
     model.components[0] = galaxymodel::PtrComponent(
-        new galaxymodel::ComponentWithSpheroidalDF(dfHalo, densityDarkHalo,
-        iniSCMHalo.getDouble("rminSphGrid") * extUnits.lengthUnit,
-        iniSCMHalo.getDouble("rmaxSphGrid") * extUnits.lengthUnit,
+        new galaxymodel::ComponentWithSpheroidalDF(dfHalo, potential::PtrDensity(),
+        iniSCMHalo.getDouble("rminSph") * extUnits.lengthUnit,
+        iniSCMHalo.getDouble("rmaxSph") * extUnits.lengthUnit,
         iniSCMHalo.getInt("sizeRadialSph"),
         iniSCMHalo.getInt("lmaxAngularSph") ));
 
@@ -290,12 +293,12 @@ int main()
     // prepare parameters for the density grid of the stellar component
     std::vector<double> gridRadialCyl = math::createNonuniformGrid(
         iniSCMDisc.getInt("sizeRadialCyl"),
-        iniSCMDisc.getDouble("RminCylGrid") * extUnits.lengthUnit,
-        iniSCMDisc.getDouble("RmaxCylGrid") * extUnits.lengthUnit, true);
+        iniSCMDisc.getDouble("RminCyl") * extUnits.lengthUnit,
+        iniSCMDisc.getDouble("RmaxCyl") * extUnits.lengthUnit, true);
     std::vector<double> gridVerticalCyl = math::createNonuniformGrid(
         iniSCMDisc.getInt("sizeVerticalCyl"),
-        iniSCMDisc.getDouble("zminCylGrid") * extUnits.lengthUnit,
-        iniSCMDisc.getDouble("zmaxCylGrid") * extUnits.lengthUnit, true);
+        iniSCMDisc.getDouble("zminCyl") * extUnits.lengthUnit,
+        iniSCMDisc.getDouble("zmaxCyl") * extUnits.lengthUnit, true);
 
     // replace the static disc density component of SCM with a DF-based disc component
     model.components[1] = galaxymodel::PtrComponent(
@@ -325,7 +328,7 @@ int main()
     writeVerticalDensityProfile("model_disc_iter_R8"+iterationStr,
         *model.totalPotential, *model.actionFinder, dfStellarArray, 8.3 /*kpc*/);
     writeVerticalDensityProfile("model_disc_iter_R0"+iterationStr,
-        *model.totalPotential, *model.actionFinder, dfStellarArray, 0 /*kpc*/);
+        *model.totalPotential, *model.actionFinder, dfStellarArray, 0.01 /*kpc*/);
 
     // now create genuinely self-consistent models of both components,
     // by drawing positions and velocities from the DF in the given (self-consistent) potential

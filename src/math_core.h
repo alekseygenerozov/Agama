@@ -42,8 +42,27 @@ inline int abs(int x) { return x<0?-x:x; }
 /** return an integer power of a number */
 double powInt(double x, int n);
 
+
 /** return a pseudo-random number in the range [0,1) */
 double random();
+
+/** return two uncorrelated random numbers from the standard normal distribution */
+void getNormalRandomNumbers(double& num1, double& num2);
+
+/** return a quasirandom number from the Halton sequence.
+    \param[in]  index  is the index of the number (should be >0, or better > ~10-20);
+    \param[in]  base   is the base of the sequence, must be a prime number;
+    if one needs an N-dimensional vector of ostensibly independent quasirandom numbers,
+    one may call this function N times with different prime numbers as bases.
+    \return  a number between 0 and 1.
+    \note that that the numbers get increasingly more correlated as the base increases,
+    thus it is not recommended to use more than ~6 dimensions unless index spans larger enough range.
+*/
+double quasiRandomHalton(unsigned int index, unsigned int base);
+
+/** first ten prime numbers, may be used as bases in `quasiRandomHalton` */
+static const unsigned int MAX_PRIMES = 10;  // not that there aren't more!
+static const int PRIMES[MAX_PRIMES] = { 2, 3, 5, 7, 11, 13, 17, 19, 23, 29 };
 
 /** wraps the input argument into the range [0,2pi) */
 double wrapAngle(double x);
@@ -54,6 +73,7 @@ double wrapAngle(double x);
     element, already processed by this function, as xprev. 
     Note that this usage scenario is not stable against error accumulation. */
 double unwrapAngle(double x, double xprev);
+
 
 /** Perform a binary search in an array of sorted numbers x_0 < x_1 < ... < x_N
     to locate the index of bin that contains a given value x.
@@ -82,26 +102,29 @@ inline double hermiteInterp(double x, double x1, double x2,
          + pow_2(t)   * ( (3-2*t) * y2 + (t-1) * dy2 * (x2-x1) );
 }
 
+
 /** Class for computing running average and dispersion for a sequence of numbers */
 class Averager {
 public:
-    Averager() : meanval(0.), sumsqrs(0.), count(0) {}
+    Averager() : avg(0.), ssq(0.), num(0) {}
     /** Add a number to the list (the number itself is not stored) */
     void add(const double value) {
-        double diff = value - meanval;
-        meanval += diff / (count+1);       // use Welford's stable recurrence relation
-        sumsqrs += diff * (value-meanval); // for computing mean and variance of weighted function values
-        count++;
+        double diff =  value-avg;
+        avg += diff / (num+1);     // use Welford's stable recurrence relation
+        ssq += diff * (value-avg); // for computing mean and variance of weighted function values
+        num++;
     }
     /** Return the mean value of all elements added so far: 
         \f$  < x > = (1/N) \sum_{i=1}^N  x_i  \f$.  */
-    double mean() const { return meanval; }
+    double mean() const { return avg; }
     /** Return the dispersion of all elements added so far:
         \f$  D = (1/N) \sum_{i=1}^N  ( x_i - < x > )^2  \f$.  */
-    double disp() const { return count>1 ? sumsqrs / (count-1) : 0; }
+    double disp() const { return num>1 ? ssq / (num-1) : 0; }
+    /** Return the number of elements */
+    unsigned int count() const { return num; }
 private:
-    double meanval, sumsqrs;
-    unsigned int count;
+    double avg, ssq;
+    unsigned int num;
 };
     
 ///@}

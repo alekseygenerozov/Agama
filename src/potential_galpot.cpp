@@ -24,6 +24,7 @@ Modifications by Eugene Vasiliev, 2015-2016
 #include "potential_composite.h"
 #include "potential_sphharm.h"
 #include "math_core.h"
+#include "math_specfunc.h"
 #include <cmath>
 #include <stdexcept>
 #include <cassert>
@@ -87,6 +88,21 @@ private:
             *f = val;
     }
     virtual unsigned int numDerivs() const { return 2; }
+};
+
+/** integrand for computing the total mass:  2pi R Sigma(R); x=R/scaleRadius */
+class DiskDensityRadialRichExpIntegrand: public math::IFunctionNoDeriv {
+public:
+    DiskDensityRadialRichExpIntegrand(const DiskParam& _params): params(_params) {};
+private:
+    const DiskParam params;
+    virtual double value(double x) const {
+        if(x==0 || x==1) return 0;
+        double Rrel = x/(1-x);
+        return 2*M_PI * pow_2(params.scaleRadius) * params.surfaceDensity * x / pow_3(1-x) *
+            exp(-params.innerCutoffRadius/params.scaleRadius/Rrel - Rrel
+                +params.modulationAmplitude*cos(Rrel));
+    }
 };
 
 /** exponential vertical disk density profile */
@@ -160,6 +176,20 @@ math::PtrFunction createVerticalDiskFnc(const DiskParam& params) {
         return math::PtrFunction(new DiskDensityVerticalThin());
 }
 
+double DiskParam::mass() const
+{
+    if(modulationAmplitude==0) {  // have an analytic expression
+        if(innerCutoffRadius==0)
+            return 2*M_PI * pow_2(scaleRadius) * surfaceDensity;
+        else {
+            double p = sqrt(innerCutoffRadius / scaleRadius);
+            return 4*M_PI * pow_2(scaleRadius) * surfaceDensity *
+            p * (p * math::besselK(0, 2*p) + math::besselK(1, 2*p));
+        }
+    }
+    return math::integrate(DiskDensityRadialRichExpIntegrand(*this), 0, 1, 1e-4);
+}
+
 double DiskDensity::densityCyl(const coord::PosCyl &pos) const
 {
     double h;
@@ -203,6 +233,30 @@ void DiskAnsatz::evalCyl(const coord::PosCyl &pos,
 }
 
 //----- spheroid density -----//
+
+/** integrand for computing the total mass:  4pi r^2 rho(r), x=r/scaleRadius */
+class SpheroidDensityIntegrand: public math::IFunctionNoDeriv {
+public:
+    SpheroidDensityIntegrand(const SphrParam& _params): params(_params) {};
+private:
+    const SphrParam params;
+    virtual double value(double x) const {
+        if(x==0 || x==1) return 0;
+        double rrel = x/(1-x);
+        return 4*M_PI * params.axisRatio * params.densityNorm * pow_3(params.scaleRadius) *
+            pow_2(x/pow_2(1-x)) * pow(rrel, -params.gamma) * pow(1+rrel, params.gamma-params.beta) *
+            exp(-pow_2(rrel*params.scaleRadius/params.outerCutoffRadius));
+    }
+};
+
+double SphrParam::mass() const
+{
+    if(outerCutoffRadius==0)   // have an analytic expression
+        return 4*M_PI * densityNorm * pow_3(scaleRadius) * axisRatio *
+            math::gamma(beta-3) * math::gamma(3-gamma) / math::gamma(beta-gamma);
+    return math::integrate(SpheroidDensityIntegrand(*this), 0, 1, 1e-4);
+}
+
 SpheroidDensity::SpheroidDensity (const SphrParam &_params) :
     BaseDensity(), params(_params)
 {
@@ -217,7 +271,7 @@ SpheroidDensity::SpheroidDensity (const SphrParam &_params) :
     if(params.beta<=2 && params.outerCutoffRadius==0)
         throw std::invalid_argument("Spheroid outer slope beta must be greater than 2, "
             "or a positive cutoff radius must be provided");
-};
+}
 
 double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
 {
@@ -244,8 +298,8 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
     const std::vector<DiskParam>& diskParams, 
     const std::vector<SphrParam>& sphrParams)
 {
-    // keep track of length scales of all components
-    double lengthMin=INFINITY, lengthMax=0;
+    double lengthMin=INFINITY, lengthMax=0;  // keep track of length scales of all components
+    bool isSpherical=diskParams.size()==0;   // whether there are any non-spherical components
 
     // assemble the set of density components for the multipole
     // (all spheroids and residual part of disks),
@@ -254,6 +308,8 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
     std::vector<PtrDensity> componentsDens;
     std::vector<PtrPotential> componentsPot;
     for(unsigned int i=0; i<diskParams.size(); i++) {
+        if(diskParams[i].surfaceDensity == 0)
+            continue;
         // the two parts of disk profile: DiskAnsatz goes to the list of potentials...
         componentsPot.push_back(PtrPotential(new DiskAnsatz(diskParams[i])));
         // ...and gets subtracted from the entire DiskDensity for the list of density components
@@ -268,11 +324,14 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
             lengthMin = fmin(lengthMin, diskParams[i].innerCutoffRadius);
     }
     for(unsigned int i=0; i<sphrParams.size(); i++) {
+        if(sphrParams[i].densityNorm == 0)
+            continue;
         componentsDens.push_back(PtrDensity(new SpheroidDensity(sphrParams[i])));
         lengthMin = fmin(lengthMin, sphrParams[i].scaleRadius);
         lengthMax = fmax(lengthMax, sphrParams[i].scaleRadius);
         if(sphrParams[i].outerCutoffRadius) 
             lengthMax = fmax(lengthMax, sphrParams[i].outerCutoffRadius);
+        isSpherical &= sphrParams[i].axisRatio == 1;
     }
     if(componentsDens.size()==0)
         throw std::invalid_argument("Empty parameters in GalPot");
@@ -282,7 +341,8 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
     // create multipole potential from this combined density
     double rmin = GALPOT_RMIN * lengthMin;
     double rmax = GALPOT_RMAX * lengthMax;
-    componentsPot.push_back(Multipole::create(dens, GALPOT_LMAX, 0, GALPOT_NRAD, rmin, rmax));
+    int lmax = isSpherical ? 0 : GALPOT_LMAX;
+    componentsPot.push_back(Multipole::create(dens, lmax, 0, GALPOT_NRAD, rmin, rmax));
 
     // the array of components to be passed to the constructor of CompositeCyl potential:
     // the multipole and the non-residual parts of disk potential

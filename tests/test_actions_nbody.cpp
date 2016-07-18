@@ -49,8 +49,21 @@ int main() {
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init halo potential;  "
         "value at origin=" << halo->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     tbegin=std::clock();
+
+#if 1
+    double Rmin = 0.2 *unit.from_Kpc, Rmax = 50*unit.from_Kpc,
+           Zmin = 0.02*unit.from_Kpc, Zmax = 10*unit.from_Kpc;
+    int gridSizeR = 20, gridSizeZ=20;
+    std::vector<double> gridR = math::createNonuniformGrid(gridSizeR, Rmin, Rmax, true);
+    std::vector<double> gridZ = math::createNonuniformGrid(gridSizeZ, Zmin, Zmax, true);
+    std::vector< math::Matrix<double> > potenValues;
+    potential::computePotentialCoefsCyl(diskparticles, coord::ST_AXISYMMETRIC, 0 /*mmax*/,
+        gridR, gridZ, potenValues);
+    potential::PtrPotential disk(new potential::CylSplineExp(gridR, gridZ, potenValues));
+#else
     potential::PtrPotential disk(new potential::CylSplineExpOld
         (20, 20, 0, diskparticles, coord::ST_AXISYMMETRIC));
+#endif
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init disk potential;  "
         "value at origin=" << disk->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     // not necessary, but we may store the potential coefs into a file and then load them back to speed up process
@@ -70,23 +83,19 @@ int main() {
     std::ofstream strm("disk_actions.txt");
     strm << "# R[Kpc]\tz[Kpc]\tJ_r[Kpc*km/s]\tJ_z[Kpc*km/s]\tJ_phi[Kpc*km/s]\tE[(km/s)^2]\n";
     tbegin=std::clock();
-    unsigned int numBadPoints = 0;
-    for(size_t i=0; i<diskparticles.size(); i++) {
-        try{
-            const coord::PosVelCyl point = toPosVelCyl(diskparticles[i].first);
-            actions::Actions acts = actFinder.actions(point);
-            strm << point.R*unit.to_Kpc << "\t" << point.z*unit.to_Kpc << "\t" <<
-                acts.Jr*unit.to_Kpc_kms << "\t" << acts.Jz*unit.to_Kpc_kms << "\t" << acts.Jphi*unit.to_Kpc_kms << "\t" << 
-                totalEnergy(*poten, point)*pow_2(unit.to_kms) << "\n";
-        }
-        catch(...){
-            numBadPoints++;  // probably because energy is positive
-        }
+    std::vector<actions::Actions> acts(diskparticles.size());
+//#pragma omp parallel for schedule(dynamic,1024)
+    for(int i=0; i<(int)diskparticles.size(); i++) {
+        acts[i] = actFinder.actions(toPosVelCyl(diskparticles[i].first));
     }
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to compute actions  ("<<
         diskparticles.size() * 1.0*CLOCKS_PER_SEC / (std::clock()-tbegin) << " actions per second)";
-    if(numBadPoints>0)
-        std::cout << ";  " << numBadPoints << " points skipped";
+    for(size_t i=0; i<diskparticles.size(); i++) {
+        const coord::PosVelCyl point = toPosVelCyl(diskparticles[i].first);
+        strm << point.R*unit.to_Kpc << "\t" << point.z*unit.to_Kpc << "\t" <<
+            acts[i].Jr*unit.to_Kpc_kms << "\t" << acts[i].Jz*unit.to_Kpc_kms << "\t" << acts[i].Jphi*unit.to_Kpc_kms << "\t" << 
+            totalEnergy(*poten, point)*pow_2(unit.to_kms) << "\n";
+    }
     std::cout << "\nALL TESTS PASSED\n";
     return 0;
 }

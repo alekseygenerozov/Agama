@@ -94,11 +94,12 @@ struct DiskParam{
     ///< For h<0 an isothermal (sech^2) profile is used, for h>0 an exponential one, 
     ///< and for h=0 the disk is infinitesimal thin
     double innerCutoffRadius;   ///< if nonzero, specifies the radius of a hole at the center R_0
-    double modulationAmplitude; ///< a term eps*cos(R/R_d) is added to the exponent
+    double modulationAmplitude; ///< a term eps*cos(R/R_d) is added to the radial exponent
     DiskParam(double _surfaceDensity=0, double _scaleRadius=0, double _scaleHeight=0,
         double _innerCutoffRadius=0, double _modulationAmplitude=0) :
         surfaceDensity(_surfaceDensity), scaleRadius(_scaleRadius), scaleHeight(_scaleHeight),
         innerCutoffRadius(_innerCutoffRadius), modulationAmplitude(_modulationAmplitude) {};
+    double mass() const;        ///< return the total mass of a density profile with these parameters
 };
 
 /** helper routine to create an instance of radial density function */
@@ -166,6 +167,7 @@ struct SphrParam{
         double _scaleRadius=0, double _outerCutoffRadius=0) :
         densityNorm(_densityNorm), axisRatio(_axisRatio), gamma(_gamma), beta(_beta),
         scaleRadius(_scaleRadius), outerCutoffRadius(_outerCutoffRadius) {};
+    double mass() const;        ///< return the total mass of a density profile with these parameters
 };
 
 /** Two-power-law spheroidal density profile with optional cutoff and flattening 

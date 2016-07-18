@@ -371,7 +371,7 @@ class ModelSearcher:
             # Compute log-likelihood of DF with given params against an array of actions
             pot     = agama.Potential(**potparams)
             df      = agama.DistributionFunction(**dfparams)
-            norm    = df.total_mass()     # total mass of tracers given by their DF
+            norm    = df.totalMass()     # total mass of tracers given by their DF
             if full_phase_space_info:
                 af      = agama.ActionFinder(pot)
                 actions = af(self.particles)  # actions of tracer particles
@@ -524,7 +524,7 @@ def compute_df_moments(potparams, dfparams, rmin, rmax):
     xyz   = numpy.hstack((radii, numpy.zeros_like(radii), numpy.zeros_like(radii)))
     pot   = agama.Potential(**potparams)
     df    = agama.DistributionFunction(**dfparams)
-    norm  = df.total_mass()
+    norm  = df.totalMass()
     dens, mom = agama.GalaxyModel(pot, df).moments(xyz, dens=True, vel=False, vel2=True)
     return radii.reshape(-1), dens/norm, mom[:,0]**0.5, mom[:,1]**0.5
 
@@ -537,8 +537,8 @@ def compute_df_moments_projected(potparams, dfparams, rmin, rmax):
     radii = numpy.logspace(numpy.log10(rmin), numpy.log10(rmax), 25)
     pot   = agama.Potential(**potparams)
     df    = agama.DistributionFunction(**dfparams)
-    norm  = df.total_mass()
-    dens, veldisp = agama.GalaxyModel(pot, df).projected_moments(radii)
+    norm  = df.totalMass()
+    dens, veldisp = agama.GalaxyModel(pot, df).projectedMoments(radii)
     return radii, dens/norm, veldisp**0.5
 
 def compute_dm_density(potparams, rmin, rmax):

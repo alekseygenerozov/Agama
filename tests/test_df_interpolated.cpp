@@ -35,14 +35,14 @@ int main()
     const actions::ActionFinderSpherical af(pot);
     const df::DoublePowerLaw dfO(paramDPL);    // original distribution function
     df::PtrActionSpaceScaling scaling(new df::ActionSpaceScalingTriangLog());
-    unsigned int gridSize[3] = {30, 5, 5};
+    unsigned int gridSize[3] = {40, 7, 5};
     std::vector<double> gridU(gridSize[0]),
     gridV(math::createUniformGrid(gridSize[1], 0, 1)),
     gridW(math::createUniformGrid(gridSize[2], 0, 1));
     double totalMass = pot.totalMass();
     for(unsigned int i=0; i<gridSize[0]; i++) {
         double r = getRadiusByMass(pot, totalMass * (1 - cos(M_PI * i / gridSize[0])) / 2);
-        //std::cout << r << ' ';
+        std::cout << r << ' ';
         double J = r * v_circ(pot, r);  // r^2*Omega
         double v[3];
         scaling->toScaled(actions::Actions(0,0,J), v);
@@ -126,8 +126,9 @@ int main()
         strmC << '\n';
         strm << r << ' ' << pot.density(point) << '\t' << densOrig << '\t' <<
             densIntL << ' ' << densSumL << '\t' << densIntC << ' ' << densSumC << '\n';
-        ok &= math::fcmp(densOrig, densIntL, 5e-2)==0 && math::fcmp(densSumL, densIntL, 2e-2)==0 && 
-              math::fcmp(densOrig, densIntC, 5e-2)==0 && math::fcmp(densSumC, densIntC, 2e-2)==0;
+        ok &= math::fcmp(densOrig, densIntL, 2e-1)==0 && math::fcmp(densSumL, densIntL, 1e-2)==0 && 
+              math::fcmp(densOrig, densIntC, 5e-2)==0 && math::fcmp(densSumC, densIntC, 1e-2)==0;
+        if(!ok) std::cout << "failed at r="<<r<<"\n";
     }
 
     if(ok)

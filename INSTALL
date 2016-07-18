@@ -1,8 +1,14 @@
 This is the action-based galaxy modelling framework. To get it working on your computer:
 
-1.  Download the repository (will download as a tarball).
-2a. Install the required libraries (presently only GSL: 
+1.  Download the repository.
+2a. Install the required libraries (presently only GSL).
 2b. Although not compulsory, you may want to download and install optional libraries:
+    - GLPK for solving linear optimization problems: http://www.gnu.org/software/glpk/
+    - CVXOPT for solving linear and quadratic optimization problems: http://cvxopt.org/ - requires Python;
+    either GLPK or (preferrably) CVXOPT are required for non-parametric DF modelling.
+    - Eigen library for highly optimized linear algebra routines (in its absense the ones from GSL will be used);
+    its use slows down compilation quite dramatically, but this more than pays off at runtime.
+    http://eigen.tuxfamily.org/
     - UNSIO library for reading/writing N-body snapshots in various formats: http://projets.lam.fr/projects/unsio
     (without it only the text format is supported).
     - Cuba library for multidimensional integration (the alternative is Cubature library that is bundled with this 

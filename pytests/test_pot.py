@@ -25,7 +25,7 @@ indx = numpy.argmax(dens)
 print "Highest value of density is",dens[indx],"for point",pos[indx]
 
 #4. test potential derivatives
-_,derivs = p.force_deriv(pos)
+_,derivs = p.forceDeriv(pos)
 print "RMS error in density vs. laplacian =", \
     ( ( (4*3.141592654*dens + (derivs[:,0]+derivs[:,1]+derivs[:,2]) )**2 ).mean() )**0.5
 
@@ -35,4 +35,4 @@ knots = [0,0.5,1,1.5,2,3,4,5,6,7,8,10,15,20,30,50,100]
 spl = agama.SplineApprox(rad,pot,knots)
 print "RMS error in Phi(r) approximating spline =", ( ((pot-spl(rad))**2).mean() )**0.5
 
-print "ALL TESTS PASSED"
+print "\033[1;32mALL TESTS PASSED\033[0m"

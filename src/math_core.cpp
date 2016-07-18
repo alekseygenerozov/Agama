@@ -49,11 +49,13 @@ bool error_handler_set = gsl_set_error_handler(&exceptionally_awesome_gsl_error_
 
 // ------ math primitives -------- //
 
-static double functionWrapper(double x, void* param){
+static double functionWrapper(double x, void* param)
+{
     return static_cast<IFunction*>(param)->value(x);
 }
 
-int fcmp(double x, double y, double eps) {
+int fcmp(double x, double y, double eps)
+{
     if(x==0)
         return y<-eps ? -1 : y>eps ? +1 : 0;
     if(y==0)
@@ -65,15 +67,18 @@ int fcmp(double x, double y, double eps) {
     return gsl_fcmp(x, y, eps);
 }
 
-double powInt(double x, int n) {
+double powInt(double x, int n)
+{
     return gsl_pow_int(x, n);
 }
 
-double wrapAngle(double x) {
-    return gsl_sf_angle_restrict_pos(x);
+double wrapAngle(double x)
+{
+    return isFinite(x) ? gsl_sf_angle_restrict_pos(x) : x;
 }
 
-double unwrapAngle(double x, double xprev) {
+double unwrapAngle(double x, double xprev)
+{
     double diff=(x-xprev)/(2*M_PI);
     double nwraps=0;
     if(diff>0.5) 
@@ -141,18 +146,31 @@ private:
 static RandGenStorage randgen;  // global random number generator
 
 // convenience function to generate a random number using global generator
-double random() {
+double random()
+{
     return randgen.random();
 }
 
 // generate 2 random numbers with normal distribution, using Box-Muller approach
-void getNormalRandomNumbers(double& num1, double& num2) {
+void getNormalRandomNumbers(double& num1, double& num2)
+{
     double p1 = random();
     double p2 = random();
     if(p1>0&&p1<=1)
         p1 = sqrt(-2*log(p1));
     num1 = p1*sin(2*M_PI*p2);
     num2 = p1*cos(2*M_PI*p2);
+}
+
+double quasiRandomHalton(unsigned int ind, unsigned int base)
+{
+    double val = 0, fac = 1.;
+    while(ind > 0) {
+        fac /= base;
+        val += fac * (ind % base);
+        ind /= base;
+    }
+    return val;
 }
 
 // ------- tools for analyzing the behaviour of a function around a particular point ------- //
