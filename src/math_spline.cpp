@@ -897,7 +897,7 @@ inline int bsplineDerivs<1,2>(const double, const double[], int, double B[]) {
 /** Compute the matrix of overlap integrals for the array of 1d B-spline functions or their derivs.
     Let N>=1 be the degree of B-splines, and Order - the order of derivative in question.
     There are numBasisFnc = numKnots+N-1 basis functions B_p(x) on the entire interval spanned by knots,
-    and each of them is nonzero on at most 4 consecutive sub-intervals between knots.
+    and each of them is nonzero on at most N+1 consecutive sub-intervals between knots.
     Define the matrix M_{pq}, 0<=p<=q<numBasisFnc, to be the symmetric matrix of overlap intervals:
     \f$  M_{pq} = \int dx B_p(x) B_q(x)  \f$, where the integrand is nonzero on at most q-p+N+1 
     consecutive sub-intervals.

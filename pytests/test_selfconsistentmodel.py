@@ -10,7 +10,7 @@ except ImportError: have_py_unsio = False
 def writeNbodySnapshot(filename, snapshot):
     # snapshot is a tuple of two arrays: Nx6 position/velocity, N masses
     posvel, mass = snapshot
-    if have_py_unsio and False:
+    if have_py_unsio:
         out = py_unsio.CunsOut(filename+".nemo", "nemo")
         out.setArrayF("pos", posvel[:,:3].reshape(-1).astype(numpy.float32))
         if posvel.shape[1]>3:
@@ -71,12 +71,12 @@ if __name__ == "__main__":
     model = agama.SelfConsistentModel(**iniSCM)
 
     # create initial ('guessed') density profiles of all components
-    densityBulge       = agama.Density(**iniPotenBulge);
-    densityDarkHalo    = agama.Density(**iniPotenDarkHalo);
-    densityThinDisc    = agama.Density(**iniPotenThinDisc);
-    densityThickDisc   = agama.Density(**iniPotenThickDisc);
-    densityGasDisc     = agama.Density(**iniPotenGasDisc);
-    densityStellarDisc = agama.Density(densityThinDisc, densityThickDisc);
+    densityBulge       = agama.Density(**iniPotenBulge)
+    densityDarkHalo    = agama.Density(**iniPotenDarkHalo)
+    densityThinDisc    = agama.Density(**iniPotenThinDisc)
+    densityThickDisc   = agama.Density(**iniPotenThickDisc)
+    densityGasDisc     = agama.Density(**iniPotenGasDisc)
+    densityStellarDisc = agama.Density(densityThinDisc, densityThickDisc)  # composite
 
     # add components to SCM - at first, all of them are static density profiles
     model.components.append(agama.Component(dens=densityDarkHalo,    disklike=False))

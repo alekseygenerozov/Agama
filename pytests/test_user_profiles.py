@@ -13,7 +13,6 @@ radius = 1.5
 def MyPlummer(x, y, z):
     return  3 / (4*math.pi) * mass * radius**2 * \
         (x**2 + y**2 + z**2 + radius**2) ** -2.5
-MyPlummer.density = MyPlummer   # the Python object must have a 'density()' method
 
 # original density/potential model using a C++ object
 pot_orig = agama.Potential(type="Plummer", mass=mass, scaleradius=radius)
@@ -23,7 +22,7 @@ pot0_orig = pot_orig(0,0,0)
 pot0_appr = pot_appr(0,0,0)
 print "Phi_appr(0)=%.8g  (true value=%.8g)" % (pot0_appr, pot0_orig)
 print "rho_appr(1)=%.8g  (true value=%.8g,  user value=%.8g)" % \
-    (pot_appr.density(1,0,0), pot_orig.density(1,0,0), MyPlummer.density(1,0,0))
+    (pot_appr.density(1,0,0), pot_orig.density(1,0,0), MyPlummer(1,0,0))
 
 # user-defined distribution function
 J0 = 2.0

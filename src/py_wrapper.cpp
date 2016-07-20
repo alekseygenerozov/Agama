@@ -1055,8 +1055,8 @@ static const char* docstringPotential =
     "can be used as density models, except those with infinite mass; "
     "in addition, there are other density models without a corresponding potential).\n"
     "  Alternatively, it may be an object providing an appropriate interface -- "
-    "either an instance of Density or Potential class, or a user-defined object with a method "
-    "'density(x,y,z)' returning the value of density at the given cartesian coordinates.\n"
+    "either an instance of Density or Potential class, or a user-defined function "
+    "'my_density(x,y,z)' returning the value of density at the given cartesian coordinates.\n"
     "  file='...'   the name of a file with potential coefficients for a potential "
     "expansion (an alternative to density='...'), or with an N-body snapshot that "
     "will be used to compute the coefficients.\n"
@@ -1082,8 +1082,10 @@ static const char* docstringPotential =
     "Examples:\n\n"
     ">>> pot_halo = Potential(type='Dehnen', mass=1e12, gamma=1, scaleRadius=100, q=0.8, p=0.6)\n"
     ">>> pot_disk = Potential(type='MiyamotoNagai', mass=5e10, scaleRadius=5, scaleHeight=0.5)\n"
-    ">>> pot_from_ini = Potential('my_potential.ini')\n"
     ">>> pot_composite = Potential(pot_halo, pot_disk)\n"
+    ">>> pot_from_ini = Potential('my_potential.ini')\n"
+    ">>> pot_user = Potential(type='Multipole', density=lambda x,y,z: (x**2+y**2+z**2+1)**-2, "
+    "splineRmin=0.01, splineRmax=100, numCoefsRadial=40)\n"
     ">>> disk_par = dict(type='DiskDensity', surfaceDensity=1e9, scaleRadius=3, scaleHeight=0.4)\n"
     ">>> halo_par = dict(type='SpheroidDensity', densityNorm=2e7, scaleRadius=15, gamma=1, beta=3, "
     "outerCutoffRadius=150, axisRatio=0.8)\n"
@@ -1141,36 +1143,7 @@ static potential::PtrPotential Potential_initFromParticles(
     Py_DECREF(pointMassArr);
     return potential::createPotentialFromPoints(params, *conv, pointArray);
 }
-
-/// attempt to construct a potential expansion from a density profile
-static potential::PtrPotential Potential_initFromDensity(
-    const utils::KeyValueMap& params, const potential::PtrDensity &dens)
-{
-    std::string pottype = params.getString("type");
-    if(pottype.empty())
-        throw std::invalid_argument("'type' argument must be provided");
-    if(utils::stringsEqual(pottype, potential::CylSplineExp::myName())) {
-        return potential::CylSplineExp::create(*dens,
-            params.getInt("numCoefsAngular"),
-            params.getInt("numCoefsRadial"),
-            params.getDouble("splineRmin") * conv->lengthUnit,
-            params.getDouble("splineRmax") * conv->lengthUnit,
-            params.getInt("numCoefsVertical"),
-            params.getDouble("splinezmin") * conv->lengthUnit,
-            params.getDouble("splinezmax") * conv->lengthUnit);
-    }
-    if(utils::stringsEqual(pottype, potential::Multipole::myName())) {
-        return potential::Multipole::create(*dens,
-            params.getInt("numCoefsAngular"),  // lmax
-            params.getInt("numCoefsAngular"),  // mmax
-            params.getInt("numCoefsRadial"),
-            params.getDouble("splineRmin") * conv->lengthUnit,
-            params.getDouble("splineRmax") * conv->lengthUnit);
-    }
-    throw std::invalid_argument(std::string("'type' argument should be a potential expansion (")+
-        potential::Multipole::myName()+" or "+potential::CylSplineExp::myName()+")");
-}
-
+    
 /// attempt to construct an elementary potential from the parameters provided in dictionary
 static potential::PtrPotential Potential_initFromDict(PyObject* args)
 {
@@ -1187,13 +1160,17 @@ static potential::PtrPotential Potential_initFromDict(PyObject* args)
     if(dens_obj) {
         potential::PtrDensity dens = getDensity(dens_obj);
         if(dens) {
+            /// attempt to construct a potential expansion from a user-provided density model
+            if(params.getString("type").empty())
+                throw std::invalid_argument("'type' argument must be provided");
             params.unset("density");
-            return Potential_initFromDensity(params, dens);
-        } else if(!PyString_Check(dens_obj))
+            return potential::createPotential(params, *dens, *conv);
+        } else if(!PyString_Check(dens_obj)) {
             throw std::invalid_argument(
                 "'density' argument should be the name of density profile "
                 "or an object that provides an appropriate interface (e.g., an instance of "
-                "Density or Potential class, or a user-defined class with a 'density()' method)");
+                "Density or Potential class, or a user-defined function of 3 coordinates)");
+        }
     }
     return potential::createPotential(params, *conv);
 }
@@ -1473,18 +1450,14 @@ static potential::PtrDensity getDensity(PyObject* dens_obj)
     if(PyObject_TypeCheck(dens_obj, &PotentialType) && ((PotentialObject*)dens_obj)->pot)
         return ((PotentialObject*)dens_obj)->pot;
 
-    // otherwise this could be an arbitrary Python object that has a callable method 'density(...)'
-    PyObject* method = PyObject_GetAttrString(dens_obj, "density");
-    if(method != NULL && PyCallable_Check(method))
-    {   // then create a C++ wrapper for this Python method
+    // otherwise this could be an arbitrary Python function
+    if(PyCallable_Check(dens_obj))
+    {   // then create a C++ wrapper for this Python function
         // (don't check if it accepts 3 numbers as the arguments...)
-        potential::PtrDensity wrapper(new DensityWrapper(method));
-        Py_DECREF(method);
-        return wrapper;
+        return potential::PtrDensity(new DensityWrapper(dens_obj));
     }
 
     // none of the above succeeded -- return an empty pointer
-    Py_XDECREF(method);
     return potential::PtrDensity();
 }
 

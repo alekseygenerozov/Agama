@@ -51,7 +51,8 @@ SOURCES   = \
             potential_sphharm.cpp \
             potential_utils.cpp \
             utils.cpp \
-            utils_config.cpp
+            utils_config.cpp \
+            fortran_wrapper.cpp
 
 # ancient Torus code
 TORUSSRC  = CHB.cc \
@@ -93,16 +94,19 @@ TESTSRCS  = test_math_core.cpp \
             test_df_fit_spher.cpp \
             test_selfconsistentmodel.cpp \
 
+TESTFORTRAN = test_fortran_wrapper.f
+
 LIBNAME   = $(LIBDIR)/libagama.a
 PY_WRAPPER= $(LIBDIR)/agama.so
 
 HEADERS   = $(SOURCES:.cpp=.h)
-OBJECTS   = $(patsubst %.cpp,$(OBJDIR)/%.o,$(SOURCES)) 
+OBJECTS   = $(patsubst %.cpp,$(OBJDIR)/%.o,$(SOURCES))
 TESTEXE   = $(patsubst %.cpp,$(EXEDIR)/%.exe,$(TESTSRCS))
-LEGACYOBJ = $(patsubst %.cpp,$(OBJDIR)/%.o,$(LEGACYSRC)) 
-TORUSOBJ  = $(patsubst %.cc, $(OBJDIR)/%.o,$(TORUSSRC)) 
+LEGACYOBJ = $(patsubst %.cpp,$(OBJDIR)/%.o,$(LEGACYSRC))
+TORUSOBJ  = $(patsubst %.cc, $(OBJDIR)/%.o,$(TORUSSRC))
+TESTEXEFORTRAN = $(patsubst %.f,$(EXEDIR)/%.exe,$(TESTFORTRAN))
 
-all:      $(LIBNAME) $(TESTEXE) $(PY_WRAPPER)
+all:      $(LIBNAME) $(TESTEXE) $(PY_WRAPPER) $(TESTEXEFORTRAN)
 
 $(LIBNAME):  $(OBJECTS) $(LEGACYOBJ) $(TORUSOBJ) Makefile Makefile.local
 	@mkdir -p $(LIBDIR)
@@ -112,11 +116,14 @@ $(EXEDIR)/%.exe:  $(TESTSDIR)/%.cpp $(LIBNAME)
 	@mkdir -p $(EXEDIR)
 	$(CXX) -o "$@" "$<" $(CXXFLAGS) $(LIBNAME) $(LFLAGS)
 
+$(TESTEXEFORTRAN):  $(TESTSDIR)/$(TESTFORTRAN) $(LIBNAME)
+	$(FC) -o "$@" $(TESTSDIR)/$(TESTFORTRAN) $(LIBNAME) $(LFLAGS) -lstdc++
+
 $(PY_WRAPPER): $(SRCDIR)/py_wrapper.cpp $(LIBNAME)
 	$(CXX) -c $(CXXFLAGS) $(PYFLAGS) $(SRCDIR)/py_wrapper.cpp -o $(OBJDIR)/py_wrapper.o
 	$(CXX) -shared -o $(PY_WRAPPER) $(OBJDIR)/py_wrapper.o $(LIBNAME) $(LFLAGS) $(PYFLAGS)
 
-$(OBJDIR)/%.o:  $(SRCDIR)/%.cpp $(SRCDIR)/%.h Makefile.local
+$(OBJDIR)/%.o:  $(SRCDIR)/%.cpp Makefile.local
 	@mkdir -p $(OBJDIR)
 	$(CXX) -c $(CXXFLAGS) -o "$@" "$<"
 
@@ -132,5 +139,12 @@ clean:
 test:
 	cp $(TESTSDIR)/test_all.pl $(EXEDIR)/
 	(cd $(EXEDIR); ./test_all.pl)
+
+# if NEMO is present, one may compile the plugin for using external potential within NEMO
+ifdef NEMO
+NEMOACC = $(NEMOOBJ)/acc/agama.so
+nemo:   $(LIBNAME)
+	$(CXX) $(CXXFLAGS) -I$(NEMOINC) src/nemo_wrapper.cpp -shared -o $(NEMOACC) $(LIBNAME) $(LFLAGS) -lnemo
+endif
 
 .PHONY: clean test

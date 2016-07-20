@@ -99,7 +99,7 @@ private:
     virtual double value(double x) const {
         if(x==0 || x==1) return 0;
         double Rrel = x/(1-x);
-        return 2*M_PI * pow_2(params.scaleRadius) * params.surfaceDensity * x / pow_3(1-x) *
+        return x / pow_3(1-x) *
             exp(-params.innerCutoffRadius/params.scaleRadius/Rrel - Rrel
                 +params.modulationAmplitude*cos(Rrel));
     }
@@ -187,7 +187,8 @@ double DiskParam::mass() const
             p * (p * math::besselK(0, 2*p) + math::besselK(1, 2*p));
         }
     }
-    return math::integrate(DiskDensityRadialRichExpIntegrand(*this), 0, 1, 1e-4);
+    return 2*M_PI * pow_2(scaleRadius) * surfaceDensity *
+        math::integrate(DiskDensityRadialRichExpIntegrand(*this), 0, 1, 1e-4);
 }
 
 double DiskDensity::densityCyl(const coord::PosCyl &pos) const
@@ -243,9 +244,9 @@ private:
     virtual double value(double x) const {
         if(x==0 || x==1) return 0;
         double rrel = x/(1-x);
-        return 4*M_PI * params.axisRatio * params.densityNorm * pow_3(params.scaleRadius) *
+        return 
             pow_2(x/pow_2(1-x)) * pow(rrel, -params.gamma) * pow(1+rrel, params.gamma-params.beta) *
-            exp(-pow_2(rrel*params.scaleRadius/params.outerCutoffRadius));
+            exp(-pow_2(rrel * params.scaleRadius / params.outerCutoffRadius));
     }
 };
 
@@ -254,7 +255,8 @@ double SphrParam::mass() const
     if(outerCutoffRadius==0)   // have an analytic expression
         return 4*M_PI * densityNorm * pow_3(scaleRadius) * axisRatio *
             math::gamma(beta-3) * math::gamma(3-gamma) / math::gamma(beta-gamma);
-    return math::integrate(SpheroidDensityIntegrand(*this), 0, 1, 1e-4);
+    return 4*M_PI * axisRatio * densityNorm * pow_3(scaleRadius) *
+        math::integrate(SpheroidDensityIntegrand(*this), 0, 1, 1e-4);
 }
 
 SpheroidDensity::SpheroidDensity (const SphrParam &_params) :
@@ -278,9 +280,9 @@ double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
     double m   = hypot(pos.R, pos.z/params.axisRatio);
     double m0  = m/params.scaleRadius;
     double rho = params.densityNorm;
-    if(params.gamma==0.5)rho /= sqrt(m0); else
     if(params.gamma==1.) rho /= m0;       else 
     if(params.gamma==2.) rho /= m0*m0;    else
+    if(params.gamma==0.5)rho /= sqrt(m0); else
     if(params.gamma!=0.) rho /= pow(m0, params.gamma);
     m0 += 1;
     const double beg = params.beta-params.gamma;

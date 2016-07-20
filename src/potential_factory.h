@@ -38,13 +38,42 @@ PtrDensity createDensity(
 /** Create an instance of potential according to the parameters contained in the key-value map.
     \param[in] params is the list of parameters;
     \param[in] converter is the unit converter for transforming the dimensional quantities 
-    in parameters (such as mass and radii) into internal units; can be a trivial converter.
+    in parameters (such as mass and radii) into internal units; can be a trivial converter;
     \return    a new instance of PtrPotential on success.
     \throws    std::invalid_argument or std::runtime_error or other potential-specific exception
     on failure (e.g., if some of the parameters are invalid or missing, or refer to a non-existent file).
 */
 PtrPotential createPotential(
     const utils::KeyValueMap& params,
+    const units::ExternalUnits& converter = units::ExternalUnits());
+
+/** Create an instance of potential expansion for the user-provided density model,
+    with parameters contained in the key-value map.
+    \param[in] params is the list of parameters;
+    \param[in] dens   is the density model which will serve as the source to the potential;
+    \param[in] converter (optional) is the unit converter for transforming dimensional quantities
+    in parameters (essentially the grid sizes) into internal units;
+    \return    a new instance of PtrPotential on success.
+    \throws    std::invalid_argument if the requested potential is not of an expansion type,
+    or any potential-specific exception on failure (if some parameters are missing or invalid).
+*/
+PtrPotential createPotential(
+    const utils::KeyValueMap& params, const BaseDensity& dens,
+    const units::ExternalUnits& converter = units::ExternalUnits());
+
+/** Create an instance of potential expansion approximating the user-provided potential model,
+    with parameters contained in the key-value map; this is useful if the original potential
+    is expensive to compute.
+    \param[in] params is the list of parameters;
+    \param[in] pot    is the potential model which will be approximated with the potential expansion;
+    \param[in] converter (optional) is the unit converter for transforming dimensional quantities
+    in parameters (essentially the grid sizes) into internal units;
+    \return    a new instance of PtrPotential on success.
+    \throws    std::invalid_argument if the requested potential is not of an expansion type,
+    or any potential-specific exception on failure (if some parameters are missing or invalid).
+*/    
+PtrPotential createPotential(
+    const utils::KeyValueMap& params, const BasePotential& pot,
     const units::ExternalUnits& converter = units::ExternalUnits());
 
 /** Create an instance of composite potential according to the parameters contained in the 
@@ -175,5 +204,18 @@ const char* getCoefFileExtension(const std::string& potName);
 /// or empty string if the potential type is not one of the expansion types
 inline const char* getCoefFileExtension(const BasePotential& p) {
     return getCoefFileExtension(p.name()); }
+
+/** return the symmetry type encoded in the string.
+    Spherical, Axisymmetric, Triaxial and None are recognized by the first letter,
+    whereas other types must be given by their numerical code.
+    If the string is empty, the default value ST_TRIAXIAL is returned.
+*/
+coord::SymmetryType getSymmetryTypeByName(const std::string& name);
+
+/** return the name of symmetry encoded in SymmetryType.
+    Spherical, Axisymmetric, Triaxial and None are returned as symbolic names,
+    other types as their numerical code.
+*/
+std::string getSymmetryNameByType(coord::SymmetryType type);
 
 }; // namespace
