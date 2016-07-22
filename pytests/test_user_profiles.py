@@ -17,7 +17,7 @@ def MyPlummer(x, y, z):
 # original density/potential model using a C++ object
 pot_orig = agama.Potential(type="Plummer", mass=mass, scaleradius=radius)
 # potential approximation computed from the user-supplied density profile
-pot_appr = agama.Potential(type="Multipole", density=MyPlummer, splineRmin=0.01, splineRmax=100, numCoefsRadial=20)
+pot_appr = agama.Potential(type="Multipole", density=MyPlummer)
 pot0_orig = pot_orig(0,0,0)
 pot0_appr = pot_appr(0,0,0)
 print "Phi_appr(0)=%.8g  (true value=%.8g)" % (pot0_appr, pot0_orig)

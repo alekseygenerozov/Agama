@@ -110,22 +110,22 @@ PtrPotential createPotential(
 /** Create an instance of potential expansion from the provided particle snapshot.
     \param[in] params is the list of required parameters (e.g., the type of potential expansion,
     number of terms, prescribed symmetry, etc.).
+    \param[in] points is the array of particle positions and masses.
     \param[in] converter is the unit converter for transforming the dimensional parameters 
     (min/max radii of grid) into internal units; can be a trivial converter. 
     Coordinates and masses of particles are _not_ transformed: if they are loaded from an external 
     N-body snapshot file, the conversion is applied at that stage, and if they come from 
     other routines in the library, they are already in internal units.
-    \param[in] points is the array of particle positions and masses.
     \tparam    ParticleT may be PosT<CoordSys> or PosVel<CoordSys>, with CoordSys = Car, Cyl or Sph.
     \return    a new instance of PtrPotential on success.
     \throws    std::invalid_argument or std::runtime_error or other potential-specific exception
     on failure (e.g., if some of the parameters are invalid or missing).
 */
 template<typename ParticleT>
-PtrPotential createPotentialFromPoints(
-    const utils::KeyValueMap& params,
-    const units::ExternalUnits& converter, 
-    const particles::PointMassArray<ParticleT>& points);
+PtrPotential createPotential(
+    const utils::KeyValueMap& params, 
+    const particles::PointMassArray<ParticleT>& points,
+    const units::ExternalUnits& converter = units::ExternalUnits());
 
 /** Utility function providing a legacy interface compatible with the original GalPot (deprecated).
     It reads the parameters from a text file and converts them into the internal unit system,
@@ -160,7 +160,7 @@ inline PtrPotential readGalaxyPotential(
 }
 
 /** Create a potential expansion from coefficients stored in a text file.
-    The file must contain coefficients for BasisSetExp, SplineExp, CylSplineExp, or Multipole;
+    The file must contain coefficients for BasisSetExp, SplineExp, CylSpline, or Multipole;
     the potential type is determined automatically from the first line of the file.
     \param[in] coefFileName specifies the file to read;
     \param[in] converter is the unit converter for transforming the potential coefficients;
@@ -174,7 +174,7 @@ PtrPotential readPotential(const std::string& coefFileName,
 
 /** Write density or potential expansion coefficients to a text file.
     The potential must be one of the following expansion classes: 
-    `BasisSetExp`, `SplineExp`, `CylSplineExp`, `Multipole`,
+    `BasisSetExp`, `SplineExp`, `CylSpline`, `Multipole`,
     or the density may be `DensitySphericalHarmonic` or `DensityCylGrid`.
     The coefficients stored in a file may be later loaded by `readPotential()` function.
     If the potential or density is composite, each component is saved into a separate file

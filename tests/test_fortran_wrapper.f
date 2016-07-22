@@ -36,11 +36,8 @@ C  Example 2:  constructing a potential approximation from the user-provided
 C  density profile (which is equivalent to the one specified above, but uses
 C  somewhat different parameters for the potential expansion)
       call agama_initfromdens(c_obj2,
-c     &    'type=Multipole splinermin=0.01 splinermax=100 '//
-c     &    'numcoefsradial=30 numcoefsangular=8 symmetry=Axisymmetric',
-     &    'type=CylSplineExp splinermin=0.02 splinermax=50 '//
-     &    'numcoefsradial=20 numcoefsvertical=20 symmetry=Axisym '//
-     &    'splinezmin=0.02 splinezmax=50',
+c     &    'type=Multipole symmetry=Axisymmetric',
+     &    'type=CylSpline symmetry=Axisym',
      &    user_density)
 
 C  Compute potential and density at some location
@@ -49,15 +46,15 @@ C  Compute potential and density at some location
       xyz(3)=0.3d0
       print*, 'Position(x,y,z)=', xyz
 
-      print*, 'GalPot potential=', agama_potential(c_obj1, xyz)
-      print*, 'GalPot   density=', agama_density  (c_obj1, xyz)
-      print*, 'Approx potential=', agama_potential(c_obj2, xyz)
-      print*, 'Approx   density=', agama_density  (c_obj2, xyz)
-      print*, 'original density=', user_density(xyz)
+      print*, 'Multipole potential=', agama_potential(c_obj1, xyz)
+      print*, 'Multipole   density=', agama_density  (c_obj1, xyz)
+      print*, 'CylSpline potential=', agama_potential(c_obj2, xyz)
+      print*, 'CylSpline   density=', agama_density  (c_obj2, xyz)
+      print*, 'original    density=', user_density(xyz)
 
 C  Compute force and force derivatives (potential is also returned)
       pot = agama_potforce(c_obj1, xyz, force)
-      print*, 'GalPot force=', force
+      print*, 'Force=', force
       pot = agama_potforcederiv(c_obj2, xyz, force, deriv)
       print*, 'Force derivs: dFx/dx=', deriv(1), 'dFy/dy=', deriv(2),
      &    'dFz/dz=', deriv(3), 'dFx/dy=', deriv(4),
@@ -67,13 +64,10 @@ C  Example 3:  construct two different potential approximations from
 C  the user-provided function that computes potential and force
 C  (useful if this is an expensive operation)
       call agama_initfrompot(c_obj3,
-     &    'type=Multipole splinermin=0.01 splinermax=100 '//
-     &    'numcoefsradial=30 numcoefsangular=8 symmetry=Triaxial',
+     &    'type=Multipole symmetry=Triaxial lmax=8 rmin=0.01 rmax=100',
      &     user_potential)
       call agama_initfrompot(c_obj4,
-     &    'type=CylSplineExp splinermin=0.01 splinermax=100 '//
-     &    'splinezmin=0.01 splinezmax=100 numcoefsvertical=30 '//
-     &    'numcoefsradial=30 numcoefsangular=8 symmetry=Triaxial',
+     &    'type=CylSpline, symmetry=Triaxial, rmin=0.01, rmax=100',
      &     user_potential)
       pot=agama_potforce(c_obj3, xyz, force)
       print*, 'Multipole potential=', pot, 'force=', force

@@ -173,8 +173,8 @@ int main() {
     pots.push_back(potential::PtrPotential(new potential::Logarithmic(1.,0.01,.8,.5)));
     pots.push_back(potential::PtrPotential(new potential::Logarithmic(1.,.7,.5)));
     pots.push_back(potential::PtrPotential(new potential::Ferrers(1.,0.9,.7,.5)));
-    pots.push_back(potential::PtrPotential(new potential::Dehnen(2.,1.,.7,.5,1.5)));
-    pots.push_back(potential::PtrPotential(new potential::Dehnen(2.,1.,1.,.5,1.5)));
+    pots.push_back(potential::PtrPotential(new potential::Dehnen(2.,1.,1.5,.7,.5)));
+    pots.push_back(potential::PtrPotential(new potential::Dehnen(2.,1.,1.5,1.,.5)));
     pots.push_back(make_galpot(test_galpot_params[0]));
     pots.push_back(make_galpot(test_galpot_params[1]));
     bool allok=true;

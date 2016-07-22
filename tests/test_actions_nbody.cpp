@@ -7,7 +7,7 @@
     The N-body system consists of a disk and a halo, the two components being
     stored in separate GADGET files.
     The potential is computed from the snapshot itself, by creating a suitable
-    potential expansion for each component: SplineExp for the halo and CylSplineExp
+    potential expansion for each component: SplineExp for the halo and CylSpline
     for the disk. This actually takes most of the time.
     Then we compute actions for all particles from the disk component,
     and store them in a text file.
@@ -50,20 +50,12 @@ int main() {
         "value at origin=" << halo->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     tbegin=std::clock();
 
-#if 1
     double Rmin = 0.2 *unit.from_Kpc, Rmax = 50*unit.from_Kpc,
            Zmin = 0.02*unit.from_Kpc, Zmax = 10*unit.from_Kpc;
     int gridSizeR = 20, gridSizeZ=20;
-    std::vector<double> gridR = math::createNonuniformGrid(gridSizeR, Rmin, Rmax, true);
-    std::vector<double> gridZ = math::createNonuniformGrid(gridSizeZ, Zmin, Zmax, true);
-    std::vector< math::Matrix<double> > potenValues;
-    potential::computePotentialCoefsCyl(diskparticles, coord::ST_AXISYMMETRIC, 0 /*mmax*/,
-        gridR, gridZ, potenValues);
-    potential::PtrPotential disk(new potential::CylSplineExp(gridR, gridZ, potenValues));
-#else
-    potential::PtrPotential disk(new potential::CylSplineExpOld
-        (20, 20, 0, diskparticles, coord::ST_AXISYMMETRIC));
-#endif
+    potential::PtrPotential disk = potential::CylSpline::create(
+        diskparticles, coord::ST_AXISYMMETRIC, 0 /*mmax*/,
+        gridSizeR, Rmin, Rmax, gridSizeZ, Zmin, Zmax);
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init disk potential;  "
         "value at origin=" << disk->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     // not necessary, but we may store the potential coefs into a file and then load them back to speed up process

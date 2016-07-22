@@ -29,6 +29,10 @@ public:
     /// initialize map from command-line-like arguments
     KeyValueMap(const int numParams, const char* const* params);
 
+    /// initialize map from a single string in which all parameters are listed together,
+    /// separated by any of white characters listed in the second argument
+    KeyValueMap(const std::string& params, const std::string& whitespace=", \t");
+
     /// check if a key exists in the list
     bool contains(const std::string& key) const;
 

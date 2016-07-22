@@ -1,10 +1,9 @@
 #include "galaxymodel_selfconsistent.h"
 #include "galaxymodel.h"
 #include "actions_staeckel.h"
-#include "potential_sphharm.h"
-#include "potential_cylspline.h"
-#include "potential_galpot.h"
 #include "potential_composite.h"
+#include "potential_multipole.h"
+#include "potential_cylspline.h"
 #include <stdexcept>
 #include <cassert>
 #include <cmath>
@@ -181,7 +180,7 @@ void updateTotalPotential(SelfConsistentModel& model)
         compPot.push_back(potential::Multipole::create(*totalDensitySph,
             model.lmaxAngularSph, 0 /*mmax*/, model.sizeRadialSph, model.rminSph, model.rmaxSph));
 
-    // now the same for the total density to be used in CylSplineExp for the flattened components
+    // now the same for the total density to be used in CylSpline for the flattened components
     PtrDensity totalDensityDisk;
     if(compDensDisk.size()>1)
         totalDensityDisk.reset(new potential::CompositeDensity(compDensDisk));
@@ -189,7 +188,7 @@ void updateTotalPotential(SelfConsistentModel& model)
         totalDensityDisk = compDensDisk[0];
 
     if(totalDensityDisk != NULL)
-        compPot.push_back(potential::CylSplineExp::create(*totalDensityDisk, 0 /*mmax*/,
+        compPot.push_back(potential::CylSpline::create(*totalDensityDisk, 0 /*mmax*/,
             model.sizeRadialCyl,   model.RminCyl, model.RmaxCyl,
             model.sizeVerticalCyl, model.zminCyl, model.zmaxCyl, false));
 

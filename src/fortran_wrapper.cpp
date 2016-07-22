@@ -23,7 +23,6 @@ See the FORTRAN example for more details.
 */
 #include <cstring>
 #include "potential_factory.h"
-#include "utils.h"
 #include "utils_config.h"
 
 namespace{
@@ -89,20 +88,12 @@ private:
     }
 };
 
-/// parse the string with key=value arguments and return a KeyValueMap object
-utils::KeyValueMap parseParamStr(char* paramstr, int len)
+/// convert FORTRAN string to C++ string
+static std::string stdstr(char* fortranString, int len)
 {
-    // convert FORTRAN string to a C++ string
     std::string str(len, '\0');
-    memcpy(&(str[0]), paramstr, len);
-    // split the string
-    std::vector<std::string> paramsArr;
-    utils::splitString(str, " ", paramsArr);
-    // convert to array of const char*, same as would be provided to main(int c, char** argv)
-    std::vector<const char*> args(paramsArr.size());
-    for(unsigned int i=0; i<paramsArr.size(); i++)
-        args[i] = paramsArr[i].c_str();
-    return utils::KeyValueMap(paramsArr.size(), &args[0]);
+    memcpy(&(str[0]), fortranString, len);
+    return str;
 }
 
 /// *smart* pointers that should exist until the end of the program
@@ -117,22 +108,19 @@ std::vector<potential::PtrPotential> potentials;
 /// OUTPUT: c_obj - the placeholder for storing the pointer to the C++ potential object.
 extern "C" void agama_initfromfile_(void* c_obj, char* inifilename, int, int len)
 {
-    // convert FORTRAN string to a C++ string
-    std::string str(len, '\0');
-    memcpy(&(str[0]), inifilename, len);
-    potentials.push_back(potential::createPotential(str));
+    potentials.push_back(potential::createPotential(stdstr(inifilename, len)));
     const potential::BasePotential* ptr = potentials.back().get();
     memcpy(c_obj, &ptr, sizeof(void*));
 }
 
 /// Routine that should be called from FORTRAN to construct a potential specified by
 /// the parameters in a single string.
-/// INPUT:  paramstr - a string with parameters of the potential expansion
+/// INPUT:  params - a string with parameters of the potential expansion
 /// (e.g., "type=Dehnen q=0.8 p=0.5 mass=10 scaleRadius=5").
 /// OUTPUT: c_obj - the placeholder for storing the pointer to the C++ potential object.
-extern "C" void agama_initfromparam_(void* c_obj, char* paramstr, int, int len)
+extern "C" void agama_initfromparam_(void* c_obj, char* params, int, int len)
 {
-    potentials.push_back(potential::createPotential(parseParamStr(paramstr, len)));
+    potentials.push_back(potential::createPotential(utils::KeyValueMap(stdstr(params, len))));
     const potential::BasePotential* ptr = potentials.back().get();
     memcpy(c_obj, &ptr, sizeof(void*));
 }
@@ -140,12 +128,12 @@ extern "C" void agama_initfromparam_(void* c_obj, char* paramstr, int, int len)
 /// Routine that should be called from FORTRAN to construct a potential approximation
 /// to the user-defined potential.
 /// INPUT:  paramstr - a string with parameters of the potential expansion
-/// (e.g., "type=Multipole splineRmin=0.01 splineRmax=100 numCoefsRadial=30 numCoefsAngular=6").
+/// (e.g., "type=Multipole rmin=0.01 rmax=100 lmax=8 mmax=6 symmetry=Triaxial").
 /// INPUT:  pot  - the FORTRAN routine that computes the potential and its derivative;
 /// OUTPUT: c_obj - the placeholder for storing the pointer to the C++ potential object.
-extern "C" void agama_initfrompot_(void* c_obj, char* paramstr, potentialfnc pot, int, int len)
+extern "C" void agama_initfrompot_(void* c_obj, char* params, potentialfnc pot, int, int len)
 {
-    utils::KeyValueMap param = parseParamStr(paramstr, len);
+    utils::KeyValueMap param(stdstr(params, len));
     PotentialWrapper wrapper(pot, potential::getSymmetryTypeByName(param.getString("Symmetry")));
     potentials.push_back(potential::createPotential(param, wrapper));
     const potential::BasePotential* ptr = potentials.back().get();
@@ -155,7 +143,7 @@ extern "C" void agama_initfrompot_(void* c_obj, char* paramstr, potentialfnc pot
 /// same as above, but for a user-defined density function
 extern "C" void agama_initfromdens_(void* c_obj, char* paramstr, densityfnc pot, int, int len)
 {
-    utils::KeyValueMap param = parseParamStr(paramstr, len);
+    utils::KeyValueMap param(stdstr(paramstr, len));
     DensityWrapper wrapper(pot, potential::getSymmetryTypeByName(param.getString("Symmetry")));
     potentials.push_back(potential::createPotential(param, wrapper));
     const potential::BasePotential* ptr = potentials.back().get();

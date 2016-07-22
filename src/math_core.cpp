@@ -41,7 +41,7 @@ static void exceptionally_awesome_gsl_error_handler(const char *reason,
         throw std::domain_error(std::string("GSL domain error: ")+reason);
     if( gsl_errno == GSL_EINVAL )
         throw std::invalid_argument(std::string("GSL invalid argument error: ")+reason);
-    throw std::runtime_error(std::string("GSL error: ")+reason);
+    throw std::runtime_error("GSL error "+utils::convertToString(gsl_errno)+": "+reason);
 }
 
 // a static variable that initializes our error handler

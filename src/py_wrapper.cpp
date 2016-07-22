@@ -33,8 +33,6 @@
 #include "units.h"
 #include "potential_factory.h"
 #include "potential_composite.h"
-#include "potential_sphharm.h"
-#include "potential_cylspline.h"
 #include "actions_spherical.h"
 #include "actions_staeckel.h"
 #include "df_factory.h"
@@ -1045,7 +1043,7 @@ static const char* docstringPotential =
     "  type='...'   the type of potential, can be one of the following 'basic' types:\n"
     "    Harmonic, Logarithmic, Plummer, MiyamotoNagai, NFW, Ferrers, Dehnen, "
     "OblatePerfectEllipsoid, DiskDensity, SpheroidDensity;\n"
-    "    or one of the expansion types:  BasisSetExp, SplineExp, CylSplineExp - "
+    "    or one of the expansion types:  Multipole or CylSpline - "
     "in these cases, one should provide either a density model, file name, "
     "or an array of points.\n"
     DOCSTRING_DENSITY_PARAMS
@@ -1066,33 +1064,35 @@ static const char* docstringPotential =
     "a two-dimensional Nx3 array and the second one is a one-dimensional array of length N.\n"
     "  symmetry='...'   assumed symmetry for potential expansion constructed from "
     "an N-body snapshot (possible options, in order of decreasing symmetry: "
-    "'Spherical', 'Axisymmetric', 'Triaxial', 'Reflection', 'None').\n"
-    "  numCoefsRadial=...   number of radial terms in BasisSetExp or grid points in spline potentials.\n"
-    "  numCoefsAngular=...   order of spherical-harmonic expansion "
-    "(max.index of angular harmonic coefficient).\n"
-    "  numCoefsVertical=...   number of coefficients in z-direction for CylSplineExp potential.\n"
-    "  alpha=...   parameter that determines functional form of BasisSetExp potential.\n"
-    "  splineSmoothfactor=...   amount of smoothing in SplineExp initialized from an N-body snapshot.\n"
-    "  splineRmin=...   if nonzero, specifies the innermost grid node radius for SplineExp and CylSplineExp.\n"
-    "  splineRmax=...   if nonzero, specifies the outermost grid node radius for SplineExp and CylSplineExp.\n"
-    "  splineZmin=...   if nonzero, specifies the z-value of the innermost grid node in CylSplineExp.\n"
-    "  splineZmax=...   if nonzero, specifies the z-value of the outermost grid node in CylSplineExp.\n"
+    "'Spherical', 'Axisymmetric', 'Triaxial', 'None', or a numerical code).\n"
+    "  gridSizeR=...   number of radial grid points in Multipole and CylSpline potentials.\n"
+    "  gridSizeZ=...   number of grid points in z-direction for CylSpline potential.\n"
+    "  rmin=...   radius of the innermost grid node for Multipole and CylSpline; zero(default) "
+    "means auto-detect.\n"
+    "  rmax=...   same for the outermost grid node.\n"
+    "  zmin=...   z-coordinate of the innermost grid node in CylSpline (zero means autodetect).\n"
+    "  zmax=...   same for the outermost grid node.\n"
+    "  lmax=...   order of spherical-harmonic expansion (max.index of angular harmonic "
+    "coefficient) in Multipole.\n"
+    "  mmax=...   order of azimuthal-harmonic expansion (max.index of Fourier coefficient in "
+    "phi angle) in Multipole and CylSpline.\n"
+    "  smoothing=...   amount of smoothing in Multipole initialized from an N-body snapshot.\n"
     "\nMost of these parameters have reasonable default values; the only necessary ones are "
     "`type`, and for a potential expansion, `density` or `file` or `points`.\n\n"
     "Examples:\n\n"
     ">>> pot_halo = Potential(type='Dehnen', mass=1e12, gamma=1, scaleRadius=100, q=0.8, p=0.6)\n"
     ">>> pot_disk = Potential(type='MiyamotoNagai', mass=5e10, scaleRadius=5, scaleHeight=0.5)\n"
     ">>> pot_composite = Potential(pot_halo, pot_disk)\n"
-    ">>> pot_from_ini = Potential('my_potential.ini')\n"
-    ">>> pot_user = Potential(type='Multipole', density=lambda x,y,z: (x**2+y**2+z**2+1)**-2, "
-    "splineRmin=0.01, splineRmax=100, numCoefsRadial=40)\n"
+    ">>> pot_from_ini  = Potential('my_potential.ini')\n"
+    ">>> pot_from_coef = Potential(file='stored_coefs')\n"
+    ">>> pot_user = Potential(type='Multipole', density=lambda x,y,z: (x**2+y**2+z**2+1)**-2)\n"
     ">>> disk_par = dict(type='DiskDensity', surfaceDensity=1e9, scaleRadius=3, scaleHeight=0.4)\n"
     ">>> halo_par = dict(type='SpheroidDensity', densityNorm=2e7, scaleRadius=15, gamma=1, beta=3, "
     "outerCutoffRadius=150, axisRatio=0.8)\n"
     ">>> pot_exp = Potential(type='Multipole', density=Density(**halo_par), "
-    "splineRmin=1, splineRmax=500, numCoefsRadial=30, numCoefsAngular=4)\n"
-    ">>> pot_galpot = Potential(disk_par, halo_par)\n"
-    "\nThe latter example illustrates the use of GalPot components (exponential disks and spheroids) "
+    "gridSizeR=20, Rmin=1, Rmax=500, lmax=4)\n"
+    ">>> pot_galpot = Potential(disk_par, halo_par)\n\n"
+    "The latter example illustrates the use of GalPot components (exponential disks and spheroids) "
     "from Dehnen&Binney 1998; these are internally implemented using a Multipole potential expansion "
     "and a special variant of disk potential, but may also be combined with any other components "
     "if needed.\n"
@@ -1141,9 +1141,9 @@ static potential::PtrPotential Potential_initFromParticles(
     }
     Py_DECREF(pointCoordArr);
     Py_DECREF(pointMassArr);
-    return potential::createPotentialFromPoints(params, *conv, pointArray);
+    return potential::createPotential(params, pointArray, *conv);
 }
-    
+
 /// attempt to construct an elementary potential from the parameters provided in dictionary
 static potential::PtrPotential Potential_initFromDict(PyObject* args)
 {
@@ -1411,7 +1411,7 @@ static PyTypeObject PotentialType = {
 };
 
 /// create a Python Potential object and initialize it with an existing instance of C++ potential class
-static PyObject* createPotentialObject(potential::PtrPotential pot)
+static PyObject* createPotentialObject(const potential::PtrPotential& pot)
 {
     PotentialObject* pot_obj = PyObject_New(PotentialObject, &PotentialType);
     if(!pot_obj)

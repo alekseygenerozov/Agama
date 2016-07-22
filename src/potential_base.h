@@ -12,7 +12,7 @@
     These two concepts are related in such a way that a density model does not need 
     to provide potential and forces, while a potential model does. 
     Thus the latter is derived from the former.
-    General-purpose potential expansions (BasisSetExp, SplineExp, CylSplineExp)
+    General-purpose potential expansions (Multipole, CylSpline)
     can be constructed both from density or from potential classes.
 */
 namespace potential{

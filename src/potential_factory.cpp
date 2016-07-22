@@ -5,6 +5,7 @@
 #include "potential_dehnen.h"
 #include "potential_ferrers.h"
 #include "potential_galpot.h"
+#include "potential_multipole.h"
 #include "potential_perfect_ellipsoid.h"
 #include "potential_sphharm.h"
 #include "particles_io.h"
@@ -50,7 +51,7 @@ enum PotentialType {
     //  Generic potential expansions
     PT_BSE,          ///< basis-set expansion for infinite systems:  `BasisSetExp`
     PT_SPLINE,       ///< spline spherical-harmonic expansion:  `SplineExp`
-    PT_CYLSPLINE,    ///< expansion in azimuthal angle with two-dimensional meridional-plane interpolating splines:  `CylSplineExp`
+    PT_CYLSPLINE,    ///< expansion in azimuthal angle with 2d interpolating splines in (R,z):  `CylSpline`
     PT_MULTIPOLE,    ///< axisymmetric multipole expansion from GalPot:  `Multipole`
 
     //  Components of Walter Dehnen's GalPot
@@ -81,30 +82,29 @@ enum PotentialType {
 /// structure that contains parameters for all possible potentials
 struct ConfigPotential
 {
-    PotentialType potentialType;   ///< type of the potential
-    PotentialType densityType;     ///< specifies the density model used for initializing a potential expansion
+    PotentialType potentialType;      ///< type of the potential
+    PotentialType densityType;        ///< density model used for initializing a potential expansion
     coord::SymmetryType symmetryType; ///< degree of symmetry
-    double mass;                   ///< total mass of the model (not applicable to all potential types)
-    double scaleRadius;            ///< scale radius of the model (if applicable)
-    double scaleRadius2;           ///< second scale radius of the model (if applicable)
-    double q, p;                   ///< axis ratio of the model (if applicable)
-    double gamma;                  ///< central cusp slope (for Dehnen and scale-free models)
-    double sersicIndex;            ///< Sersic index (for Sersic density model)
-    unsigned int numCoefsRadial;   ///< number of radial terms in BasisSetExp or grid points in spline potentials
-    unsigned int numCoefsAngular;  ///< number of angular terms in spherical-harmonic expansion
-    unsigned int numCoefsVertical; ///< number of coefficients in z-direction for CylSplineExp potential
-    double alpha;                  ///< shape parameter for BasisSetExp potential
-    double splineSmoothFactor;     ///< amount of smoothing in SplineExp initialized from an N-body snapshot
-    double splineRMin, splineRMax; ///< if nonzero, specifies the inner- and outermost grid node radii for SplineExp and CylSplineExp
-    double splineZMin, splineZMax; ///< if nonzero, gives the grid extent in z direction for CylSplineExp
-    std::string fileName;          ///< name of file with coordinates of points, or coefficients of expansion, or any other external data array
+    double mass;             ///< total mass of the model (not applicable to all potential types)
+    double scaleRadius;      ///< scale radius of the model (if applicable)
+    double scaleRadius2;     ///< second scale radius of the model (if applicable)
+    double q, p;             ///< axis ratios of the model (if applicable)
+    double gamma;            ///< central cusp slope (for Dehnen and scale-free models)
+    double sersicIndex;      ///< Sersic index (for Sersic density model)
+    unsigned int gridSizeR;  ///< number of radial grid points in Multipole and CylSpline potentials
+    unsigned int gridSizez;  ///< number of grid points in z-direction for CylSpline potential
+    double rmin, rmax;       ///< inner- and outermost grid node radii for Multipole and CylSpline
+    double zmin, zmax;       ///< grid extent in z direction for CylSpline
+    unsigned int lmax;       ///< number of angular terms in spherical-harmonic expansion
+    unsigned int mmax;       ///< number of angular terms in azimuthal-harmonic expansion
+    double smoothing;        ///< amount of smoothing in Multipole initialized from an N-body snapshot
+    std::string fileName;    ///< name of file with coordinates of points, or coefficients of expansion
     /// default constructor initializes the fields to some reasonable values
     ConfigPotential() :
         potentialType(PT_UNKNOWN), densityType(PT_UNKNOWN), symmetryType(coord::ST_TRIAXIAL),
         mass(1.), scaleRadius(1.), scaleRadius2(1.), q(1.), p(1.), gamma(1.), sersicIndex(4.),
-        numCoefsRadial(20), numCoefsAngular(6), numCoefsVertical(20),
-        alpha(0.), splineSmoothFactor(1.), splineRMin(0), splineRMax(0), splineZMin(0), splineZMax(0)
-        {};
+        gridSizeR(25), gridSizez(25), rmin(0), rmax(0), zmin(0), zmax(0), lmax(6), mmax(6), smoothing(1.)
+    {};
 };
 
 ///@}
@@ -112,19 +112,19 @@ struct ConfigPotential
 //        -------------------------------------------------------------------------
 ///@{
 
+typedef std::map<PotentialType, const char*> MapNameType;
+
 /// lists all 'true' potentials, i.e. those providing a complete density-potential(-force) pair
-typedef std::map<PotentialType, const char*> PotentialNameMapType;
+static MapNameType PotentialNames;
 
 /// lists all analytic density profiles 
 /// (including those that don't have corresponding potential, but excluding general-purpose expansions)
-typedef std::map<PotentialType, const char*> DensityNameMapType;
+static MapNameType DensityNames;
 
-static PotentialNameMapType PotentialNames;
-static DensityNameMapType DensityNames;
 static bool mapinitialized = false;
 
-/// create a correspondence between names and enum identifiers for potential, density and symmetry types
-static void initPotentialAndSymmetryNameMap()
+/// create a correspondence between names and enum identifiers for potential and density types
+static void initPotentialNameMap()
 {
     PotentialNames.clear();
     PotentialNames[PT_COMPOSITE] = CompositeCyl::myName();
@@ -138,7 +138,7 @@ static void initPotentialAndSymmetryNameMap()
     PotentialNames[PT_PERFECTELLIPSOID] = OblatePerfectEllipsoid::myName();
     PotentialNames[PT_BSE]       = BasisSetExp::myName();
     PotentialNames[PT_SPLINE]    = SplineExp::myName();
-    PotentialNames[PT_CYLSPLINE] = CylSplineExp::myName();
+    PotentialNames[PT_CYLSPLINE] = CylSpline::myName();
     PotentialNames[PT_MULTIPOLE] = Multipole::myName();
     PotentialNames[PT_DISK]      = DiskDensity::myName();
 //    PotentialNames[PT_SCALEFREE] = CPotentialScaleFree::myName();
@@ -168,8 +168,9 @@ static void initPotentialAndSymmetryNameMap()
 /// return the name of the potential of a given type, or empty string if unavailable
 static const char* getPotentialNameByType(PotentialType type)
 {
-    if(!mapinitialized) initPotentialAndSymmetryNameMap();
-    PotentialNameMapType::const_iterator iter=PotentialNames.find(type);
+    if(!mapinitialized)
+        initPotentialNameMap();
+    MapNameType::const_iterator iter=PotentialNames.find(type);
     if(iter!=PotentialNames.end()) 
         return iter->second;
     return "";
@@ -178,8 +179,9 @@ static const char* getPotentialNameByType(PotentialType type)
 /// return the type of the potential model by its name, or PT_UNKNOWN if unavailable
 static PotentialType getPotentialTypeByName(const std::string& PotentialName)
 {
-    if(!mapinitialized) initPotentialAndSymmetryNameMap();
-    for(PotentialNameMapType::const_iterator iter=PotentialNames.begin(); 
+    if(!mapinitialized)
+        initPotentialNameMap();
+    for(MapNameType::const_iterator iter=PotentialNames.begin(); 
         iter!=PotentialNames.end(); 
         ++iter)
         if(utils::stringsEqual(PotentialName, iter->second)) 
@@ -190,13 +192,28 @@ static PotentialType getPotentialTypeByName(const std::string& PotentialName)
 /// return the type of the density model by its name, or PT_UNKNOWN if unavailable
 static PotentialType getDensityTypeByName(const std::string& DensityName)
 {
-    if(!mapinitialized) initPotentialAndSymmetryNameMap();
-    for(DensityNameMapType::const_iterator iter=DensityNames.begin(); 
+    if(!mapinitialized)
+        initPotentialNameMap();
+    for(MapNameType::const_iterator iter=DensityNames.begin(); 
         iter!=DensityNames.end(); 
         ++iter)
         if(utils::stringsEqual(DensityName, iter->second)) 
             return iter->first;
     return PT_UNKNOWN;
+}
+
+/// return file extension for writing the coefficients of potential of the given type,
+/// or empty string if the potential type is not one of the expansion types
+static const char* getCoefFileExtension(PotentialType pottype)
+{
+    switch(pottype) {
+        case PT_BSE:        return ".coef_bse";
+        case PT_SPLINE:     return ".coef_spl";
+        case PT_CYLSPLINE:  return ".coef_cyl";
+        case PT_MULTIPOLE:  return ".coef_mul";
+        case PT_COMPOSITE:  return ".composite";
+        default: return "";
+    }
 }
 } // internal namespace
 
@@ -231,20 +248,11 @@ std::string getSymmetryNameByType(coord::SymmetryType type)
     }
 }
 
+/// return file extension for writing the coefficients of expansion of the given potential
+const char* getCoefFileExtension(const std::string& potName) {
+    return getCoefFileExtension(getPotentialTypeByName(potName)); }
+
 namespace{
-/// return file extension for writing the coefficients of potential of the given type,
-/// or empty string if the potential type is not one of the expansion types
-static const char* getCoefFileExtension(PotentialType pottype)
-{
-    switch(pottype) {
-        case PT_BSE:        return ".coef_bse";
-        case PT_SPLINE:     return ".coef_spl";
-        case PT_CYLSPLINE:  return ".coef_cyl";
-        case PT_MULTIPOLE:  return ".coef_mul";
-        case PT_COMPOSITE:  return ".composite";
-        default: return "";
-    }
-}
 
 ///@}
 /// \name Conversion between string key/value maps and structured potential parameters
@@ -263,7 +271,7 @@ static ConfigPotential parseParams(const utils::KeyValueMap& params, const units
     ConfigPotential config;
     config.potentialType = getPotentialTypeByName(params.getString("Type"));
     config.densityType   = getDensityTypeByName  (params.getString("Density"));
-    config.symmetryType  = getSymmetryTypeByName(params.getString("Symmetry"));
+    config.symmetryType  = getSymmetryTypeByName (params.getString("Symmetry"));
     config.fileName    = params.getString("File");
     config.mass        = params.getDouble("Mass", config.mass) * conv.massUnit;
     config.q           = params.getDoubleAlt("axisRatioY", "q", config.q);
@@ -272,15 +280,15 @@ static ConfigPotential parseParams(const utils::KeyValueMap& params, const units
     config.scaleRadius2= params.getDoubleAlt("scaleRadius2","scaleHeight",config.scaleRadius2) * conv.lengthUnit;
     config.gamma       = params.getDouble   ("Gamma", config.gamma);
     config.sersicIndex = params.getDouble   ("SersicIndex", config.sersicIndex);
-    config.numCoefsRadial  = params.getInt("NumCoefsRadial",  config.numCoefsRadial);
-    config.numCoefsVertical= params.getInt("NumCoefsVertical",config.numCoefsVertical);
-    config.numCoefsAngular = params.getInt("NumCoefsAngular", config.numCoefsAngular);
-    config.alpha              = params.getDouble("Alpha", config.alpha);
-    config.splineSmoothFactor = params.getDouble("splineSmoothFactor", config.splineSmoothFactor);
-    config.splineRMin = params.getDouble("splineRMin", config.splineRMin) * conv.lengthUnit;
-    config.splineRMax = params.getDouble("splineRMax", config.splineRMax) * conv.lengthUnit;
-    config.splineZMin = params.getDouble("splineZMin", config.splineZMin) * conv.lengthUnit;
-    config.splineZMax = params.getDouble("splineZMax", config.splineZMax) * conv.lengthUnit;
+    config.gridSizeR   = params.getInt("gridSizeR", config.gridSizeR);
+    config.gridSizez   = params.getInt("gridSizeZ", config.gridSizez);
+    config.rmin        = params.getDouble("rmin", config.rmin) * conv.lengthUnit;
+    config.rmax        = params.getDouble("rmax", config.rmax) * conv.lengthUnit;
+    config.zmin        = params.getDouble("zmin", config.zmin) * conv.lengthUnit;
+    config.zmax        = params.getDouble("zmax", config.zmax) * conv.lengthUnit;
+    config.lmax        = params.getInt("lmax", config.lmax);
+    config.mmax        = params.contains("mmax") ? params.getInt("mmax", config.mmax) : config.lmax;
+    config.smoothing   = params.getDouble("smoothing", config.smoothing);
     return config;
 }
 
@@ -444,7 +452,7 @@ static bool readAzimuthalHarmonics(std::istream& strm,
     return ok;
 }
 
-/// attempt to load coefficients of CylSplineExp stored in a text file
+/// attempt to load coefficients of CylSpline stored in a text file
 static PtrPotential readPotentialCylSpline(std::istream& strm, const units::ExternalUnits& converter)
 {
     std::string buffer;
@@ -478,7 +486,7 @@ static PtrPotential readPotentialCylSpline(std::istream& strm, const units::Exte
         dPhidz.clear();
     }
     if(!ok)
-        throw std::runtime_error(std::string("Error loading potential ") + CylSplineExp::myName());
+        throw std::runtime_error(std::string("Error loading potential ") + CylSpline::myName());
     // convert units
     math::blas_dmul(converter.lengthUnit, gridR);
     math::blas_dmul(converter.lengthUnit, gridz);
@@ -487,7 +495,7 @@ static PtrPotential readPotentialCylSpline(std::istream& strm, const units::Exte
         math::blas_dmul(pow_2(converter.velocityUnit)/converter.lengthUnit, dPhidR[i]);
         math::blas_dmul(pow_2(converter.velocityUnit)/converter.lengthUnit, dPhidz[i]);
     }
-    return PtrPotential(new CylSplineExp(gridR, gridz, Phi, dPhidR, dPhidz));
+    return PtrPotential(new CylSpline(gridR, gridz, Phi, dPhidR, dPhidz));
 }
 
 }  // end internal namespace
@@ -517,7 +525,7 @@ PtrPotential readPotential(const std::string& fileName, const units::ExternalUni
         if(fields[0] == Multipole::myName()) {
             return readPotentialSphHarmExp(strm, converter, PT_MULTIPOLE);
         }
-        if(fields[0] == CylSplineExp::myName()) {
+        if(fields[0] == CylSpline::myName()) {
             return readPotentialCylSpline(strm, converter);
         }
         if(fields[0] == CompositeCyl::myName()) {
@@ -643,7 +651,7 @@ static void writePotentialMultipole(std::ostream& strm, const Multipole& potMul,
     writeSphericalHarmonics(strm, radii, dPhi);
 }
 
-static void writePotentialCylSpline(std::ostream& strm, const CylSplineExp& potential,
+static void writePotentialCylSpline(std::ostream& strm, const CylSpline& potential,
     const units::ExternalUnits& converter)
 {
     std::vector<double> gridR, gridz;
@@ -658,7 +666,7 @@ static void writePotentialCylSpline(std::ostream& strm, const CylSplineExp& pote
         math::blas_dmul(1/pow_2(converter.velocityUnit)*converter.lengthUnit, dPhidz[i]);
     }
     int mmax = Phi.size()/2;
-    strm << CylSplineExp::myName() << "\t#header\n" << gridR.size() << "\t#size_R\n" << mmax << "\t#m_max\n" <<
+    strm << CylSpline::myName() << "\t#header\n" << gridR.size() << "\t#size_R\n" << mmax << "\t#m_max\n" <<
         gridz.size() << "\t#size_z\n" << std::setprecision(12);
     strm << "Phi\n";
     writeAzimuthalHarmonics(strm, gridR, gridz, Phi);
@@ -720,7 +728,7 @@ bool writeDensity(const std::string& fileName, const BaseDensity& dens,
         writePotentialMultipole(strm, dynamic_cast<const Multipole&>(dens), converter);
         break;
     case PT_CYLSPLINE:
-        writePotentialCylSpline(strm, dynamic_cast<const CylSplineExp&>(dens), converter);
+        writePotentialCylSpline(strm, dynamic_cast<const CylSpline&>(dens), converter);
         break;
     case PT_DENS_CYLGRID:
         writeDensityCylGrid(strm, dynamic_cast<const DensityAzimuthalHarmonic&>(dens), converter);
@@ -822,50 +830,51 @@ PtrPotential readGalaxyPotential(const std::string& filename, const units::Exter
 
 /// create potential expansion of a given type from a set of point masses
 template<typename ParticleT>
-PtrPotential createPotentialFromPoints(const ConfigPotential& config,
+static PtrPotential createPotential(const ConfigPotential& config,
     const particles::PointMassArray<ParticleT>& points)
 {
     switch(config.potentialType) {
     case PT_SPLINE:
         return PtrPotential(new SplineExp(
-            config.numCoefsRadial, config.numCoefsAngular, 
-            points, config.symmetryType, config.splineSmoothFactor, 
-            config.splineRMin, config.splineRMax));
-    case PT_CYLSPLINE:
-        return PtrPotential(new CylSplineExpOld(
-            config.numCoefsRadial, config.numCoefsVertical,
-            config.numCoefsAngular, points, config.symmetryType, 
-            config.splineRMin, config.splineRMax,
-            config.splineZMin, config.splineZMax));
+            config.gridSizeR, config.lmax, 
+            points, config.symmetryType, config.smoothing, 
+            config.rmin, config.rmax));
     case PT_BSE:
         return PtrPotential(new BasisSetExp(
-            config.alpha, config.numCoefsRadial, 
-            config.numCoefsAngular, points, config.symmetryType));
+            /*config.alpha*/0., config.gridSizeR, 
+            config.lmax, points, config.symmetryType));
+    case PT_CYLSPLINE:
+        return CylSpline::create(points, config.symmetryType, config.mmax,
+            config.gridSizeR, config.rmin, config.rmax,
+            config.gridSizez, config.zmin, config.zmax);
+    case PT_MULTIPOLE:
+        return Multipole::create(points, config.symmetryType, config.lmax, config.mmax,
+            config.gridSizeR, config.rmin, config.rmax,
+            config.smoothing);
     default:
-        throw std::invalid_argument(std::string("Unknown potential type in createPotentialFromPoints: ")
-            + getPotentialNameByType(config.potentialType));
+        throw std::invalid_argument(std::string("Unknown potential expansion type"));
     }
 }
 
 template<typename ParticleT>
-PtrPotential createPotentialFromPoints(const utils::KeyValueMap& params,
-    const units::ExternalUnits& converter, const particles::PointMassArray<ParticleT>& points)
+PtrPotential createPotential(const utils::KeyValueMap& params,
+    const particles::PointMassArray<ParticleT>& points, const units::ExternalUnits& converter)
 {
-    return createPotentialFromPoints(parseParams(params, converter), points);
+    return createPotential(parseParams(params, converter), points);
 }
 // instantiations
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
-    const units::ExternalUnits&, const particles::PointMassArray<coord::PosCar>&);
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
-    const units::ExternalUnits&, const particles::PointMassArray<coord::PosVelCar>&);
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
-    const units::ExternalUnits&, const particles::PointMassArray<coord::PosCyl>&);
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
-    const units::ExternalUnits&, const particles::PointMassArray<coord::PosVelCyl>&);
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
-    const units::ExternalUnits&, const particles::PointMassArray<coord::PosSph>&);
-template PtrPotential createPotentialFromPoints(const utils::KeyValueMap&,
-    const units::ExternalUnits&, const particles::PointMassArray<coord::PosVelSph>&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosCar>&, const units::ExternalUnits&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosVelCar>&, const units::ExternalUnits&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosCyl>&, const units::ExternalUnits&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosVelCyl>&, const units::ExternalUnits&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosSph>&, const units::ExternalUnits&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosVelSph>&, const units::ExternalUnits&);
 
 namespace {
 
@@ -884,7 +893,7 @@ static PtrDensity createAnalyticDensity(const ConfigPotential& params)
     {
     case PT_DEHNEN:
         return PtrDensity(new Dehnen(
-            params.mass, params.scaleRadius, params.q, params.p, params.gamma));
+            params.mass, params.scaleRadius, params.gamma, params.q, params.p));
     case PT_PLUMMER:
         if(params.q==1 && params.p==1)
             return PtrDensity(new Plummer(params.mass, params.scaleRadius));
@@ -933,7 +942,7 @@ static PtrPotential createAnalyticPotential(const ConfigPotential& params)
         return PtrPotential(new MiyamotoNagai(params.mass, params.scaleRadius, params.scaleRadius2));
     case PT_DEHNEN:
         return PtrPotential(new Dehnen(
-            params.mass, params.scaleRadius, params.q, params.p, params.gamma));
+            params.mass, params.scaleRadius, params.gamma, params.q, params.p));
     case PT_FERRERS:
         return PtrPotential(new Ferrers(params.mass, params.scaleRadius, params.q, params.p)); 
     case PT_PLUMMER:
@@ -971,25 +980,21 @@ static PtrPotential createPotentialExpansion(const ConfigPotential& params, cons
     switch(params.potentialType) {
     case PT_BSE: {
         return PtrPotential(new BasisSetExp(
-            params.alpha, params.numCoefsRadial, params.numCoefsAngular, source));
+            /*params.alpha*/0., params.gridSizeR, params.lmax, source));
     }
     case PT_SPLINE: {
         return PtrPotential(new SplineExp(
-            params.numCoefsRadial, params.numCoefsAngular, source,
-            params.splineRMin, params.splineRMax));
+            params.gridSizeR, params.lmax, source,
+            params.rmin, params.rmax));
     }
     case PT_CYLSPLINE: {
-        /*return PtrPotential(new CylSplineExpOld(
-            params.numCoefsRadial, params.numCoefsVertical, params.numCoefsAngular, source,
-            params.splineRMin, params.splineRMax, params.splineZMin, params.splineZMax));*/
-        return CylSplineExp::create(source, params.numCoefsAngular,
-            params.numCoefsRadial, params.splineRMin, params.splineRMax,
-            params.numCoefsVertical, params.splineZMin, params.splineZMax);
+        return CylSpline::create(source, params.mmax,
+            params.gridSizeR, params.rmin, params.rmax,
+            params.gridSizez, params.zmin, params.zmax);
     }
     case PT_MULTIPOLE: {
-        return Multipole::create(source, 
-            params.numCoefsAngular, params.numCoefsAngular,
-            params.numCoefsRadial, params.splineRMin, params.splineRMax);
+        return Multipole::create(source, params.lmax, params.mmax,
+            params.gridSizeR, params.rmin, params.rmax);
     }
     default: throw std::invalid_argument("Unknown potential expansion type");
     }
@@ -1018,7 +1023,7 @@ static PtrPotential createAnyPotential(const ConfigPotential& params,
             particles::readSnapshot(params.fileName, converter, points);
             if(points.size()==0)
                 throw std::runtime_error("Error loading N-body snapshot from " + params.fileName);
-            PtrPotential poten = createPotentialFromPoints(params, points);
+            PtrPotential poten = createPotential(params, points);
             // store coefficients in a text file, 
             // later may load this file instead for faster initialization
             writePotential( (params.fileName + 
@@ -1136,10 +1141,6 @@ PtrPotential createPotential(
         throw std::runtime_error("INI file does not contain any [Potential] section");
     return createPotential(components, converter);
 }
-
-/// return file extension for writing the coefficients of expansion of the given potential
-const char* getCoefFileExtension(const std::string& potName) {
-    return getCoefFileExtension(getPotentialTypeByName(potName)); }
 
 ///@}
 }; // namespace

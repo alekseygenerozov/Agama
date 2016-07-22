@@ -27,6 +27,15 @@ KeyValueMap::KeyValueMap(const int numParams, const char* const* params) : modif
         add(params[i]);
 }
 
+KeyValueMap::KeyValueMap(const std::string& params, const std::string& whitespace) :
+    modified(false)
+{
+    std::vector<std::string> arr;
+    splitString(params, whitespace, arr);
+    for(unsigned int i=0; i<arr.size(); i++)
+        add(arr[i].c_str());
+}
+
 void KeyValueMap::add(const char* line)
 {
     std::string buffer(line);

@@ -19,8 +19,8 @@ static const double EPSREL_POTENTIAL_INT = 1e-6;
 // 3) use a multipole expansion implemented in SplineExp or Multipole potential instead -
 //    a preferred solution.
     
-Dehnen::Dehnen(double _mass, double _scalerad, double _q, double _p, double _gamma): 
-    BasePotentialCar(), mass(_mass), scalerad(_scalerad), q(_q), p(_p), gamma(_gamma)
+Dehnen::Dehnen(double _mass, double _scalerad, double _gamma, double _q, double _p): 
+    BasePotentialCar(), mass(_mass), scalerad(_scalerad), gamma(_gamma), q(_q), p(_p)
 {
     if(scalerad<=0)
         throw std::invalid_argument("Error in Dehnen potential: scale radius must be positive");

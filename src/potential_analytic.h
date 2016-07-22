@@ -116,7 +116,7 @@ private:
     const double Omega2;       ///< squared oscillation frequency (Omega)
     const double q2;           ///< squared y/x axis ratio (q)
     const double p2;           ///< squared z/x axis ratio (p)
-    
+
     virtual void evalCar(const coord::PosCar &pos,
         double* potential, coord::GradCar* deriv, coord::HessCar* deriv2) const;
 };

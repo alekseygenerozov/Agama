@@ -47,6 +47,7 @@ SOURCES   = \
             potential_factory.cpp \
             potential_ferrers.cpp \
             potential_galpot.cpp \
+            potential_multipole.cpp \
             potential_perfect_ellipsoid.cpp \
             potential_sphharm.cpp \
             potential_utils.cpp \
@@ -79,7 +80,7 @@ TESTSRCS  = test_math_core.cpp \
             test_units.cpp \
             test_orbit_integr.cpp \
             test_potentials.cpp \
-            test_potential_sphharm.cpp \
+            test_potential_expansion.cpp \
             test_isochrone.cpp \
             test_staeckel.cpp \
             test_actionfinder.cpp \

@@ -12,10 +12,9 @@
     The usage is as follows: in gyrfalcON, for instance, one adds
     `accname=agama accfile=params.ini`
     to the command line arguments, and provides all necessary parameters 
-    in the papams.ini text file (see readme.pdf for explanation of the options).
+    in the params.ini text file (see readme.pdf for explanation of the options).
     Alternatively, a previously created file with coefficients of a potential 
-    expansion can be given as `accfile=mypotential.coef_***`, where *** stands for
-    the type of potential: `bse`, 'bsec`, `spl`, `cyl`.
+    expansion can be given as `accfile=mypotential`.
     The choice is determined by the file extesion (.ini vs any other).
 **/
 struct agama {

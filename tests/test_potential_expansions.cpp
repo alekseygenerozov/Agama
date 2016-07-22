@@ -1,6 +1,7 @@
 #include "potential_analytic.h"
 #include "potential_dehnen.h"
 #include "potential_cylspline.h"
+#include "potential_multipole.h"
 #include "potential_sphharm.h"
 #include "potential_factory.h"
 #include "potential_galpot.h"
@@ -15,17 +16,17 @@
 #include <cstdlib>
 #include <cstdio>
 #include <ctime>
-//#include "math_specfunc.h"
 
+using potential::PtrPotential;
 const bool output = true;
 
 /// write potential coefs into file, load them back and create a new potential from these coefs
-potential::PtrPotential writeRead(const potential::BasePotential& pot)
+PtrPotential writeRead(const potential::BasePotential& pot)
 {
     std::string coefFile("test_potential_sphharm");
     coefFile += getCoefFileExtension(pot);
     writePotential(coefFile, pot);
-    potential::PtrPotential newpot = potential::readPotential(coefFile);
+    PtrPotential newpot = potential::readPotential(coefFile);
     std::remove(coefFile.c_str());
     return newpot;
 }
@@ -46,18 +47,18 @@ particles::PointMassArrayCar makeHernquist(int nbody, double q, double p)
     return pts;
 }
 
-potential::PtrPotential createFromFile(
+PtrPotential createFromFile(
     const particles::PointMassArrayCar& points, const std::string& potType)
 {
     const std::string fileName = "test.txt";
     writeSnapshot(fileName, units::ExternalUnits(), points, "Text");
-    potential::PtrPotential newpot;
+    PtrPotential newpot;
 
     // illustrates two possible ways of creating a potential from points
     if(potType == "BasisSetExp") {
         particles::PointMassArrayCar pts;
         readSnapshot(fileName, units::ExternalUnits(), pts);
-        newpot = potential::PtrPotential(new potential::BasisSetExp(
+        newpot = PtrPotential(new potential::BasisSetExp(
             1.0, /*alpha*/
             20,  /*numCoefsRadial*/
             6,   /*numCoefsAngular*/
@@ -97,9 +98,9 @@ bool testAverageError(const potential::BasePotential& p1, const potential::BaseP
     const int nptbin=1000;
     for(double logR=-4; logR<4; logR+=dlogR) {
         double weightedDifP=0, weightedDifF=0, weightedDifD=0, weight=0;
-#ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic,64) reduction(+:weight,weightedDifP,weightedDifF,weightedDifD)
-#endif
+//#ifdef _OPENMP
+//#pragma omp parallel for schedule(dynamic,64) reduction(+:weight,weightedDifP,weightedDifF,weightedDifD)
+//#endif
         for(int n=0; n<nptbin; n++) {
             coord::PosSph point( pow(10., logR+dlogR*n/nptbin),
                 acos(math::random()*2-1), math::random()*2*M_PI);
@@ -151,9 +152,9 @@ bool testAverageError(const potential::BaseDensity& p1, const potential::BaseDen
     const int nptbin=5000;
     for(double logR=-4; logR<4; logR+=dlogR) {
         double weightedDif=0, weight=0;
-#ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic,256) reduction(+:weight,weightedDif)
-#endif
+//#ifdef _OPENMP
+//#pragma omp parallel for schedule(dynamic,256) reduction(+:weight,weightedDif)
+//#endif
         for(int n=0; n<nptbin; n++) {
             coord::PosSph point( pow(10., logR+dlogR*n/nptbin),
                 acos(math::random()*2-1), math::random()*2*M_PI);
@@ -176,7 +177,7 @@ bool testAverageError(const potential::BaseDensity& p1, const potential::BaseDen
 
 bool testDensSH()
 {
-    const potential::Dehnen dens(1., 1., 0.8, 0.5, 1.2);
+    const potential::Dehnen dens(1., 1., 1.2, 0.8, 0.5);
     std::vector<double> radii1 = math::createExpGrid(51, 0.01, 100);
     // twice denser grid: every other node coincides with that of the first grid
     std::vector<double> radii2 = math::createExpGrid(101,0.01, 100);
@@ -315,12 +316,15 @@ int main() {
     // 3. accuracy tests for density and potential approximations
     // 3a. original test profiles
     const potential::Plummer test1_PlumSph(10., 5.);                     // spherical Plummer
-    const potential::Dehnen  test2_Dehnen0Tri (1., 1.0, 0.8, 0.5, 0.0);  // triaxial cored Dehnen
-    const potential::Dehnen  test3_Dehnen15Tri(3., 1.2, 0.8, 0.5, 1.5);  // triaxial cuspy Dehnen
+    const potential::Dehnen  test2_Dehnen0Tri (1., 1.0, 0.0, 0.8, 0.5);  // triaxial cored Dehnen
+    const potential::Dehnen  test3_Dehnen15Tri(3., 1.2, 1.5, 0.8, 0.5);  // triaxial cuspy Dehnen
     const potential::MiyamotoNagai test4_MNAxi(1, 3, 0.5);               // axisymmetric Miyamoto-Nagai
     const potential::DiskParam test5_ExpdiskParam(1., 5., 0.5, 0, 0);    // double-exponential disk params
-    const potential::DiskDensity test5_ExpdiskAxi(test5_ExpdiskParam);   // density profile of dexp disk
-    const potential::Dehnen test6_Dehnen1Tri(1., 1., 0.8, 0.5, 1.0);     // triaxial cuspy Dehnen
+    const potential::DiskDensity test5_ExpdiskAxi(test5_ExpdiskParam);   // density profile of d-exp disk
+    PtrPotential test5_Galpot = createGalaxyPotential(                   // potential of d-exp disk,
+        std::vector<potential::DiskParam>(1, test5_ExpdiskParam),        // computed using the GalPot approach
+        std::vector<potential::SphrParam>());
+    const potential::Dehnen test6_Dehnen1Tri(1., 1., 1., 0.8, 0.5);      // triaxial cuspy Hernquist
     particles::PointMassArrayCar test6_points = makeHernquist(100000, 0.8, 0.5); // represented as N-body
 
     // 3b. test the approximating density profiles
@@ -353,83 +357,88 @@ int main() {
     ok &= testAverageError(
         *potential::DensityAzimuthalHarmonic::create(test5_ExpdiskAxi, 0, 30, 1e-2, 100, 30, 1e-2, 100),
         test5_ExpdiskAxi, 0.005);
-    ok &= testAverageError(
-        *potential::createGalaxyPotential(std::vector<potential::DiskParam>(1, test5_ExpdiskParam),
-        std::vector<potential::SphrParam>()),
+    ok &= testAverageError(*test5_Galpot,
         test5_ExpdiskAxi, 0.05);
     ok &= testAverageError(
-        *potential::CylSplineExp::create(test5_ExpdiskAxi, 0, 30, 1e-2, 100, 30, 1e-2, 100),
+        *potential::CylSpline::create(test5_ExpdiskAxi, 0, 30, 1e-2, 100, 30, 1e-2, 100),
         test5_ExpdiskAxi, 0.05);
 
     // 3c. test the approximating potential profiles
+    std::cout << "--- Testing potential approximations: "
+    "print density-averaged rms errors in potential, force and density ---\n";
+    
+    // spherical, cuspy and infinite
+    std::cout << "--- Spherical NFW ---\n";
+    potential::NFW test1_NFWSph(1., 1.);
+    PtrPotential test1n = potential::Multipole::create(test1_NFWSph, 0, 0, 20, 1e-3, 1e3);
+    ok &= testAverageError(*test1n, test1_NFWSph, 0.001);
 
     // spherical, cored
-    std::cout << "--- Testing potential approximations with Plummer: "
-        "print density-averaged rms errors in potential, force and density ---\n";
-    const potential::BasisSetExp test1b(0., 30, 2, test1_PlumSph);
-    const potential::SplineExp test1s(20, 2, test1_PlumSph);
-    potential::PtrPotential test1c = potential::CylSplineExp::create(
+    std::cout << "--- Spherical Dehnen gamma=0 ---\n";
+    const potential::BasisSetExp test1b(0., 30, 0, test1_PlumSph);
+    const potential::SplineExp test1s(20, 0, test1_PlumSph);
+    PtrPotential test1c = potential::CylSpline::create(
         // this forces potential to be computed via integration of density over volume
-        static_cast<const potential::BaseDensity&>(test1_PlumSph), 0, 20, 5e-2, 5e2, 20, 5e-2, 5e2);
+        static_cast<const potential::BaseDensity&>(test1_PlumSph), 0, 20, 0., 0., 20, 0., 0.);
+    PtrPotential test1m = potential::Multipole::create(
+        static_cast<const potential::BaseDensity&>(test1_PlumSph), 0, 0, 20);
     ok &= testAverageError( test1b, test1_PlumSph, 0.02);
     ok &= testAverageError( test1s, test1_PlumSph, 0.002);
-    ok &= testAverageError(*test1c, test1_PlumSph, 0.02);
+    ok &= testAverageError(*test1m, test1_PlumSph, 0.001);
+    ok &= testAverageError(*test1c, test1_PlumSph, 0.01);
 
     // mildly triaxial, cored
-    std::cout << "--- Dehnen gamma=0 ---\n";
-    potential::PtrPotential test2m = potential::Multipole::create(
-        static_cast<const potential::BaseDensity&>(test2_Dehnen0Tri), 6, 6, 20, 1e-3, 1e3);
-    const potential::BasisSetExp test2b(1., 20, 6, test2_Dehnen0Tri);
-    const potential::SplineExp test2s(20, 6, test2_Dehnen0Tri);
-    //const potential::CylSplineExpOld test2o(30, 30, 8, 
-    //    static_cast<const potential::BaseDensity&>(test2_Dehnen0Tri), 1e-3, 1e3, 1e-3, 1e3);
-    //testAverageError(test2o, test2_Dehnen0Tri);
+    std::cout << "--- Triaxial Dehnen gamma=0 ---\n";
+    PtrPotential test2m = potential::Multipole::create(
+        static_cast<const potential::BaseDensity&>(test2_Dehnen0Tri), 8, 6, 20);
+//    const potential::BasisSetExp test2b(1., 20, 8, test2_Dehnen0Tri);
+    const potential::SplineExp test2s(20, 8, test2_Dehnen0Tri);
     clock_t clock = std::clock();
-    potential::PtrPotential test2c = potential::CylSplineExp::create(  // from density via integration
-        static_cast<const potential::BaseDensity&>(test2_Dehnen0Tri), 6, 20, 1e-3, 1e3, 20, 1e-3, 1e3);
-    std::cout << (std::clock()-clock)*1.0/CLOCKS_PER_SEC << " seconds to create new CylSpline\n";
-    potential::PtrPotential test2d = potential::CylSplineExp::create(  // directly from potential
-        test2_Dehnen0Tri, 6, 20, 1e-3, 1e3, 20, 1e-3, 1e3);
-    potential::PtrPotential test2c_clone = writeRead(*test2c);
-    ok &= testAverageError( test2b, test2_Dehnen0Tri, 0.5);
-    ok &= testAverageError( test2s, test2_Dehnen0Tri, 0.05);
-    ok &= testAverageError(*test2m, test2_Dehnen0Tri, 0.05);
-    ok &= testAverageError(*test2d, test2_Dehnen0Tri, 0.05);
-    ok &= testAverageError(*test2c, test2_Dehnen0Tri, 0.05);
+    PtrPotential test2c = potential::CylSpline::create(  // from density via integration
+        static_cast<const potential::BaseDensity&>(test2_Dehnen0Tri), 6, 20, 0., 0., 20, 0., 0.);
+    std::cout << (std::clock()-clock)*1.0/CLOCKS_PER_SEC << " seconds to create CylSpline\n";
+    PtrPotential test2d = potential::CylSpline::create(  // directly from potential
+        test2_Dehnen0Tri, 6, 20, 0., 0., 20, 0., 0.);
+    PtrPotential test2c_clone = writeRead(*test2c);
+//    ok &= testAverageError( test2b, test2_Dehnen0Tri, 0.5);
+    ok &= testAverageError( test2s, test2_Dehnen0Tri, 0.02);
+    ok &= testAverageError(*test2m, test2_Dehnen0Tri, 0.01);
+    ok &= testAverageError(*test2d, test2_Dehnen0Tri, 0.02);
+    ok &= testAverageError(*test2c, test2_Dehnen0Tri, 0.02);
     ok &= testAverageError(*test2c_clone, *test2c, 1e-4);
 
     // mildly triaxial, cuspy
-    std::cout << "--- Dehnen gamma=1.5 ---\n";
-    const potential::BasisSetExp test3b(2., 20, 6, test3_Dehnen15Tri);
+    std::cout << "--- Triaxial Dehnen gamma=1.5 ---\n";
+//    const potential::BasisSetExp test3b(2., 20, 6, test3_Dehnen15Tri);
     const potential::SplineExp test3s(20, 6, test3_Dehnen15Tri);
-    potential::PtrPotential test3m = potential::Multipole::create(
-        static_cast<const potential::BaseDensity&>(test3_Dehnen15Tri), 6, 6, 20, 1e-3, 1e3);
-    potential::PtrPotential test3m_clone = writeRead(*test3m);
-    ok &= testAverageError( test3b, test3_Dehnen15Tri, 0.5);
-    ok &= testAverageError( test3s, test3_Dehnen15Tri, 0.05);
-    ok &= testAverageError(*test3m, test3_Dehnen15Tri, 0.05);
+    PtrPotential test3m = potential::Multipole::create(
+        static_cast<const potential::BaseDensity&>(test3_Dehnen15Tri), 6, 6, 20);
+    PtrPotential test3m_clone = writeRead(*test3m);
+//    ok &= testAverageError( test3b, test3_Dehnen15Tri, 0.5);
+    ok &= testAverageError( test3s, test3_Dehnen15Tri, 0.02);
+    ok &= testAverageError(*test3m, test3_Dehnen15Tri, 0.02);
     ok &= testAverageError(*test3m_clone, *test3m, 1e-8);
 
-    // mildly triaxial, created from N-body samples
-    std::cout << "--- Dehnen gamma=1 from N-body samples ---\n";
-    std::vector<double> gridR = math::createNonuniformGrid(20, 0.005, 500, true);
-    std::vector<double> gridz = math::createNonuniformGrid(20, 0.005, 500, true);
-    std::vector<math::Matrix<double> > Phi;
-    potential::computePotentialCoefsCyl(test6_points, coord::ST_TRIAXIAL, 6, gridR, gridz, Phi);
-    potential::CylSplineExp test6n(gridR, gridz, Phi);  // no derivs
-    potential::PtrPotential test6b = createFromFile(test6_points, potential::BasisSetExp::myName());
-    // could also use createFromFile(test6_points, "SplineExp");  below
-    potential::SplineExp test6s(20, 6, test6_points, coord::ST_TRIAXIAL);
-    std::vector<double> gridRadii = math::createExpGrid(20, 0.02, 1000);
-    std::vector<std::vector<double> > PhiM, dPhiM;
-    potential::computePotentialCoefsSph(test6_points,
-        math::SphHarmIndices(6, 6, coord::ST_TRIAXIAL), gridRadii, PhiM, dPhiM);
-    potential::Multipole test6m(gridRadii, PhiM, dPhiM);
-    ok &= testAverageError(*test6b, test6_Dehnen1Tri, 0.5);
-    ok &= testAverageError( test6s, test6_Dehnen1Tri, 0.5);
-    ok &= testAverageError( test6n, test6_Dehnen1Tri, 1.0);
-    ok &= testAverageError( test6m, test6_Dehnen1Tri, 2.0);
+    // strongly flattened exp.disk; the 'true' potential is not available,
+    // so we compare two approximations: GalPot and CylSpline
+    std::cout << "--- Axisymmetric ExpDisk ---\n";
+    PtrPotential test5c = potential::CylSpline::create(
+        test5_ExpdiskAxi, 0, 20, 5e-2, 50., 20, 1e-2, 10.);
+    ok &= testAverageError(*test5c, *test5_Galpot, 0.05);
 
+    // mildly triaxial, created from N-body samples
+    std::cout << "--- Triaxial Dehnen gamma=1 from N-body samples ---\n";
+    PtrPotential test6c = potential::CylSpline::create(test6_points,
+        coord::ST_TRIAXIAL, 6, 20, 0., 0., 20, 0., 0.);
+    PtrPotential test6b = createFromFile(test6_points, potential::BasisSetExp::myName());
+    // could also use createFromFile(test6_points, "SplineExp");  below
+    PtrPotential test6s(new potential::SplineExp(20, 6, test6_points, coord::ST_TRIAXIAL));
+    PtrPotential test6m = potential::Multipole::create(test6_points,
+        coord::ST_TRIAXIAL, 6, 6, 20);
+    ok &= testAverageError(*test6b, test6_Dehnen1Tri, 0.5);
+    ok &= testAverageError(*test6s, test6_Dehnen1Tri, 0.5);
+    ok &= testAverageError(*test6c, test6_Dehnen1Tri, 3.0);
+    ok &= testAverageError(*test6m, test6_Dehnen1Tri, 1.0);
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n\n";
     return 0;

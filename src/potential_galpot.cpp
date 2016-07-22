@@ -22,7 +22,7 @@ Modifications by Eugene Vasiliev, 2015-2016
 */
 #include "potential_galpot.h"
 #include "potential_composite.h"
-#include "potential_sphharm.h"
+#include "potential_multipole.h"
 #include "math_core.h"
 #include "math_specfunc.h"
 #include <cmath>
@@ -31,10 +31,15 @@ Modifications by Eugene Vasiliev, 2015-2016
 
 namespace potential{
 
-static const int    GALPOT_LMAX=16;     ///< DEFAULT order (lmax) for the Multipole expansion 
-static const int    GALPOT_NRAD=201;    ///< DEFAULT number of radial points in Multipole 
-static const double GALPOT_RMIN=1.e-4,  ///< DEFAULT min radius of logarithmic radial grid in Multipole
-                    GALPOT_RMAX=1.e4;   ///< DEFAULT max radius of logarithmic radial grid
+/// order of the Multipole expansion
+static const int    GALPOT_LMAX=32;
+
+/// number of radial points in Multipole 
+static const int    GALPOT_NRAD=50;
+
+/// factors determining the radial extent of logarithmic grid in Multipole;
+/// they are multiplied by the min/max scale radii of model components
+static const double GALPOT_RMIN=1e-4, GALPOT_RMAX=1e4;
 
 //----- disk density and potential -----//
 

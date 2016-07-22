@@ -73,4 +73,9 @@ double besselI(const int n, const double x);
 /** Modified Bessel function K_n(x) (singular) */
 double besselK(const int n, const double x);
 
+/** Lambert W function W_0,W_{-1}(x), satisfying the equation W exp(W) = x;
+    for -exp(-1)<=x<0 there are two branches, W_0>=-1, and W_{-1}<=-1;
+    the second one is selected by setting the second argument to true. */
+double lambertW(const double x, bool Wminus1branch=false);
+
 }  // namespace

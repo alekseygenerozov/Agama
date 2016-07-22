@@ -15,7 +15,7 @@ density and/or potential profile.
 
 In the present implementation, the overall potential is assembled from the contributions
 of each component that provide a potential (not all of them need to do so),
-plus two more potential expansions (Multipole for spheroidal components and CylSplineExp for
+plus two more potential expansions (Multipole for spheroidal components and CylSpline for
 disk-like components) constructed from the sum of density profiles of all relevant components.
 The rationale is that the multipole expansion is obviously not efficient for strongly
 flattened density profiles, but on the other hand, CylSpline is less suitable for extended
