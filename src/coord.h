@@ -68,6 +68,7 @@ enum SymmetryType{
     ST_TRIAXIAL     = ST_XREFLECTION | ST_YREFLECTION | ST_ZREFLECTION | ST_REFLECTION, 
     ST_AXISYMMETRIC = ST_TRIAXIAL | ST_ZROTATION,    ///< axial symmetry combined with plane symmetry
     ST_SPHERICAL    = ST_AXISYMMETRIC | ST_ROTATION, ///< spherical symmetry
+    ST_DEFAULT      = ST_TRIAXIAL   ///< default choice when no symmetry is specified
 };
 
 /** test for symmetry w.r.t.change of sign in x */

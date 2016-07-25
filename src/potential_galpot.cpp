@@ -32,14 +32,17 @@ Modifications by Eugene Vasiliev, 2015-2016
 namespace potential{
 
 /// order of the Multipole expansion
-static const int    GALPOT_LMAX=32;
+static const int GALPOT_LMAX = 32;
+
+/// order of the azimuthal Fourier expansion in case of non-axisymmetric components
+static const int GALPOT_MMAX = 6;
 
 /// number of radial points in Multipole 
-static const int    GALPOT_NRAD=50;
+static const int GALPOT_NRAD = 60;
 
 /// factors determining the radial extent of logarithmic grid in Multipole;
 /// they are multiplied by the min/max scale radii of model components
-static const double GALPOT_RMIN=1e-4, GALPOT_RMAX=1e4;
+static const double GALPOT_RMIN = 1e-4,  GALPOT_RMAX = 1e4;
 
 //----- disk density and potential -----//
 
@@ -189,11 +192,11 @@ double DiskParam::mass() const
         else {
             double p = sqrt(innerCutoffRadius / scaleRadius);
             return 4*M_PI * pow_2(scaleRadius) * surfaceDensity *
-            p * (p * math::besselK(0, 2*p) + math::besselK(1, 2*p));
+                p * (p * math::besselK(0, 2*p) + math::besselK(1, 2*p));
         }
     }
     return 2*M_PI * pow_2(scaleRadius) * surfaceDensity *
-        math::integrate(DiskDensityRadialRichExpIntegrand(*this), 0, 1, 1e-4);
+        math::integrate(DiskDensityRadialRichExpIntegrand(*this), 0, 1, 1e-6);
 }
 
 double DiskDensity::densityCyl(const coord::PosCyl &pos) const
@@ -257,11 +260,12 @@ private:
 
 double SphrParam::mass() const
 {
-    if(outerCutoffRadius==0)   // have an analytic expression
-        return 4*M_PI * densityNorm * pow_3(scaleRadius) * axisRatio *
-            math::gamma(beta-3) * math::gamma(3-gamma) / math::gamma(beta-gamma);
-    return 4*M_PI * axisRatio * densityNorm * pow_3(scaleRadius) *
-        math::integrate(SpheroidDensityIntegrand(*this), 0, 1, 1e-4);
+    if(beta<=3 && outerCutoffRadius==0)
+        return INFINITY;
+    return 4*M_PI * densityNorm * pow_3(scaleRadius) * axisRatioY * axisRatioZ *
+        ( outerCutoffRadius==0 ?   // have an analytic expression
+        math::gamma(beta-3) * math::gamma(3-gamma) / math::gamma(beta-gamma) :
+        math::integrate(SpheroidDensityIntegrand(*this), 0, 1, 1e-6) );
 }
 
 SpheroidDensity::SpheroidDensity (const SphrParam &_params) :
@@ -269,7 +273,7 @@ SpheroidDensity::SpheroidDensity (const SphrParam &_params) :
 {
     if(params.scaleRadius<=0)
         throw std::invalid_argument("Spheroid scale radius cannot be <=0");
-    if(params.axisRatio<=0)
+    if(params.axisRatioY<=0 || params.axisRatioZ<=0)
         throw std::invalid_argument("Spheroid axis ratio cannot be <=0");
     if(params.outerCutoffRadius<0)
         throw std::invalid_argument("Spheroid outer cutoff radius cannot be <0");
@@ -282,21 +286,23 @@ SpheroidDensity::SpheroidDensity (const SphrParam &_params) :
 
 double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
 {
-    double m   = hypot(pos.R, pos.z/params.axisRatio);
-    double m0  = m/params.scaleRadius;
+    double  R  = params.axisRatioY == 1 ? pos.R :
+        pos.R * sqrt(1 + pow_2(sin(pos.phi)) * (1/pow_2(params.axisRatioY) - 1));
+    double  r  = hypot(R, pos.z/params.axisRatioZ);
+    double  r0 = r/params.scaleRadius;
     double rho = params.densityNorm;
-    if(params.gamma==1.) rho /= m0;       else 
-    if(params.gamma==2.) rho /= m0*m0;    else
-    if(params.gamma==0.5)rho /= sqrt(m0); else
-    if(params.gamma!=0.) rho /= pow(m0, params.gamma);
-    m0 += 1;
+    if(params.gamma==1.) rho /= r0;       else 
+    if(params.gamma==2.) rho /= r0*r0;    else
+    if(params.gamma==0.5)rho /= sqrt(r0); else
+    if(params.gamma!=0.) rho /= pow(r0, params.gamma);
+    r0 += 1;
     const double beg = params.beta-params.gamma;
-    if(beg==1.) rho /= m0;       else
-    if(beg==2.) rho /= m0*m0;    else
-    if(beg==3.) rho /= m0*m0*m0; else
-    rho /= pow(m0,beg);
+    if(beg==1.) rho /= r0;       else
+    if(beg==2.) rho /= r0*r0;    else
+    if(beg==3.) rho /= r0*r0*r0; else
+    rho /= pow(r0, beg);
     if(params.outerCutoffRadius)
-        rho *= exp(-pow_2(m/params.outerCutoffRadius));
+        rho *= exp(-pow_2(r/params.outerCutoffRadius));
     return rho;
 }
 
@@ -307,6 +313,7 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
 {
     double lengthMin=INFINITY, lengthMax=0;  // keep track of length scales of all components
     bool isSpherical=diskParams.size()==0;   // whether there are any non-spherical components
+    bool isAxisymmetric=true;                // same for non-axisymmetric spheroidal components
 
     // assemble the set of density components for the multipole
     // (all spheroids and residual part of disks),
@@ -338,7 +345,8 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
         lengthMax = fmax(lengthMax, sphrParams[i].scaleRadius);
         if(sphrParams[i].outerCutoffRadius) 
             lengthMax = fmax(lengthMax, sphrParams[i].outerCutoffRadius);
-        isSpherical &= sphrParams[i].axisRatio == 1;
+        isSpherical    &= sphrParams[i].axisRatioZ == 1;
+        isAxisymmetric &= sphrParams[i].axisRatioY == 1;
     }
     if(componentsDens.size()==0)
         throw std::invalid_argument("Empty parameters in GalPot");
@@ -348,8 +356,9 @@ std::vector<PtrPotential> createGalaxyPotentialComponents(
     // create multipole potential from this combined density
     double rmin = GALPOT_RMIN * lengthMin;
     double rmax = GALPOT_RMAX * lengthMax;
-    int lmax = isSpherical ? 0 : GALPOT_LMAX;
-    componentsPot.push_back(Multipole::create(dens, lmax, 0, GALPOT_NRAD, rmin, rmax));
+    int lmax = isSpherical    ? 0 : GALPOT_LMAX;
+    int mmax = isAxisymmetric ? 0 : GALPOT_MMAX;
+    componentsPot.push_back(Multipole::create(dens, lmax, mmax, GALPOT_NRAD, rmin, rmax));
 
     // the array of components to be passed to the constructor of CompositeCyl potential:
     // the multipole and the non-residual parts of disk potential

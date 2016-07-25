@@ -95,7 +95,7 @@ struct DiskParam{
     ///< and for h=0 the disk is infinitesimal thin
     double innerCutoffRadius;   ///< if nonzero, specifies the radius of a hole at the center R_0
     double modulationAmplitude; ///< a term eps*cos(R/R_d) is added to the radial exponent
-    DiskParam(double _surfaceDensity=0, double _scaleRadius=0, double _scaleHeight=0,
+    DiskParam(double _surfaceDensity=0, double _scaleRadius=1, double _scaleHeight=0,
         double _innerCutoffRadius=0, double _modulationAmplitude=0) :
         surfaceDensity(_surfaceDensity), scaleRadius(_scaleRadius), scaleHeight(_scaleHeight),
         innerCutoffRadius(_innerCutoffRadius), modulationAmplitude(_modulationAmplitude) {};
@@ -158,15 +158,16 @@ private:
 /// parameters describing a spheroidal component
 struct SphrParam{
     double densityNorm;         ///< density normalization rho_0 [Msun/kpc^3] 
-    double axisRatio;           ///< axis ratio q (z/R)
+    double axisRatioY;          ///< axis ratio p (y/R)
+    double axisRatioZ;          ///< axis ratio q (z/R)
     double gamma;               ///< inner power slope gamma 
     double beta;                ///< outer power slope beta 
     double scaleRadius;         ///< transition radius r_0 [kpc] 
     double outerCutoffRadius;   ///< outer cut-off radius r_t [kpc] 
-    SphrParam(double _densityNorm=0, double _axisRatio=1, double _gamma=0, double _beta=0,
-        double _scaleRadius=0, double _outerCutoffRadius=0) :
-        densityNorm(_densityNorm), axisRatio(_axisRatio), gamma(_gamma), beta(_beta),
-        scaleRadius(_scaleRadius), outerCutoffRadius(_outerCutoffRadius) {};
+    SphrParam(double _densityNorm=0, double _axisRatioY=1, double _axisRatioZ=1, 
+        double _gamma=1, double _beta=4, double _scaleRadius=1, double _outerCutoffRadius=0) :
+        densityNorm(_densityNorm), axisRatioY(_axisRatioY), axisRatioZ(_axisRatioZ),
+        gamma(_gamma), beta(_beta), scaleRadius(_scaleRadius), outerCutoffRadius(_outerCutoffRadius) {};
     double mass() const;        ///< return the total mass of a density profile with these parameters
 };
 
@@ -180,7 +181,8 @@ class SpheroidDensity: public BaseDensity{
 public:
     SpheroidDensity (const SphrParam &_params);
     virtual coord::SymmetryType symmetry() const { 
-        return params.axisRatio==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC; }
+        return params.axisRatioY!=1 ? coord::ST_TRIAXIAL :
+            params.axisRatioZ!=1 ? coord::ST_AXISYMMETRIC : coord::ST_SPHERICAL; }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "SpheroidDensity"; };
 private:

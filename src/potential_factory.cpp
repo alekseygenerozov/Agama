@@ -101,7 +101,7 @@ struct ConfigPotential
     std::string fileName;    ///< name of file with coordinates of points, or coefficients of expansion
     /// default constructor initializes the fields to some reasonable values
     ConfigPotential() :
-        potentialType(PT_UNKNOWN), densityType(PT_UNKNOWN), symmetryType(coord::ST_TRIAXIAL),
+        potentialType(PT_UNKNOWN), densityType(PT_UNKNOWN), symmetryType(coord::ST_DEFAULT),
         mass(1.), scaleRadius(1.), scaleRadius2(1.), q(1.), p(1.), gamma(1.), sersicIndex(4.),
         gridSizeR(25), gridSizez(25), rmin(0), rmax(0), zmin(0), zmax(0), lmax(6), mmax(6), smoothing(1.)
     {};
@@ -217,11 +217,11 @@ static const char* getCoefFileExtension(PotentialType pottype)
 }
 } // internal namespace
 
-// return the type of symmetry by its name, or ST_TRIAXIAL if unavailable
+// return the type of symmetry by its name, or ST_DEFAULT if unavailable
 coord::SymmetryType getSymmetryTypeByName(const std::string& SymmetryName)
 {
     if(SymmetryName.empty()) 
-        return coord::ST_TRIAXIAL;  // default value
+        return coord::ST_DEFAULT;
     // compare only the first letter, case-insensitive
     switch(tolower(SymmetryName[0])) {
         case 's': return coord::ST_SPHERICAL;
@@ -232,7 +232,7 @@ coord::SymmetryType getSymmetryTypeByName(const std::string& SymmetryName)
     // otherwise it could be an integer constant representing the numerical value of sym.type
     int sym = utils::convertToInt(SymmetryName);
     if(sym==0 && SymmetryName!="0")  // it wasn't a valid number either
-        sym = coord::ST_TRIAXIAL;    // default value
+        sym = coord::ST_DEFAULT;
     return static_cast<coord::SymmetryType>(sym);
 }
 
@@ -295,11 +295,12 @@ static ConfigPotential parseParams(const utils::KeyValueMap& params, const units
 static DiskParam parseDiskParams(const utils::KeyValueMap& params, const units::ExternalUnits& conv)
 {
     DiskParam config;
-    config.surfaceDensity      = params.getDouble("surfaceDensity") * conv.massUnit / pow_2(conv.lengthUnit);
-    config.scaleRadius         = params.getDouble("scaleRadius") * conv.lengthUnit;
-    config.scaleHeight         = params.getDouble("scaleHeight") * conv.lengthUnit;
-    config.innerCutoffRadius   = params.getDouble("innerCutoffRadius") * conv.lengthUnit;
-    config.modulationAmplitude = params.getDouble("modulationAmplitude");
+    config.surfaceDensity      = params.getDouble("surfaceDensity", config.surfaceDensity)
+                               * conv.massUnit / pow_2(conv.lengthUnit);
+    config.scaleRadius         = params.getDouble("scaleRadius", config.scaleRadius) * conv.lengthUnit;
+    config.scaleHeight         = params.getDouble("scaleHeight", config.scaleHeight) * conv.lengthUnit;
+    config.innerCutoffRadius   = params.getDouble("innerCutoffRadius", config.innerCutoffRadius) * conv.lengthUnit;
+    config.modulationAmplitude = params.getDouble("modulationAmplitude", config.modulationAmplitude);
     // alternative way: specifying the total model mass instead of surface density at R=0
     if(params.contains("mass") && !params.contains("surfaceDensity")) {
         config.surfaceDensity = 1;
@@ -311,12 +312,14 @@ static DiskParam parseDiskParams(const utils::KeyValueMap& params, const units::
 static SphrParam parseSphrParams(const utils::KeyValueMap& params, const units::ExternalUnits& conv)
 {
     SphrParam config;
-    config.densityNorm        = params.getDouble("densityNorm") * conv.massUnit / pow_3(conv.lengthUnit);
-    config.axisRatio          = params.getDoubleAlt("axisRatio", "axisRatioZ", 1.0);
-    config.gamma              = params.getDouble("gamma");
-    config.beta               = params.getDouble("beta");
-    config.scaleRadius        = params.getDouble("scaleRadius") * conv.lengthUnit;
-    config.outerCutoffRadius  = params.getDouble("outerCutoffRadius") * conv.lengthUnit;
+    config.densityNorm        = params.getDouble("densityNorm", config.densityNorm)
+                              * conv.massUnit / pow_3(conv.lengthUnit);
+    config.axisRatioY         = params.getDouble("axisRatioY", config.axisRatioY);
+    config.axisRatioZ         = params.getDouble("axisRatioZ", config.axisRatioZ);
+    config.gamma              = params.getDouble("gamma", config.gamma);
+    config.beta               = params.getDouble("beta", config.beta);
+    config.scaleRadius        = params.getDouble("scaleRadius", config.scaleRadius) * conv.lengthUnit;
+    config.outerCutoffRadius  = params.getDouble("outerCutoffRadius", config.outerCutoffRadius) * conv.lengthUnit;
     // alternative way: specifying the total model mass instead of volume density at r=scaleRadius
     if(params.contains("mass") && !params.contains("densityNorm")) {
         config.densityNorm = 1;
@@ -811,7 +814,7 @@ PtrPotential readGalaxyPotential(const std::string& filename, const units::Exter
     ok=ok && strm;
     for(int i=0; i<num && ok; i++) {
         SphrParam sp;
-        strm>>sp.densityNorm >> sp.axisRatio >> sp.gamma >> sp.beta >>
+        strm>>sp.densityNorm >> sp.axisRatioZ >> sp.gamma >> sp.beta >>
             sp.scaleRadius >> sp.outerCutoffRadius;
         swallowRestofLine(strm);
         sp.densityNorm *= conv.massUnit/pow_3(conv.lengthUnit);

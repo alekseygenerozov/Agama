@@ -767,7 +767,7 @@ static const char* docstringDensity =
 /// extract a pointer to C++ Density class from a Python object,
 /// or return an empty pointer on error.
 /// Declared here, implemented after the PotentialObject definition becomes available.
-static potential::PtrDensity getDensity(PyObject* dens_obj);
+static potential::PtrDensity getDensity(PyObject* dens_obj, coord::SymmetryType sym=coord::ST_TRIAXIAL);
 
 /// attempt to construct a composite density from a tuple of Density objects
 static potential::PtrDensity Density_initFromTuple(PyObject* tuple)
@@ -964,9 +964,10 @@ static PyObject* createDensityObject(const potential::PtrDensity& dens)
 class DensityWrapper: public potential::BaseDensity{
     OmpDisabler ompDisabler;
     PyObject* fnc;
+    coord::SymmetryType sym;
     std::string fncname;
 public:
-    DensityWrapper(PyObject* _fnc): fnc(_fnc)
+    DensityWrapper(PyObject* _fnc, coord::SymmetryType _sym): fnc(_fnc), sym(_sym)
     {
         Py_INCREF(fnc);
         fncname = toString(fnc);
@@ -981,7 +982,7 @@ public:
 #endif
         Py_DECREF(fnc);
     }
-    virtual coord::SymmetryType symmetry() const { return coord::ST_NONE; }
+    virtual coord::SymmetryType symmetry() const { return sym; }
     virtual const char* name() const { return fncname.c_str(); };
     virtual double densityCyl(const coord::PosCyl &pos) const {
         return densityCar(toPosCar(pos)); }
@@ -1158,7 +1159,8 @@ static potential::PtrPotential Potential_initFromDict(PyObject* args)
     // or a string specifying the name of density model
     PyObject* dens_obj = getItemFromPyDict(args, "density");
     if(dens_obj) {
-        potential::PtrDensity dens = getDensity(dens_obj);
+        potential::PtrDensity dens = getDensity(dens_obj,
+            potential::getSymmetryTypeByName(toString(getItemFromPyDict(args, "symmetry"))));
         if(dens) {
             /// attempt to construct a potential expansion from a user-provided density model
             if(params.getString("type").empty())
@@ -1436,7 +1438,7 @@ static potential::PtrPotential getPotential(PyObject* pot_obj)
 }
 
 /// extract a pointer to C++ Density class from a Python object
-static potential::PtrDensity getDensity(PyObject* dens_obj)
+static potential::PtrDensity getDensity(PyObject* dens_obj, coord::SymmetryType sym)
 {
     if(dens_obj == NULL)
         return potential::PtrDensity();
@@ -1454,7 +1456,7 @@ static potential::PtrDensity getDensity(PyObject* dens_obj)
     if(PyCallable_Check(dens_obj))
     {   // then create a C++ wrapper for this Python function
         // (don't check if it accepts 3 numbers as the arguments...)
-        return potential::PtrDensity(new DensityWrapper(dens_obj));
+        return potential::PtrDensity(new DensityWrapper(dens_obj, sym));
     }
 
     // none of the above succeeded -- return an empty pointer

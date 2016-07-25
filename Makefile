@@ -80,7 +80,7 @@ TESTSRCS  = test_math_core.cpp \
             test_units.cpp \
             test_orbit_integr.cpp \
             test_potentials.cpp \
-            test_potential_expansion.cpp \
+            test_potential_expansions.cpp \
             test_isochrone.cpp \
             test_staeckel.cpp \
             test_actionfinder.cpp \
