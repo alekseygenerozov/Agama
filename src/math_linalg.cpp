@@ -11,10 +11,12 @@
 #include <Eigen/LU>
 #include <Eigen/SparseLU>
 #include <Eigen/Cholesky>
-#if EIGEN_VERSION_AT_LEAST(3,2,92)
 #include <Eigen/SVD>
+#if EIGEN_VERSION_AT_LEAST(3,3,0)
+typedef Eigen::BDCSVD<math::Matrix<double>::Type> SVDecompImpl;
 #else
-#include <unsupported/Eigen/SVD>
+//#include <unsupported/Eigen/SVD>
+typedef Eigen::JacobiSVD<math::Matrix<double>::Type> SVDecompImpl;
 #endif
 
 #else
@@ -428,8 +430,6 @@ std::vector<double> CholeskyDecomp::solve(const std::vector<double>& rhs) const 
 }
 
 /// Singular-value decomposition for dense matrices
-
-typedef Eigen::BDCSVD<Matrix<double>::Type> SVDecompImpl;
 
 SVDecomp::SVDecomp(const Matrix<double>& M) :
     impl(new SVDecompImpl(M.impl, Eigen::ComputeThinU | Eigen::ComputeThinV)) {}

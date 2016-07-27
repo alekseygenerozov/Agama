@@ -6,7 +6,7 @@ import numpy
 import time
 
 #1. set units (in Msun, Kpc, km/s)
-agama.set_units(mass=1e10, length=1, velocity=1)
+agama.setUnits(mass=1e10, length=1, velocity=1)
 
 #2. get in N-body snapshots
 tbegin     = time.clock()
@@ -28,15 +28,15 @@ print (time.clock()-tbegin),"s to load",len(diskMass),"disk particles and",len(h
 
 #3. create an axisymmetric potential from these snapshots
 tbegin     = time.clock()
-haloPot    = agama.Potential(type="SplineExp", points=(haloPos,haloMass),
-             symmetry='a', numCoefsRadial=20, numCoefsAngular=2)
+haloPot    = agama.Potential(type="Multipole", particles=(haloPos, haloMass),
+             symmetry='a', gridsizeR=20, lmax=2)
 ##haloPot    = agama.Potential(file="halo.coef_spl")  # could load previously stored coefs instead of computing them
 print (time.clock()-tbegin),"s to init",haloPot.name(),"potential for the halo; ", \
     "value at origin=",haloPot(0,0,0),"(km/s)^2"
 
 tbegin     = time.clock()
-diskPot    = agama.Potential(type="CylSplineExp", points=(diskPos,diskMass),
-             numcoefsradial=20, numcoefsvertical=20, numcoefsangular=0)
+diskPot    = agama.Potential(type="CylSpline", particles=(diskPos, diskMass),
+             gridsizer=20, gridsizez=20, mmax=0)
 ##diskPot    = agama.Potential(file="disk.coef_cyl")
 print (time.clock()-tbegin),"s to init",diskPot.name(),"potential for the disk; ", \
     "value at origin=",diskPot(0,0,0),"(km/s)^2"

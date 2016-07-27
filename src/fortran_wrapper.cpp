@@ -116,7 +116,7 @@ extern "C" void agama_initfromfile_(void* c_obj, char* inifilename, int, int len
 /// Routine that should be called from FORTRAN to construct a potential specified by
 /// the parameters in a single string.
 /// INPUT:  params - a string with parameters of the potential expansion
-/// (e.g., "type=Dehnen q=0.8 p=0.5 mass=10 scaleRadius=5").
+/// (e.g., "type=Dehnen p=0.8 q=0.5 mass=10 scaleRadius=5").
 /// OUTPUT: c_obj - the placeholder for storing the pointer to the C++ potential object.
 extern "C" void agama_initfromparam_(void* c_obj, char* params, int, int len)
 {

@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# this demo script shows how to use C++ library in galpy:
+# this demo script shows how to use Agama library in galpy:
 # creating a galpy-compatible potential, integrating an orbit and using the action finder
 
 import galpy
@@ -18,19 +18,19 @@ g_disk  = MiyamotoNagaiPotential(a=3./8, b=0.28/8, amp=0.755)
 g_halo  = NFWPotential(a=2., amp=4.85)
 g_pot   = [g_bulge,g_disk,g_halo]   # same as MWPotential2014
 
-###2. set up equivalent potential from the C++ library
-agama.set_units( mass=1., length=8., velocity=345.67)
-p_bulge = {"type":"TwoPowerLawSpheroid", "densityNorm":6.669e9,
+###2. set up equivalent potential from the Agama library
+agama.setUnits( mass=1., length=8., velocity=345.67)
+p_bulge = {"type":"SpheroidDensity", "densityNorm":6.669e9,
     "gamma":1.8, "beta":1.8, "scaleRadius":1, "outerCutoffRadius":1.9/8};
 p_disk  = {"type":"MiyamotoNagai", "mass":1.678e11, "scaleradius":3./8, "scaleheight":0.28/8};
-p_halo  = {"type":"TwoPowerLawSpheroid", "densityNorm":1.072e10,
+p_halo  = {"type":"SpheroidDensity", "densityNorm":1.072e10,
     "gamma":1.0, "beta":3.0, "scaleRadius":2.};
-### one can create the genuine instance of C++ potential as follows:
-#c_pot   = agama.Potential("MWPotential2014.ini")   # read parameters from ini file
+### one can create the genuine instance of Agama potential as follows:
+#c_pot   = agama.Potential("../data/MWPotential2014.ini")   # read parameters from ini file
 #c_pot   = agama.Potential(p_bulge, p_disk, p_halo) # or create potential from a list of parameters
 ### or one can instead create a galpy-compatible potential as follows:
 w_pot   = galpy_agama.CPotential(p_bulge, p_disk, p_halo)  # same as above, two variants
-### ...and then use _pot member variable to access the instance of raw C++ potential
+### ...and then use _pot member variable to access the instance of raw Agama potential
 dt = time.time()
 c_actfinder = agama.ActionFinder(w_pot._pot)
 print 'Time to set up action finder: %s s' % (time.time()-dt)
@@ -66,7 +66,7 @@ def compare(ic, inttime, numsteps):
 
     dt = time.time()
     c_orb_car = agama.orbit(ic=[ic[0],0,ic[1],ic[3],ic[5],ic[4]], pot=w_pot._pot, time=inttime, step=inttime/numsteps)
-    print 'Time to integrate orbit in C++: %s s' % (time.time()-dt)
+    print 'Time to integrate orbit in Agama: %s s' % (time.time()-dt)
     times_c = numpy.linspace(0,inttime,len(c_orb_car[:,0]))
     ### make it compatible with galpy's convention (native output is in cartesian coordinates)
     c_orb = c_orb_car*1.0
@@ -82,7 +82,7 @@ def compare(ic, inttime, numsteps):
     plt.axes([0.05, 0.55, 0.45, 0.45])
     plotCoords(delta, 1.5)
     plt.plot(g_orb[:,0],g_orb[:,3], 'b', label='galpy')  # R,z
-    plt.plot(c_orb[:,0],c_orb[:,3], 'g', label='C++lib')  # R,z
+    plt.plot(c_orb[:,0],c_orb[:,3], 'g', label='Agama')  # R,z
     plt.xlabel("R/8kpc")
     plt.ylabel("z/8kpc")
     plt.xlim(0, 1.2)
@@ -100,7 +100,7 @@ def compare(ic, inttime, numsteps):
 
     ### create galpy action/angle finder for the given value of Delta
     ### note: using c=False in the routine below is much slower but apparently more accurate,
-    ### comparable to the C++ library for the same value of delta
+    ### comparable to the Agama for the same value of delta
     g_actfinder = galpy.actionAngle.actionAngleStaeckel(pot=g_pot, delta=delta, c=True)
 
     ### find the actions for each point of the orbit
@@ -108,21 +108,21 @@ def compare(ic, inttime, numsteps):
     g_act = g_actfinder(g_orb[:,0],g_orb[:,1],g_orb[:,2],g_orb[:,3],g_orb[:,4],fixed_quad=True)
     print 'Time to compute actions in galpy: %s s' % (time.time()-dt)
 
-    ### use the C++ library's action routine for the same value of Delta as in galpy
+    ### use the Agama action routine for the same value of Delta as in galpy
     dt = time.time()
     c_act = agama.actions(point=c_orb_car, pot=w_pot._pot, ifd=delta)   # explicitly specify interfocal distance
-    print 'Time to compute actions in C++: %s s' % (time.time()-dt)
+    print 'Time to compute actions in Agama: %s s' % (time.time()-dt)
 
-    ### use the C++ action finder (initialized at the beginning) that automatically determines the best value of Delta
+    ### use the Agama action finder (initialized at the beginning) that automatically determines the best value of Delta
     dt = time.time()
     a_act = c_actfinder(c_orb_car)   # use the interfocal distance estimated by action finder
-    print 'Time to compute actions in C++: %s s' % (time.time()-dt)
+    print 'Time to compute actions in Agama: %s s' % (time.time()-dt)
 
     ### plot Jr vs Jz
     plt.axes([0.05, 0.05, 0.45, 0.45])
     plt.plot(g_act[0],g_act[2], label='galpy')
-    plt.plot(c_act[:,0],c_act[:,1], label=r'C++,$\Delta='+str(delta)+'$')
-    plt.plot(a_act[:,0],a_act[:,1], label=r'C++,$\Delta=$auto')
+    plt.plot(c_act[:,0],c_act[:,1], label=r'Agama,$\Delta='+str(delta)+'$')
+    plt.plot(a_act[:,0],a_act[:,1], label=r'Agama,$\Delta=$auto')
     plt.xlabel("$J_r$")
     plt.ylabel("$J_z$")
     plt.legend()
@@ -131,9 +131,9 @@ def compare(ic, inttime, numsteps):
     plt.axes([0.55, 0.05, 0.45, 0.45])
     plt.plot(times, g_act[0], label='galpy', c='b')
     plt.plot(times, g_act[2], c='b')
-    plt.plot(times_c, c_act[:,0], label='C++,$\Delta='+str(delta)+'$', c='g')
+    plt.plot(times_c, c_act[:,0], label='Agama,$\Delta='+str(delta)+'$', c='g')
     plt.plot(times_c, c_act[:,1], c='g')
-    plt.plot(times_c, a_act[:,0], label='C++,$\Delta=$auto', c='r')
+    plt.plot(times_c, a_act[:,0], label='Agama,$\Delta=$auto', c='r')
     plt.plot(times_c, a_act[:,1], c='r')
     plt.text(0, c_act[0,0], '$J_r$', fontsize=16)
     plt.text(0, c_act[0,1], '$J_z$', fontsize=16)

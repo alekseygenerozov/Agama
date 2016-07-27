@@ -88,9 +88,9 @@ namespace potential{
     Alternatively, one may provide two arbitrary 1d functions to be used in the separable profile.
 */
 struct DiskParam{
-    double surfaceDensity;      ///< surface density normalisation Sigma_0 [Msun/kpc^2]
-    double scaleRadius;         ///< scale length R_d [kpc]
-    double scaleHeight;         ///< scale height h [kpc]: 
+    double surfaceDensity;      ///< surface density normalisation Sigma_0
+    double scaleRadius;         ///< scale length R_d
+    double scaleHeight;         ///< scale height h: 
     ///< For h<0 an isothermal (sech^2) profile is used, for h>0 an exponential one, 
     ///< and for h=0 the disk is infinitesimal thin
     double innerCutoffRadius;   ///< if nonzero, specifies the radius of a hole at the center R_0
@@ -155,28 +155,31 @@ private:
 /// \name  Spheroical density profile
 ///@{
 
-/// parameters describing a spheroidal component
+/** Parameters describing a spheroidal component with a Zhao(1996) alpha-beta-gamma
+    density profile and an optional exponential cutoff:
+    \f$  \rho(R,z) = \rho_0  (r/r_0)^{-\gamma} ( 1 + (r/r_0)^\alpha )^{(\gamma-\beta) / \alpha}
+    \exp[ -(r/r_{cut})^2],
+    r = \sqrt{ x^2 + y^2/p^2 + z^2/q^2 }  \f$.
+*/
 struct SphrParam{
-    double densityNorm;         ///< density normalization rho_0 [Msun/kpc^3] 
+    double densityNorm;         ///< density normalization rho_0
     double axisRatioY;          ///< axis ratio p (y/R)
     double axisRatioZ;          ///< axis ratio q (z/R)
-    double gamma;               ///< inner power slope gamma 
-    double beta;                ///< outer power slope beta 
-    double scaleRadius;         ///< transition radius r_0 [kpc] 
-    double outerCutoffRadius;   ///< outer cut-off radius r_t [kpc] 
-    SphrParam(double _densityNorm=0, double _axisRatioY=1, double _axisRatioZ=1, 
-        double _gamma=1, double _beta=4, double _scaleRadius=1, double _outerCutoffRadius=0) :
+    double alpha;               ///< steepness of transition alpha
+    double beta;                ///< outer power slope beta
+    double gamma;               ///< inner power slope gamma
+    double scaleRadius;         ///< transition radius r_0
+    double outerCutoffRadius;   ///< outer cut-off radius r_{cut}
+    SphrParam(double _densityNorm=0, double _axisRatioY=1, double _axisRatioZ=1,
+        double _alpha=1, double _beta=4, double _gamma=1,
+        double _scaleRadius=1, double _outerCutoffRadius=0) :
         densityNorm(_densityNorm), axisRatioY(_axisRatioY), axisRatioZ(_axisRatioZ),
-        gamma(_gamma), beta(_beta), scaleRadius(_scaleRadius), outerCutoffRadius(_outerCutoffRadius) {};
+        alpha(_alpha), beta(_beta), gamma(_gamma),
+        scaleRadius(_scaleRadius), outerCutoffRadius(_outerCutoffRadius) {};
     double mass() const;        ///< return the total mass of a density profile with these parameters
 };
 
-/** Two-power-law spheroidal density profile with optional cutoff and flattening 
-    along the minor axis.
-    The density is given by
-    \f$  \rho(R,z) = \rho_0  (r/r_0)^{-\gamma} (1+r/r_0)^{\gamma-\beta} \exp[ -(r/r_{cut})^2],
-    r = \sqrt{ R^2 + z^2/q^2 }  \f$.
-*/
+/** Density profile of a double-power-law model described by SphrParam */
 class SpheroidDensity: public BaseDensity{
 public:
     SpheroidDensity (const SphrParam &_params);

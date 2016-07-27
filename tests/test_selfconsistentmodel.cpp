@@ -78,22 +78,20 @@ void writeRotationCurve(const std::string& fileName, const PtrPotential& potenti
 void writeNbodyDensity(const std::string& fileName, const potential::BaseDensity& dens)
 {
     std::cout << "Writing N-body sampled density profile to " << fileName << '\n';
-    particles::PointMassArray<coord::PosCyl> points;
-    galaxymodel::generateDensitySamples(dens, 1e5, points);
+    particles::PointMassArray<coord::PosCyl> points = galaxymodel::generateDensitySamples(dens, 1e5);
     // assign the units for exporting the N-body snapshot so that G=1 again,
     // and mass & velocity scale is reasonable
     units::ExternalUnits extUnits(intUnits, 1.*units::Kpc, 977.8*units::kms, 2.223e+11*units::Msun);
-    writeSnapshot(fileName+".nemo", extUnits, points, "Nemo");
+    writeSnapshot(fileName+".nemo", points, "Nemo", extUnits);
 }
 
 /// generate an N-body representation of the entire model specified by its DF, and write to a file
 void writeNbodyModel(const std::string& fileName, const galaxymodel::GalaxyModel& model)
 {
     std::cout << "Writing a complete DF-based N-body model to " << fileName << '\n';
-    particles::PointMassArrayCar points;
-    galaxymodel::generatePosVelSamples(model, 1e5, points);
+    particles::PointMassArrayCar points = galaxymodel::generatePosVelSamples(model, 1e5);
     units::ExternalUnits extUnits(intUnits, 1.*units::Kpc, 977.8*units::kms, 2.223e+11*units::Msun);
-    writeSnapshot(fileName+".nemo", extUnits, points, "Nemo");
+    writeSnapshot(fileName+".nemo", points, "Nemo", extUnits);
 }
 
 /// print profiles of surface density to a file

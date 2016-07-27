@@ -32,7 +32,7 @@ for($i=0; $i<$NS; $i++) {
         print FO "[Potential$ind]\n".
         "type = SpheroidDensity\n".
         "densityNorm = $1\n".
-        "axisRatio = $2\n".
+        "axisRatioZ = $2\n".
         "gamma = $3\n".
         "beta = $4\n".
         "scaleRadius = $5\n".

@@ -52,17 +52,20 @@ struct PointMassArray {
 
     ///  default empty constructor
     PointMassArray() {};
-    
+
     /** a seamless conversion constructor from another point mass set 
         with a possibly different template argument.
-        \tparam OtherParticleT is a particle type of the source PointMassArray */
-    template<typename OtherParticleT> PointMassArray(const PointMassArray<OtherParticleT> &src) {
+        \tparam OtherParticleT is a particle type of the source PointMassArray.
+        Update: this constructor is declared 'explicit', disabling compiler-generated
+        conversion without specifying it manually.
+    */
+    template<typename OtherParticleT> explicit PointMassArray(const PointMassArray<OtherParticleT> &src) {
         data.reserve(src.size());
         Converter<OtherParticleT, ParticleT> conv;  // this is the mighty thing
         for(unsigned int i=0; i<src.size(); i++)
             data.push_back(ElemType(conv(src[i].first), src[i].second));
     }
-    
+
     /// return the array size
     inline unsigned int size() const {
         return data.size(); }

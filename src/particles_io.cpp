@@ -8,12 +8,12 @@
 
 namespace particles {
 
-void IOSnapshotText::readSnapshot(PointMassArrayCar& points)
+PointMassArrayCar IOSnapshotText::readSnapshot() const
 {
     std::ifstream strm(fileName.c_str(), std::ios::in);
     if(!strm) 
         throw std::runtime_error("IOSnapshotText: cannot read from file "+fileName);
-    points.data.clear();
+    PointMassArrayCar points;
     std::string buffer;
     std::vector<std::string> fields;
     while(std::getline(strm, buffer) && !strm.eof())
@@ -33,9 +33,10 @@ void IOSnapshotText::readSnapshot(PointMassArrayCar& points)
                 utils::convertToDouble(fields[6]) * conv.massUnit);
         }
     }
+    return points;
 };
 
-void IOSnapshotText::writeSnapshot(const PointMassArrayCar& points)
+void IOSnapshotText::writeSnapshot(const PointMassArrayCar& points) const
 {
     std::ofstream strm(fileName.c_str(), std::ios::out);
     if(!strm) 
@@ -58,9 +59,10 @@ void IOSnapshotText::writeSnapshot(const PointMassArrayCar& points)
 }
 
 #ifdef HAVE_UNSIO
+namespace{  // internal
 
-static void readSnapshotUNSIO(const std::string& fileName, 
-    const units::ExternalUnits& conv, PointMassArrayCar& points) 
+static PointMassArrayCar readSnapshotUNSIO(const std::string& fileName, 
+    const units::ExternalUnits& conv) 
 { 
     uns::CunsIn input(fileName, "all", "all");
     if(input.isValid() && input.snapshot->nextFrame("xvm")) {
@@ -76,8 +78,8 @@ static void readSnapshotUNSIO(const std::string& fileName,
         if(nbodyp==0) pos=NULL;
         if(nbodyv==0) vel=NULL;
         if(nbodym==0) mass=NULL;
+        PointMassArrayCar points;
         if(nbodyp>0) {
-            points.data.clear();
             points.data.reserve(nbodyp);
             for(int i=0; i<nbodyp; i++)
                 points.add(coord::PosVelCar(
@@ -89,12 +91,13 @@ static void readSnapshotUNSIO(const std::string& fileName,
                     vel ? vel[i*3+2] * conv.velocityUnit : 0),
                     mass? mass[i] * conv.massUnit : 0 );
         }
+        return points;
     } else
         throw std::runtime_error("IOSnapshotUNSIO: cannot read from file "+fileName);
 };
 
-static void writeSnapshotUNSIO(const std::string& fileName, const std::string& type,
-    const units::ExternalUnits& conv, const PointMassArrayCar& points)
+static void writeSnapshotUNSIO(const std::string& fileName,
+    const units::ExternalUnits& conv, const PointMassArrayCar& points, const std::string& type)
 {
     uns::CunsOut output(fileName, type);
     bool result = 1 || output.isValid();  // this flag is apparently not initialized properly
@@ -119,27 +122,29 @@ static void writeSnapshotUNSIO(const std::string& fileName, const std::string& t
     if(!result) 
         throw std::runtime_error("IOSnapshotUNSIO: cannot write to file "+fileName);
 };
+}  // internal ns
 
-void IOSnapshotGadget::readSnapshot(PointMassArrayCar& points) {
-    readSnapshotUNSIO(fileName, conv, points);
+PointMassArrayCar IOSnapshotGadget::readSnapshot() const {
+    return readSnapshotUNSIO(fileName, conv);
 }
 
-void IOSnapshotGadget::writeSnapshot(const PointMassArrayCar& points) {
-    writeSnapshotUNSIO(fileName, "gadget2", conv, points);
+void IOSnapshotGadget::writeSnapshot(const PointMassArrayCar& points) const {
+    writeSnapshotUNSIO(fileName, conv, points, "gadget2");
 }
 
-void IOSnapshotNemo::readSnapshot(PointMassArrayCar& points) {
-    readSnapshotUNSIO(fileName, conv, points);
+PointMassArrayCar IOSnapshotNemo::readSnapshot() const {
+    return readSnapshotUNSIO(fileName, conv);
 }
 
 #else
 // no UNSIO
-void IOSnapshotNemo::readSnapshot(PointMassArrayCar&)
+PointMassArrayCar IOSnapshotNemo::readSnapshot() const
 {
     throw std::runtime_error("Error, compiled without support for reading NEMO snapshots");
 };
 #endif
 
+namespace {   // internal
 /// helper class that writes NEMO-compatible snapshot file
 class CNemoSnapshotWriter
 {
@@ -256,8 +261,9 @@ template<> char CNemoSnapshotWriter::typeLetter<int>()   { return 'i'; };
 template<> char CNemoSnapshotWriter::typeLetter<float>() { return 'f'; };
 template<> char CNemoSnapshotWriter::typeLetter<double>(){ return 'd'; };
 template<> char CNemoSnapshotWriter::typeLetter<char>()  { return 'c'; };
+}  // end internal namespace
 
-void IOSnapshotNemo::writeSnapshot(const PointMassArrayCar& points)
+void IOSnapshotNemo::writeSnapshot(const PointMassArrayCar& points) const
 {
     CNemoSnapshotWriter SnapshotWriter(fileName, append);
     bool result = SnapshotWriter.ok();
@@ -304,7 +310,7 @@ PtrIOSnapshot createIOSnapshotRead (const std::string &fileName,
 // creates an instance of snapshot writer for a given format name, 
 // or throw an exception if the format name string is incorrect
 PtrIOSnapshot createIOSnapshotWrite(const std::string &fileName, 
-    const units::ExternalUnits& unitConverter, const std::string &fileFormat,
+    const std::string &fileFormat, const units::ExternalUnits& unitConverter,
     const std::string& header, const double time, const bool append)
 {
     if(fileFormat.empty() || fileName.empty())

@@ -738,9 +738,9 @@ static void Density_dealloc(DensityObject* self)
     "  scaleHeight=...   scale height of the model (currently applicable to " \
     "Dehnen, MiyamotoNagai and DiskAnsatz).\n" \
     "  axisRatio=...   axis ratio z/R for SpheroidDensity density profiles.\n" \
-    "  q=...   axis ratio y/x, i.e., intermediate to long axis (applicable to triaxial " \
+    "  p=...   axis ratio y/x, i.e., intermediate to long axis (applicable to triaxial " \
     "potential models such as Dehnen and Ferrers).\n" \
-    "  p=...   axis ratio z/x, i.e., short to long axis (if applicable, same as axisRatio).\n" \
+    "  q=...   axis ratio z/x, i.e., short to long axis (if applicable, same as axisRatio).\n" \
     "  gamma=...   central cusp slope (applicable for Dehnen and SpheroidDensity).\n" \
     "  beta=...   outer density slope (SpheroidDensity).\n" \
     "  innerCutoffRadius=...   radius of inner hole (DiskAnsatz).\n" \
@@ -749,7 +749,7 @@ static void Density_dealloc(DensityObject* self)
     "for DiskAnsatz.\n" \
     "  densityNorm=...   normalization of density profile for SpheroidDensity (the value " \
     "at scaleRadius).\n"
-    
+
 /// description of Density class
 static const char* docstringDensity =
     "Density is a class representing a variety of density profiles "
@@ -864,13 +864,14 @@ static PyObject* sampleDensity(const potential::BaseDensity& dens, PyObject* arg
     int numPoints=0;
     if(!PyArg_ParseTuple(args, "i", &numPoints) || numPoints<=0)
     {
-        PyErr_SetString(PyExc_ValueError, "sample() takes one integer argument - the number of points");
+        PyErr_SetString(PyExc_ValueError,
+            "sample() takes one integer argument - the number of particles");
         return NULL;
     }
     try{
         // do the sampling
-        particles::PointMassArray<coord::PosCyl> points;
-        galaxymodel::generateDensitySamples(dens, 1e5, points);
+        particles::PointMassArray<coord::PosCyl> points =
+            galaxymodel::generateDensitySamples(dens, numPoints);
 
         // convert output to NumPy array
         numPoints = points.size();
@@ -910,7 +911,7 @@ static PyMethodDef Density_methods[] = {
       "Returns: none" },
     { "sample", Density_sample, METH_VARARGS, 
       "Sample the density profile with N point masses\n"
-      "Arguments: the number of points\n"
+      "Arguments: the number of particles\n"
       "Returns: a tuple of two arrays: "
       "2d Nx3 array of point cartesian coordinates and 1d array of N point masses" },
     { "totalMass", (PyCFunction)Density_totalMass, METH_NOARGS,
@@ -1036,9 +1037,8 @@ static const char* docstringPotential =
     "  - from a tuple of dictionary objects that contain the same list of possible "
     "key/value pairs for each component of a composite potential;\n"
     "  - from an INI file with these parameters for one or several components;\n"
-    "  - from a tuple of existing Potential objects created previously: "
-    "in this case a composite potential is created from these components, "
-    "but the original objects cannot be used anymore.\n"
+    "  - from a tuple of existing Potential objects created previously "
+    "(in this case a composite potential is created from these components).\n"
     "Note that all keywords and their values are not case-sensitive.\n\n"
     "List of possible keywords for a single component:\n"
     "  type='...'   the type of potential, can be one of the following 'basic' types:\n"
@@ -1046,7 +1046,7 @@ static const char* docstringPotential =
     "OblatePerfectEllipsoid, DiskDensity, SpheroidDensity;\n"
     "    or one of the expansion types:  Multipole or CylSpline - "
     "in these cases, one should provide either a density model, file name, "
-    "or an array of points.\n"
+    "or an array of particles.\n"
     DOCSTRING_DENSITY_PARAMS
     "Parameters for potential expansions:\n"
     "  density=...   the density model for a potential expansion.\n  It may be a string "
@@ -1059,7 +1059,7 @@ static const char* docstringPotential =
     "  file='...'   the name of a file with potential coefficients for a potential "
     "expansion (an alternative to density='...'), or with an N-body snapshot that "
     "will be used to compute the coefficients.\n"
-    "  points=(coords, mass)   array of point masses to be used in construction "
+    "  particles=(coords, mass)   array of point masses to be used in construction "
     "of a potential expansion (an alternative to density='...' or file='...' options): "
     "should be a tuple with two arrays - coordinates and mass, where the first one is "
     "a two-dimensional Nx3 array and the second one is a one-dimensional array of length N.\n"
@@ -1077,19 +1077,22 @@ static const char* docstringPotential =
     "coefficient) in Multipole.\n"
     "  mmax=...   order of azimuthal-harmonic expansion (max.index of Fourier coefficient in "
     "phi angle) in Multipole and CylSpline.\n"
-    "  smoothing=...   amount of smoothing in Multipole initialized from an N-body snapshot.\n"
-    "\nMost of these parameters have reasonable default values; the only necessary ones are "
-    "`type`, and for a potential expansion, `density` or `file` or `points`.\n\n"
+    "  smoothing=...   amount of smoothing in Multipole initialized from an N-body snapshot.\n\n"
+    "Most of these parameters have reasonable default values; the only necessary ones are "
+    "`type`, and for a potential expansion, `density` or `file` or `particles`.\n"
+    "If the coefficiens of a potential expansion are loaded from a file, then the `type` argument "
+    "is not required (it will be inferred from the first line of the file).\n"
     "Examples:\n\n"
-    ">>> pot_halo = Potential(type='Dehnen', mass=1e12, gamma=1, scaleRadius=100, q=0.8, p=0.6)\n"
+    ">>> pot_halo = Potential(type='Dehnen', mass=1e12, gamma=1, scaleRadius=100, p=0.8, q=0.6)\n"
     ">>> pot_disk = Potential(type='MiyamotoNagai', mass=5e10, scaleRadius=5, scaleHeight=0.5)\n"
     ">>> pot_composite = Potential(pot_halo, pot_disk)\n"
     ">>> pot_from_ini  = Potential('my_potential.ini')\n"
     ">>> pot_from_coef = Potential(file='stored_coefs')\n"
+    ">>> pot_from_particles = Potential(type='Multipole', particles=(coords, masses))\n"
     ">>> pot_user = Potential(type='Multipole', density=lambda x,y,z: (x**2+y**2+z**2+1)**-2)\n"
     ">>> disk_par = dict(type='DiskDensity', surfaceDensity=1e9, scaleRadius=3, scaleHeight=0.4)\n"
     ">>> halo_par = dict(type='SpheroidDensity', densityNorm=2e7, scaleRadius=15, gamma=1, beta=3, "
-    "outerCutoffRadius=150, axisRatio=0.8)\n"
+    "outerCutoffRadius=150, axisRatioZ=0.8)\n"
     ">>> pot_exp = Potential(type='Multipole', density=Density(**halo_par), "
     "gridSizeR=20, Rmin=1, Rmax=500, lmax=4)\n"
     ">>> pot_galpot = Potential(disk_par, halo_par)\n\n"
@@ -1107,10 +1110,14 @@ static potential::PtrPotential Potential_initFromParticles(
     const utils::KeyValueMap& params, PyObject* points)
 {
     if(params.contains("file"))
-        throw std::invalid_argument("Cannot provide both 'points' and 'file' arguments");
+        throw std::invalid_argument("Cannot provide both 'particles' and 'file' arguments");
+    if(params.contains("density"))
+        throw std::invalid_argument("Cannot provide both 'particles' and 'density' arguments");
+    if(!params.contains("type"))
+        throw std::invalid_argument("Must provide 'type=\"...\"' argument");
     PyObject *pointCoordObj, *pointMassObj;
     if(!PyArg_ParseTuple(points, "OO", &pointCoordObj, &pointMassObj)) {
-        throw std::invalid_argument("'points' must be a tuple with two arrays - "
+        throw std::invalid_argument("'particles' must be a tuple with two arrays - "
             "coordinates and mass, where the first one is a two-dimensional Nx3 array "
             "and the second one is a one-dimensional array of length N");
     }
@@ -1121,7 +1128,7 @@ static potential::PtrPotential Potential_initFromParticles(
     if(pointCoordArr == NULL || pointMassArr == NULL) {
         Py_XDECREF(pointCoordArr);
         Py_XDECREF(pointMassArr);
-        throw std::invalid_argument("'points' does not contain valid arrays");
+        throw std::invalid_argument("'particles' does not contain valid arrays");
     }
     int numpt = 0;
     if(PyArray_NDIM(pointMassArr) == 1)
@@ -1131,7 +1138,7 @@ static potential::PtrPotential Potential_initFromParticles(
     {
         Py_DECREF(pointCoordArr);
         Py_DECREF(pointMassArr);
-        throw std::invalid_argument("'points' does not contain valid arrays "
+        throw std::invalid_argument("'particles' does not contain valid arrays "
             "(the first one must be 2d array of shape Nx3 and the second one must be 1d array of length N)");
     }
     particles::PointMassArray<coord::PosCar> pointArray;
@@ -1150,15 +1157,17 @@ static potential::PtrPotential Potential_initFromDict(PyObject* args)
 {
     utils::KeyValueMap params = convertPyDictToKeyValueMap(args);
     // check if the list of arguments contains points
-    PyObject* points = getItemFromPyDict(args, "points");
+    PyObject* points = getItemFromPyDict(args, "particles");
     if(points) {
-        params.unset("points");
+        params.unset("particles");
         return Potential_initFromParticles(params, points);
     }
     // check if the list of arguments contains a density object
     // or a string specifying the name of density model
     PyObject* dens_obj = getItemFromPyDict(args, "density");
     if(dens_obj) {
+        if(params.contains("file"))
+            throw std::invalid_argument("Cannot provide both 'file' and 'density' arguments");
         potential::PtrDensity dens = getDensity(dens_obj,
             potential::getSymmetryTypeByName(toString(getItemFromPyDict(args, "symmetry"))));
         if(dens) {
@@ -2034,8 +2043,7 @@ static PyObject* GalaxyModel_sample_posvel(GalaxyModelObject* self, PyObject* ar
     try{
         // do the sampling
         galaxymodel::GalaxyModel galmod(*self->pot_obj->pot, *self->af_obj->af, *self->df_obj->df);
-        particles::PointMassArrayCar points;
-        galaxymodel::generatePosVelSamples(galmod, numPoints, points);
+        particles::PointMassArrayCar points = galaxymodel::generatePosVelSamples(galmod, numPoints);
 
         // convert output to NumPy array
         numPoints = points.size();
@@ -2270,9 +2278,9 @@ static PyMemberDef GalaxyModel_members[] = {
 
 static PyMethodDef GalaxyModel_methods[] = {
     { "sample", (PyCFunction)GalaxyModel_sample_posvel, METH_VARARGS,
-      "Sample distribution function in the given potential by N points\n"
+      "Sample distribution function in the given potential by N particles\n"
       "Arguments:\n"
-      "  Number of points to sample.\n"
+      "  Number of particles to sample.\n"
       "Returns:\n"
       "  A tuple of two arrays: position/velocity (2d array of size Nx6) and mass (1d array of length N)." },
     { "moments", (PyCFunction)GalaxyModel_moments, METH_VARARGS | METH_KEYWORDS,

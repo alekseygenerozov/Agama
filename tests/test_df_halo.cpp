@@ -166,9 +166,7 @@ int main(){
     }
 
     // create an N-body model by sampling from DF
-    particles::PointMassArrayCar points;
-    galaxymodel::generatePosVelSamples(galmodH, 1e5, points);
-    particles::writeSnapshot("sampled_model.nemo", units::ExternalUnits(), points, "Nemo");
+    writeSnapshot("sampled_model.txt", generatePosVelSamples(galmodH, 1e5), "Text");
 
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";

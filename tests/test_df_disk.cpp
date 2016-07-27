@@ -95,10 +95,10 @@ int main(){
 #pragma omp parallel for schedule(dynamic)
     for(int i=0; i<np; i++) {
         double R = points[i].R;
-        double densExact  = pot->density(points[i]);           // analytical value of density
+        double densExact  = pot->density(points[i]);      // analytical value of density
         double velThin    = vcircExpDisk(mass, Rdisk, R); // circular speed for razor-thin disk
-        double velExact   = v_circ(*pot, R);                   // circular speed for the actual disk
-        double sigmaExact = sigmaz0 * exp(-0.5*R/Rdisk);       // vertical velocity dispersion
+        double velExact   = v_circ(*pot, R);              // circular speed for the actual disk
+        double sigmaExact = sigmaz0 * exp(-0.5*R/Rdisk);  // vertical velocity dispersion
         getDFmoments(galmod, i, densExact, velThin, velExact, pow_2(sigmaExact));
     }
     delete pot;
@@ -114,13 +114,10 @@ int main(){
 
 #if 1
     // test sampling of DF in 3d action space
-    particles::PointMassArrayCar points_car;
-    //galaxymodel::generateActionSamples(galmod, 1e5, points_car);
-    //particles::writeSnapshot("sampled_actions.txt", units::ExternalUnits(), points_car);
+    //writeSnapshot("sampled_actions.txt" generateActionSamples(galmod, 1e5));
 
     // test sampling of DF in 6d phase space
-    galaxymodel::generatePosVelSamples(galmod, 1e5, points_car);
-    particles::writeSnapshot("sampled_posvel.txt", units::ExternalUnits(), points_car);
+    writeSnapshot("sampled_posvel.txt", generatePosVelSamples(galmod, 1e5));
 
     std::vector<actions::Actions> actsamples;
     double val, err;
@@ -131,9 +128,7 @@ int main(){
         strm1<<actsamples[i].Jr<<"\t"<<actsamples[i].Jz<<"\t"<<actsamples[i].Jphi<<"\n";
 
     // test sampling of 3d density
-    particles::PointMassArray<coord::PosCyl> points_cyl;
-    galaxymodel::generateDensitySamples(galmod.potential, 1e5, points_cyl);
-    particles::writeSnapshot("sampled_density.txt", units::ExternalUnits(), points_cyl);
+    writeSnapshot("sampled_density.txt", galaxymodel::generateDensitySamples(galmod.potential, 1e5));
 #endif
     return 0;
 }

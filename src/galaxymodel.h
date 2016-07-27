@@ -114,13 +114,13 @@ void computeProjectedMoments(const GalaxyModel& model, const double R,
     then use torus machinery to convert from action/angles to position/velocity.
     \param[in]  model  is the galaxy model;
     \param[in]  numPoints  is the required number of samples;
-    \param[out] points will contain array of particles (position/velocity/mass)
-    sampled from the distribution function;
     \param[out] actions (optional) will be filled with values of actions
     corresponding to each point; if not needed may pass NULL as this argument.
+    \returns    a new array of particles (position/velocity/mass)
+    sampled from the distribution function;
 */
-void generateActionSamples(const GalaxyModel& model,
-    const unsigned int numPoints, particles::PointMassArrayCar &points,
+particles::PointMassArrayCar generateActionSamples(
+    const GalaxyModel& model, const unsigned int numPoints,
     std::vector<actions::Actions>* actions=0);
 
 
@@ -130,19 +130,19 @@ void generateActionSamples(const GalaxyModel& model,
     and evaluate the value of DF at the given actions.
     \param[in]  model  is the galaxy model;
     \param[in]  numPoints  is the required number of samples;
-    \param[out] points will contain array of particles (position/velocity/mass)
+    \returns    a new array of particles (position/velocity/mass)
     sampled from the distribution function;
 */
-void generatePosVelSamples(const GalaxyModel& model,
-    const unsigned int numPoints, particles::PointMassArrayCar &points);
+particles::PointMassArrayCar generatePosVelSamples(
+    const GalaxyModel& model, const unsigned int numPoints);
 
 
 /** Sample the density profile by discrete points.
     \param[in]  dens  is the density model;
     \param[in]  numPoints  is the required number of sampling points;
-    \param[out] points is the array to be filled with the sampled coordinates.
+    \returns    a new array with the sampled coordinates and masses
 */
-void generateDensitySamples(const potential::BaseDensity& dens,
-    const unsigned int numPoints, particles::PointMassArray<coord::PosCyl>& points);
+particles::PointMassArray<coord::PosCyl> generateDensitySamples(
+    const potential::BaseDensity& dens, const unsigned int numPoints);
 
 }  // namespace

@@ -37,10 +37,7 @@ namespace {  // internal definitions and routines
 */
 enum PotentialType {
 
-    //  Generic values that don't correspond to a concrete class
-    PT_UNKNOWN,      ///< undefined
-    PT_COEFS,        ///< pre-computed coefficients of potential expansion loaded from a coefs file
-    PT_NBODY,        ///< N-body snapshot that is used for initializing a potential expansion
+    PT_UNKNOWN,      ///< unspecified
     PT_COMPOSITE,    ///< a superposition of multiple potential instances:  `CompositeCyl`
 
     //  Density models without a corresponding potential
@@ -62,15 +59,12 @@ enum PotentialType {
     PT_DENS_SPHHARM, ///< DensitySphericalHarmonic
     PT_DENS_CYLGRID, ///< DensityCylGrid
 
-    //  Potentials with possibly infinite mass that can't be used as source density for a potential expansion
+    //  Potentials with infinite extent that can't be used as source density for a potential expansion
     PT_LOG,          ///< triaxial logaritmic potential:  `Logarithmic`
     PT_HARMONIC,     ///< triaxial simple harmonic oscillator:  `Harmonic`
-//    PT_SCALEFREE,    ///< triaxial single power-law density profile:  CPotentialScaleFree
-//    PT_SCALEFREESH,  ///< spherical-harmonic approximation to a triaxial power-law density:  CPotentialScaleFreeSH
-    PT_NFW,          ///< spherical Navarro-Frenk-White profile:  `NFW`
 
-    //  Analytic finite-mass potential models that can also be used as source density for a potential expansion
-//    PT_SPHERICAL,    ///< arbitrary spherical mass model:  CPotentialSpherical
+    //  Analytic potential models that can also be used as source density for a potential expansion
+    PT_NFW,          ///< spherical Navarro-Frenk-White profile:  `NFW`
     PT_MIYAMOTONAGAI,///< axisymmetric Miyamoto-Nagai(1975) model:  `MiyamotoNagai`
     PT_DEHNEN,       ///< spherical, axisymmetric or triaxial Dehnen(1993) density model:  `Dehnen`
     PT_FERRERS,      ///< triaxial Ferrers model with finite extent:  `Ferrers`
@@ -88,9 +82,9 @@ struct ConfigPotential
     double mass;             ///< total mass of the model (not applicable to all potential types)
     double scaleRadius;      ///< scale radius of the model (if applicable)
     double scaleRadius2;     ///< second scale radius of the model (if applicable)
-    double q, p;             ///< axis ratios of the model (if applicable)
-    double gamma;            ///< central cusp slope (for Dehnen and scale-free models)
-    double sersicIndex;      ///< Sersic index (for Sersic density model)
+    double axisRatioY, axisRatioZ;   ///< axis ratios of the model (if applicable)
+    double gamma;            ///< central cusp slope (for the Dehnen model)
+    double sersicIndex;      ///< Sersic index (for the Sersic density profile)
     unsigned int gridSizeR;  ///< number of radial grid points in Multipole and CylSpline potentials
     unsigned int gridSizez;  ///< number of grid points in z-direction for CylSpline potential
     double rmin, rmax;       ///< inner- and outermost grid node radii for Multipole and CylSpline
@@ -98,11 +92,11 @@ struct ConfigPotential
     unsigned int lmax;       ///< number of angular terms in spherical-harmonic expansion
     unsigned int mmax;       ///< number of angular terms in azimuthal-harmonic expansion
     double smoothing;        ///< amount of smoothing in Multipole initialized from an N-body snapshot
-    std::string fileName;    ///< name of file with coordinates of points, or coefficients of expansion
+    std::string file;        ///< name of file with coordinates of points, or coefficients of expansion
     /// default constructor initializes the fields to some reasonable values
     ConfigPotential() :
         potentialType(PT_UNKNOWN), densityType(PT_UNKNOWN), symmetryType(coord::ST_DEFAULT),
-        mass(1.), scaleRadius(1.), scaleRadius2(1.), q(1.), p(1.), gamma(1.), sersicIndex(4.),
+        mass(1.), scaleRadius(1.), scaleRadius2(1.), axisRatioY(1.), axisRatioZ(1.), gamma(1.), sersicIndex(4.),
         gridSizeR(25), gridSizez(25), rmin(0), rmax(0), zmin(0), zmax(0), lmax(6), mmax(6), smoothing(1.)
     {};
 };
@@ -150,8 +144,6 @@ static void initPotentialNameMap()
 //    DensityNames[PT_ELLIPSOIDAL] = CDensityEllipsoidal::myName();
 //    DensityNames[PT_MGE] = CDensityMGE::myName();
 //    DensityNames[PT_SERSIC] = CDensitySersic::myName();
-    DensityNames[PT_COEFS]   = "Coefs"; // denotes that potential expansion coefs are loaded from a text file
-    DensityNames[PT_NBODY]   = "Nbody"; // denotes a density model from discrete points in Nbody file
     DensityNames[PT_COMPOSITE] = CompositeDensity::myName();
     DensityNames[PT_PLUMMER] = Plummer::myName();
     DensityNames[PT_MIYAMOTONAGAI] = MiyamotoNagai::myName();
@@ -272,10 +264,10 @@ static ConfigPotential parseParams(const utils::KeyValueMap& params, const units
     config.potentialType = getPotentialTypeByName(params.getString("Type"));
     config.densityType   = getDensityTypeByName  (params.getString("Density"));
     config.symmetryType  = getSymmetryTypeByName (params.getString("Symmetry"));
-    config.fileName    = params.getString("File");
+    config.file        = params.getString("File");
     config.mass        = params.getDouble("Mass", config.mass) * conv.massUnit;
-    config.q           = params.getDoubleAlt("axisRatioY", "q", config.q);
-    config.p           = params.getDoubleAlt("axisRatioZ", "p", config.p);
+    config.axisRatioY  = params.getDoubleAlt("axisRatioY", "p", config.axisRatioY);
+    config.axisRatioZ  = params.getDoubleAlt("axisRatioZ", "q", config.axisRatioZ);
     config.scaleRadius = params.getDoubleAlt("scaleRadius", "rscale", config.scaleRadius) * conv.lengthUnit;
     config.scaleRadius2= params.getDoubleAlt("scaleRadius2","scaleHeight",config.scaleRadius2) * conv.lengthUnit;
     config.gamma       = params.getDouble   ("Gamma", config.gamma);
@@ -316,8 +308,9 @@ static SphrParam parseSphrParams(const utils::KeyValueMap& params, const units::
                               * conv.massUnit / pow_3(conv.lengthUnit);
     config.axisRatioY         = params.getDouble("axisRatioY", config.axisRatioY);
     config.axisRatioZ         = params.getDouble("axisRatioZ", config.axisRatioZ);
+    config.alpha              = params.getDouble("alpha", config.alpha);
+    config.beta               = params.getDouble("beta",  config.beta);
     config.gamma              = params.getDouble("gamma", config.gamma);
-    config.beta               = params.getDouble("beta", config.beta);
     config.scaleRadius        = params.getDouble("scaleRadius", config.scaleRadius) * conv.lengthUnit;
     config.outerCutoffRadius  = params.getDouble("outerCutoffRadius", config.outerCutoffRadius) * conv.lengthUnit;
     // alternative way: specifying the total model mass instead of volume density at r=scaleRadius
@@ -831,55 +824,35 @@ PtrPotential readGalaxyPotential(const std::string& filename, const units::Exter
 //        ------------------------------------------------------------------------
 ///@{
 
+namespace {
+
 /// create potential expansion of a given type from a set of point masses
 template<typename ParticleT>
-static PtrPotential createPotential(const ConfigPotential& config,
-    const particles::PointMassArray<ParticleT>& points)
+static PtrPotential createPotentialFromParticles(const ConfigPotential& config,
+    const particles::PointMassArray<ParticleT>& particles)
 {
     switch(config.potentialType) {
     case PT_SPLINE:
         return PtrPotential(new SplineExp(
             config.gridSizeR, config.lmax, 
-            points, config.symmetryType, config.smoothing, 
+            particles::PointMassArray<coord::PosSph>(particles), config.symmetryType, config.smoothing, 
             config.rmin, config.rmax));
     case PT_BSE:
         return PtrPotential(new BasisSetExp(
             /*config.alpha*/0., config.gridSizeR, 
-            config.lmax, points, config.symmetryType));
+            config.lmax, particles::PointMassArray<coord::PosSph>(particles), config.symmetryType));
     case PT_CYLSPLINE:
-        return CylSpline::create(points, config.symmetryType, config.mmax,
+        return CylSpline::create(particles, config.symmetryType, config.mmax,
             config.gridSizeR, config.rmin, config.rmax,
             config.gridSizez, config.zmin, config.zmax);
     case PT_MULTIPOLE:
-        return Multipole::create(points, config.symmetryType, config.lmax, config.mmax,
+        return Multipole::create(particles, config.symmetryType, config.lmax, config.mmax,
             config.gridSizeR, config.rmin, config.rmax,
             config.smoothing);
     default:
-        throw std::invalid_argument(std::string("Unknown potential expansion type"));
+        throw std::invalid_argument("Unknown potential expansion type");
     }
 }
-
-template<typename ParticleT>
-PtrPotential createPotential(const utils::KeyValueMap& params,
-    const particles::PointMassArray<ParticleT>& points, const units::ExternalUnits& converter)
-{
-    return createPotential(parseParams(params, converter), points);
-}
-// instantiations
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosCar>&, const units::ExternalUnits&);
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosVelCar>&, const units::ExternalUnits&);
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosCyl>&, const units::ExternalUnits&);
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosVelCyl>&, const units::ExternalUnits&);
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosSph>&, const units::ExternalUnits&);
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosVelSph>&, const units::ExternalUnits&);
-
-namespace {
 
 /** Create a density model according to the parameters. 
     This only deals with finite-mass models, including some of the Potential descendants.
@@ -896,30 +869,30 @@ static PtrDensity createAnalyticDensity(const ConfigPotential& params)
     {
     case PT_DEHNEN:
         return PtrDensity(new Dehnen(
-            params.mass, params.scaleRadius, params.gamma, params.q, params.p));
+            params.mass, params.scaleRadius, params.gamma, params.axisRatioY, params.axisRatioZ));
     case PT_PLUMMER:
-        if(params.q==1 && params.p==1)
+        if(params.axisRatioY==1 && params.axisRatioZ==1)
             return PtrDensity(new Plummer(params.mass, params.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Plummer is not supported");
     case PT_ISOCHRONE:
-        if(params.q==1 && params.p==1)
+        if(params.axisRatioY==1 && params.axisRatioZ==1)
             return PtrDensity(new Isochrone(params.mass, params.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Isochrone is not supported");
     case PT_NFW:
-        if(params.q==1 && params.p==1)
+        if(params.axisRatioY==1 && params.axisRatioZ==1)
             return PtrDensity(new NFW(params.mass, params.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Navarro-Frenk-White is not supported");
     case PT_PERFECTELLIPSOID:
-        if(params.q==1 && params.p<1)
+        if(params.axisRatioY==1 && params.axisRatioZ<1)
             return PtrDensity(new OblatePerfectEllipsoid(
-                params.mass, params.scaleRadius, params.scaleRadius*params.p));
+                params.mass, params.scaleRadius, params.scaleRadius*params.axisRatioZ));
         else
             throw std::invalid_argument("May only create oblate axisymmetric Perfect Ellipsoid model");
     case PT_FERRERS:
-        return PtrDensity(new Ferrers(params.mass, params.scaleRadius, params.q, params.p));
+        return PtrDensity(new Ferrers(params.mass, params.scaleRadius, params.axisRatioY, params.axisRatioZ));
     case PT_MIYAMOTONAGAI:
         return PtrDensity(new MiyamotoNagai(params.mass, params.scaleRadius, params.scaleRadius2));
     default:
@@ -938,35 +911,35 @@ static PtrPotential createAnalyticPotential(const ConfigPotential& params)
     switch(params.potentialType)
     {
     case PT_LOG:  // NB: it's not really 'mass' here but 'sigma'
-        return PtrPotential(new Logarithmic(params.mass, params.scaleRadius, params.q, params.p));
+        return PtrPotential(new Logarithmic(params.mass, params.scaleRadius, params.axisRatioY, params.axisRatioZ));
     case PT_HARMONIC:  // NB: it's not really 'mass' here but 'Omega'
-        return PtrPotential(new Harmonic(params.mass, params.q, params.p));
+        return PtrPotential(new Harmonic(params.mass, params.axisRatioY, params.axisRatioZ));
     case PT_MIYAMOTONAGAI:
         return PtrPotential(new MiyamotoNagai(params.mass, params.scaleRadius, params.scaleRadius2));
     case PT_DEHNEN:
         return PtrPotential(new Dehnen(
-            params.mass, params.scaleRadius, params.gamma, params.q, params.p));
+            params.mass, params.scaleRadius, params.gamma, params.axisRatioY, params.axisRatioZ));
     case PT_FERRERS:
-        return PtrPotential(new Ferrers(params.mass, params.scaleRadius, params.q, params.p)); 
+        return PtrPotential(new Ferrers(params.mass, params.scaleRadius, params.axisRatioY, params.axisRatioZ)); 
     case PT_PLUMMER:
-        if(params.q==1 && params.p==1)
+        if(params.axisRatioY==1 && params.axisRatioZ==1)
             return PtrPotential(new Plummer(params.mass, params.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Plummer is not supported");
     case PT_ISOCHRONE:
-        if(params.q==1 && params.p==1)
+        if(params.axisRatioY==1 && params.axisRatioZ==1)
             return PtrPotential(new Isochrone(params.mass, params.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Isochrone is not supported");
     case PT_NFW:
-        if(params.q==1 && params.p==1)
+        if(params.axisRatioY==1 && params.axisRatioZ==1)
             return PtrPotential(new NFW(params.mass, params.scaleRadius));
         else
             throw std::invalid_argument("Non-spherical Navarro-Frenk-White is not supported");
     case PT_PERFECTELLIPSOID:
-        if(params.q==1 && params.p<1)
+        if(params.axisRatioY==1 && params.axisRatioZ<1)
             return PtrPotential(new OblatePerfectEllipsoid(
-                params.mass, params.scaleRadius, params.scaleRadius*params.p)); 
+                params.mass, params.scaleRadius, params.scaleRadius*params.axisRatioZ)); 
         else
             throw std::invalid_argument("May only create oblate axisymmetric Perfect Ellipsoid model");
     default:
@@ -1016,39 +989,45 @@ static bool isPotentialExpansion(PotentialType type)
 static PtrPotential createAnyPotential(const ConfigPotential& params,
     const units::ExternalUnits& converter)
 {
-    if( params.potentialType == PT_UNKNOWN && !params.fileName.empty() )
-        // assume that the file contains coefficients of some potential expansion
-        return readPotential(params.fileName);  // (will raise an exception if that wasn't the case)
-    else if(isPotentialExpansion(params.potentialType)) {
-        if( params.densityType == PT_NBODY && !params.fileName.empty()) {
-            // create potential expansion from an N-body snapshot file
-            particles::PointMassArrayCar points;
-            particles::readSnapshot(params.fileName, converter, points);
-            if(points.size()==0)
-                throw std::runtime_error("Error loading N-body snapshot from " + params.fileName);
-            PtrPotential poten = createPotential(params, points);
+    if(!params.file.empty()) {
+        // file may contain either coefficients of potential expansion,
+        // in which case the potential type is inferred from the first line of the file,
+        // or an N-body snapshot, in which case the potential type must be specified.
+        try {
+            return readPotential(params.file, converter);
+        }   // if it contained valid coefs, all is fine
+        catch(std::runtime_error&) {
+            // otherwise the file is assumed to contain an N-body snapshot
+            if(!isPotentialExpansion(params.potentialType))
+                throw std::runtime_error("Must specify the potential expansion type");
+            const particles::PointMassArrayCar particles =
+                particles::readSnapshot(params.file, converter);
+            if(particles.size()==0)
+                throw std::runtime_error("Error loading N-body snapshot from " + params.file);
+            PtrPotential poten = createPotentialFromParticles(params, particles);
             // store coefficients in a text file, 
             // later may load this file instead for faster initialization
-            writePotential( (params.fileName + 
-                getCoefFileExtension(params.potentialType)), *poten);
+            writePotential( (params.file + 
+                getCoefFileExtension(params.potentialType)), *poten, converter);
             return poten;
-        } else if(params.densityType == PT_COEFS && !params.fileName.empty()) {
-            // read coefs and all other parameters from a text file
-            return readPotential(params.fileName);
-        } else {
-            // create a temporary density or potential model
-            // to serve as the source for potential expansion
-            if( params.densityType == PT_DEHNEN || 
-                params.densityType == PT_FERRERS ||
-                params.densityType == PT_MIYAMOTONAGAI )
-            {   // use an analytic potential as the source
-                ConfigPotential potparams(params);
-                potparams.potentialType  = params.densityType;
-                return createPotentialExpansion(params, *createAnalyticPotential(potparams));
-            }
-            // otherwise use analytic density as the source
-            return createPotentialExpansion(params, *createAnalyticDensity(params));
         }
+    }
+    // if params did not contain a file name, they must specify the potential type
+    if(params.potentialType == PT_UNKNOWN)
+        throw std::runtime_error("Must specify the potential type");
+    if(isPotentialExpansion(params.potentialType)) {
+        // create a temporary density or potential model
+        // to serve as the source for potential expansion
+        if( params.densityType == PT_DEHNEN || 
+            params.densityType == PT_FERRERS ||
+            params.densityType == PT_MIYAMOTONAGAI )
+        {   // use an analytic potential as the source
+            ConfigPotential potparams(params);
+            potparams.potentialType  = params.densityType;
+            return createPotentialExpansion(params, *createAnalyticPotential(potparams));
+        }
+        // otherwise use analytic density as the source
+        return createPotentialExpansion(params, *createAnalyticDensity(params));
     } else  // elementary potential, or an error
         return createAnalyticPotential(params);
 }
@@ -1144,6 +1123,27 @@ PtrPotential createPotential(
         throw std::runtime_error("INI file does not contain any [Potential] section");
     return createPotential(components, converter);
 }
+
+// create potential from particles
+template<typename ParticleT>
+PtrPotential createPotential(const utils::KeyValueMap& params,
+    const particles::PointMassArray<ParticleT>& particles, const units::ExternalUnits& converter)
+{
+    return createPotentialFromParticles(parseParams(params, converter), particles);
+}
+// instantiations
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosCar>&, const units::ExternalUnits&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosVelCar>&, const units::ExternalUnits&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosCyl>&, const units::ExternalUnits&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosVelCyl>&, const units::ExternalUnits&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosSph>&, const units::ExternalUnits&);
+template PtrPotential createPotential(const utils::KeyValueMap&,
+    const particles::PointMassArray<coord::PosVelSph>&, const units::ExternalUnits&);
 
 ///@}
 }; // namespace

@@ -16,7 +16,7 @@
     function with a multidimensional minimization algorithm.
     This takes a few hundred iterations to converge.
 */
-#include "potential_sphharm.h"
+#include "potential_multipole.h"
 #include "actions_staeckel.h"
 #include "df_halo.h"
 #include "particles_io.h"
@@ -86,9 +86,9 @@ private:
 };
 
 int main(){
-    particles::PointMassArrayCar particles;
-    readSnapshot("sampled_model.txt", units::ExternalUnits(), particles);
-    potential::PtrPotential pot(new potential::SplineExp(20, 4, particles, coord::ST_AXISYMMETRIC, 1.));
+    particles::PointMassArrayCar particles = particles::readSnapshot("sampled_model.txt");
+    potential::PtrPotential pot = potential::Multipole::create(
+        particles, coord::ST_AXISYMMETRIC, 4 /*lmax*/, 0 /*mmax*/, 20 /*gridSizeR*/);
     const actions::ActionFinderAxisymFudge actf(pot);
     ActionArray particleActions(particles.size());
     for(unsigned int i=0; i<particles.size(); i++) {

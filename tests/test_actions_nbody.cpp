@@ -16,7 +16,7 @@
     it uses the same machinery through a Python extension of the C++ library.
 */
 #include "potential_cylspline.h"
-#include "potential_sphharm.h"
+#include "potential_multipole.h"
 #include "potential_composite.h"
 #include "potential_factory.h"
 #include "particles_io.h"
@@ -35,17 +35,17 @@ int main() {
 
     // #2. Get in N-body snapshots
     clock_t tbegin=std::clock();
-    particles::PointMassArrayCar diskparticles, haloparticles;
-    readSnapshot("../temp/disk.gadget", extUnits, diskparticles);
-    readSnapshot("../temp/halo.gadget", extUnits, haloparticles);
+    particles::PointMassArrayCar
+        diskparticles = particles::readSnapshot("../temp/disk.gadget", extUnits),
+        haloparticles = particles::readSnapshot("../temp/halo.gadget", extUnits);
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to load snapshots;  "
         "disk mass=" << diskparticles.totalMass()*unit.to_Msun << " Msun, N=" << diskparticles.size() << ";  "
         "halo mass=" << haloparticles.totalMass()*unit.to_Msun << " Msun, N=" << haloparticles.size() <<"\n";
 
     // #3. Initialize potential approximations from these particles
     tbegin=std::clock();
-    potential::PtrPotential halo(new potential::SplineExp
-        (20, 2, haloparticles, coord::ST_AXISYMMETRIC, 1.0 /*default smoothfactor*/));
+    potential::PtrPotential halo = potential::Multipole::create(
+        haloparticles, coord::ST_AXISYMMETRIC, 2 /*lmax*/, 0 /*mmax*/, 20 /*gridSizeR*/);
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init halo potential;  "
         "value at origin=" << halo->value(coord::PosCar(0,0,0)) * pow_2(unit.to_kms) << " (km/s)^2\n";
     tbegin=std::clock();
@@ -72,22 +72,25 @@ int main() {
     tbegin=std::clock();
     actions::ActionFinderAxisymFudge actFinder(poten);
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to init action finder\n";
-    std::ofstream strm("disk_actions.txt");
-    strm << "# R[Kpc]\tz[Kpc]\tJ_r[Kpc*km/s]\tJ_z[Kpc*km/s]\tJ_phi[Kpc*km/s]\tE[(km/s)^2]\n";
     tbegin=std::clock();
-    std::vector<actions::Actions> acts(diskparticles.size());
-//#pragma omp parallel for schedule(dynamic,1024)
-    for(int i=0; i<(int)diskparticles.size(); i++) {
+    int nbody = diskparticles.size();
+    std::vector<actions::Actions> acts(nbody);
+#pragma omp parallel for schedule(dynamic,1024)
+    for(int i=0; i<nbody; i++) {
         acts[i] = actFinder.actions(toPosVelCyl(diskparticles[i].first));
     }
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to compute actions  ("<<
-        diskparticles.size() * 1.0*CLOCKS_PER_SEC / (std::clock()-tbegin) << " actions per second)";
-    for(size_t i=0; i<diskparticles.size(); i++) {
+        diskparticles.size() * 1.0*CLOCKS_PER_SEC / (std::clock()-tbegin) << " actions per second)\n";
+
+    // #5. Store results
+    std::ofstream strm("disk_actions.txt");
+    strm << "# R[Kpc]\tz[Kpc]\tJ_r[Kpc*km/s]\tJ_z[Kpc*km/s]\tJ_phi[Kpc*km/s]\tE[(km/s)^2]\n";
+    for(int i=0; i<nbody; i++) {
         const coord::PosVelCyl point = toPosVelCyl(diskparticles[i].first);
         strm << point.R*unit.to_Kpc << "\t" << point.z*unit.to_Kpc << "\t" <<
-            acts[i].Jr*unit.to_Kpc_kms << "\t" << acts[i].Jz*unit.to_Kpc_kms << "\t" << acts[i].Jphi*unit.to_Kpc_kms << "\t" << 
+            acts[i].Jr*unit.to_Kpc_kms << "\t" << acts[i].Jz*unit.to_Kpc_kms << "\t" << acts[i].Jphi*unit.to_Kpc_kms << "\t" <<
             totalEnergy(*poten, point)*pow_2(unit.to_kms) << "\n";
     }
-    std::cout << "\nALL TESTS PASSED\n";
+//    std::cout << "ALL TESTS PASSED\n";
     return 0;
 }

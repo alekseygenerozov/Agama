@@ -253,7 +253,8 @@ private:
         if(x==0 || x==1) return 0;
         double rrel = x/(1-x);
         return 
-            pow_2(x/pow_2(1-x)) * pow(rrel, -params.gamma) * pow(1+rrel, params.gamma-params.beta) *
+            pow_2(x/pow_2(1-x)) * pow(rrel, -params.gamma) *
+            pow(1 + pow(rrel, params.alpha), (params.gamma-params.beta)/params.alpha) *
             exp(-pow_2(rrel * params.scaleRadius / params.outerCutoffRadius));
     }
 };
@@ -264,7 +265,8 @@ double SphrParam::mass() const
         return INFINITY;
     return 4*M_PI * densityNorm * pow_3(scaleRadius) * axisRatioY * axisRatioZ *
         ( outerCutoffRadius==0 ?   // have an analytic expression
-        math::gamma(beta-3) * math::gamma(3-gamma) / math::gamma(beta-gamma) :
+        math::gamma((beta-3)/alpha) * math::gamma((3-gamma)/alpha) /
+        math::gamma((beta-gamma)/alpha) / alpha :
         math::integrate(SpheroidDensityIntegrand(*this), 0, 1, 1e-6) );
 }
 
@@ -272,35 +274,39 @@ SpheroidDensity::SpheroidDensity (const SphrParam &_params) :
     BaseDensity(), params(_params)
 {
     if(params.scaleRadius<=0)
-        throw std::invalid_argument("Spheroid scale radius cannot be <=0");
+        throw std::invalid_argument("Spheroid scale radius must be positive");
     if(params.axisRatioY<=0 || params.axisRatioZ<=0)
-        throw std::invalid_argument("Spheroid axis ratio cannot be <=0");
+        throw std::invalid_argument("Spheroid axis ratio must be positive");
     if(params.outerCutoffRadius<0)
         throw std::invalid_argument("Spheroid outer cutoff radius cannot be <0");
-    if(params.gamma>=3)
-        throw std::invalid_argument("Spheroid inner slope gamma must be less than 3");
+    if(params.alpha<=0)
+        throw std::invalid_argument("Spheroid parameter alpha must be positive");
     if(params.beta<=2 && params.outerCutoffRadius==0)
         throw std::invalid_argument("Spheroid outer slope beta must be greater than 2, "
             "or a positive cutoff radius must be provided");
+    if(params.gamma>=3)
+        throw std::invalid_argument("Spheroid inner slope gamma must be less than 3");
 }
 
 double SpheroidDensity::densityCyl(const coord::PosCyl &pos) const
 {
-    double  R  = params.axisRatioY == 1 ? pos.R :
-        pos.R * sqrt(1 + pow_2(sin(pos.phi)) * (1/pow_2(params.axisRatioY) - 1));
-    double  r  = hypot(R, pos.z/params.axisRatioZ);
+    double  R2 = params.axisRatioY == 1 ? pow_2(pos.R) :
+        pow_2(pos.R) * (1 + pow_2(sin(pos.phi)) * (1/pow_2(params.axisRatioY) - 1));
+    double  r  = sqrt(R2 + pow_2(pos.z/params.axisRatioZ));
     double  r0 = r/params.scaleRadius;
     double rho = params.densityNorm;
     if(params.gamma==1.) rho /= r0;       else 
     if(params.gamma==2.) rho /= r0*r0;    else
     if(params.gamma==0.5)rho /= sqrt(r0); else
     if(params.gamma!=0.) rho /= pow(r0, params.gamma);
+    if(params.alpha==2.)  r0 *= r0; else
+    if(params.alpha!=1.)  r0  = pow(r0, params.alpha);
     r0 += 1;
-    const double beg = params.beta-params.gamma;
-    if(beg==1.) rho /= r0;       else
-    if(beg==2.) rho /= r0*r0;    else
-    if(beg==3.) rho /= r0*r0*r0; else
-    rho /= pow(r0, beg);
+    const double bga = (params.beta-params.gamma) / params.alpha;
+    if(bga==1.) rho /= r0;       else
+    if(bga==2.) rho /= r0*r0;    else
+    if(bga==3.) rho /= r0*r0*r0; else
+    rho *= pow(r0, -bga);
     if(params.outerCutoffRadius)
         rho *= exp(-pow_2(r/params.outerCutoffRadius));
     return rho;

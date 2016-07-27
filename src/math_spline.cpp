@@ -1402,7 +1402,6 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_xvalues, const st
 
     // precompute M = L^{-T} U  which is used in computing basis weight coefs.
     MMatrix = SVD.U();
-    MMatrix = SVD.V();
     blas_dtrsm(CblasLeft, CblasLower, CblasTrans, CblasNonUnit, 1, LMatrix, MMatrix);
     // now M is finally in place, and the weight coefs for any lambda are given by
     // w = M (I + lambda * diag(singValues))^{-1} M^T  z

@@ -11,17 +11,19 @@ namespace potential {
 /** Dehnen(1993) double power-law model **/
 class Dehnen: public BasePotentialCar {
 public:
-    Dehnen(double _mass, double _scalerad, double _gamma, double _q=1., double _p=1.);
+    Dehnen(double _mass, double _scalerad, double _gamma, double _axisRatioY=1., double _axisRatioZ=1.);
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Dehnen"; };
     virtual coord::SymmetryType symmetry() const { 
-        return (q==1 ? (p==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC) : coord::ST_TRIAXIAL); };
+        return (axisRatioY==1 ?
+            (axisRatioZ==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC) : coord::ST_TRIAXIAL); };
     virtual double totalMass() const { return mass; }
 private:
     const double mass;       ///< total mass of the model
     const double scalerad;   ///< scale radius
     const double gamma;      ///< cusp exponent for Dehnen potential
-    const double q, p;       ///< axis ratio (y/x and z/x) of equidensity surfaces
+    const double axisRatioY; ///< axis ratio y/x of equidensity surfaces
+    const double axisRatioZ; ///< axis ratio z/x of equidensity surfaces
 
     virtual void evalCar(const coord::PosCar &pos,
         double* potential, coord::GradCar* deriv, coord::HessCar* deriv2) const;

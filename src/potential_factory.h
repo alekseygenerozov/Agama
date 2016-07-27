@@ -107,16 +107,16 @@ PtrPotential createPotential(
     const std::string& iniFileName,
     const units::ExternalUnits& converter = units::ExternalUnits());
 
-/** Create an instance of potential expansion from the provided particle snapshot.
-    \param[in] params is the list of required parameters (e.g., the type of potential expansion,
+/** Create an instance of potential expansion from the provided array of particles.
+    \param[in] params  is the list of required parameters (e.g., the type of potential expansion,
     number of terms, prescribed symmetry, etc.).
-    \param[in] points is the array of particle positions and masses.
-    \param[in] converter is the unit converter for transforming the dimensional parameters 
+    \param[in] particles  is the array of particle positions and masses.
+    \param[in] converter  is the unit converter for transforming the dimensional parameters 
     (min/max radii of grid) into internal units; can be a trivial converter. 
     Coordinates and masses of particles are _not_ transformed: if they are loaded from an external 
     N-body snapshot file, the conversion is applied at that stage, and if they come from 
     other routines in the library, they are already in internal units.
-    \tparam    ParticleT may be PosT<CoordSys> or PosVel<CoordSys>, with CoordSys = Car, Cyl or Sph.
+    \tparam    ParticleT  may be PosT<CoordSys> or PosVel<CoordSys>, with CoordSys = Car, Cyl or Sph.
     \return    a new instance of PtrPotential on success.
     \throws    std::invalid_argument or std::runtime_error or other potential-specific exception
     on failure (e.g., if some of the parameters are invalid or missing).
@@ -124,7 +124,7 @@ PtrPotential createPotential(
 template<typename ParticleT>
 PtrPotential createPotential(
     const utils::KeyValueMap& params, 
-    const particles::PointMassArray<ParticleT>& points,
+    const particles::PointMassArray<ParticleT>& particles,
     const units::ExternalUnits& converter = units::ExternalUnits());
 
 /** Utility function providing a legacy interface compatible with the original GalPot (deprecated).

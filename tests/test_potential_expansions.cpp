@@ -32,50 +32,46 @@ PtrPotential writeRead(const potential::BasePotential& pot)
 }
 
 /// create a triaxial Hernquist model (could use galaxymodel::sampleNbody in a general case)
-particles::PointMassArrayCar makeHernquist(int nbody, double q, double p)
+particles::PointMassArray<coord::PosSph> makeHernquist(int nbody, double q, double p)
 {
-    particles::PointMassArrayCar pts;
+    particles::PointMassArray<coord::PosSph> pts;
     for(int i=0; i<nbody; i++) {
         double m = math::random();
         double r = 1/(1/sqrt(m)-1);  // known inversion of M(r)
-        double costheta = math::random()*2 - 1;
-        double sintheta = sqrt(1-pow_2(costheta));
+        double theta = acos(math::random()*2 - 1);
         double phi = math::random()*2*M_PI;
-        pts.add(coord::PosVelCar(
-            r*sintheta*cos(phi), r*sintheta*sin(phi)*q, r*costheta*p, 0, 0, 0), 1./nbody);
+        pts.add(coord::PosSph(r, theta, phi), 1./nbody);
     }
     return pts;
 }
 
 PtrPotential createFromFile(
-    const particles::PointMassArrayCar& points, const std::string& potType)
+    const particles::PointMassArray<coord::PosSph>& points, const std::string& potType)
 {
     const std::string fileName = "test.txt";
-    writeSnapshot(fileName, units::ExternalUnits(), points, "Text");
+    writeSnapshot(fileName, points, "Text");
     PtrPotential newpot;
 
     // illustrates two possible ways of creating a potential from points
     if(potType == "BasisSetExp") {
-        particles::PointMassArrayCar pts;
-        readSnapshot(fileName, units::ExternalUnits(), pts);
+        particles::PointMassArrayCar pts = particles::readSnapshot(fileName);
         newpot = PtrPotential(new potential::BasisSetExp(
             1.0, /*alpha*/
             20,  /*numCoefsRadial*/
             6,   /*numCoefsAngular*/
-            pts, /*points*/
-            coord::ST_TRIAXIAL));  /*symmetry (default value)*/
+            particles::PointMassArray<coord::PosSph>(pts), /*points*/
+            coord::ST_DEFAULT));  /*symmetry (default value)*/
     } else {
         // a rather lengthy way of setting parameters, used only for illustration:
         // normally these would be read from an INI file or from command line;
-        // to create an instance of potential expansion of a known type, 
+        // to create an instance of potential expansion of a known type,
         // use directly its constructor as shown above
         utils::KeyValueMap params;
         params.set("file", fileName);
         params.set("type", potType);
-        params.set("numCoefsRadial", 20);
-        params.set("numCoefsAngular", 6);
-        params.set("numCoefsVertical", 20);
-        params.set("Density", "Nbody");
+        params.set("gridSizeR", 20);
+        params.set("gridSizeZ", 20);
+        params.set("lmax", 6);
         newpot = potential::createPotential(params);
     }
     std::remove(fileName.c_str());
@@ -325,7 +321,8 @@ int main() {
         std::vector<potential::DiskParam>(1, test5_ExpdiskParam),        // computed using the GalPot approach
         std::vector<potential::SphrParam>());
     const potential::Dehnen test6_Dehnen1Tri(1., 1., 1., 0.8, 0.5);      // triaxial cuspy Hernquist
-    particles::PointMassArrayCar test6_points = makeHernquist(100000, 0.8, 0.5); // represented as N-body
+    // N-body representation of the same profile
+    particles::PointMassArray<coord::PosSph> test6_points = makeHernquist(100000, 0.8, 0.5);
 
     // 3b. test the approximating density profiles
     std::cout << "--- Testing accuracy of density profile interpolators: "
@@ -366,7 +363,7 @@ int main() {
     // 3c. test the approximating potential profiles
     std::cout << "--- Testing potential approximations: "
     "print density-averaged rms errors in potential, force and density ---\n";
-    
+
     // spherical, cuspy and infinite
     std::cout << "--- Spherical NFW ---\n";
     potential::NFW test1_NFWSph(1., 1.);

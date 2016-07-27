@@ -1,6 +1,7 @@
 #include "potential_multipole.h"
 #include "math_core.h"
 #include "math_specfunc.h"
+#include <cfloat>
 #include <cassert>
 #include <algorithm>
 #include <stdexcept>
@@ -29,6 +30,9 @@ const unsigned int MULTIPOLE_MIN_GRID_SIZE = 2;
 
 /// order of Gauss-Legendre quadrature for computing the radial integrals in Multipole
 const unsigned int ORDER_RAD_INT = 15;
+
+/// safety factor to avoid roundoff errors near grid boundaries
+const double SAFETY_FACTOR = 8*DBL_EPSILON;
 
 // Helper function to deduce symmetry from the list of non-zero coefficients;
 // combine the array of coefficients at different radii into a single array
@@ -77,7 +81,17 @@ static math::SphHarmIndices getIndicesFromCoefs(
     const std::vector< std::vector<double> >* A[2] = {&C1, &C2};
     return getIndicesFromCoefs<2>(A);
 }
-    
+
+// resize the array of coefficients down to the requested order
+static void restrictSphHarmCoefs(int lmax, int mmax, std::vector<double>& coefs)
+{
+    coefs.resize(pow_2(lmax+1), 0);
+    math::SphHarmIndices ind(lmax, mmax, coord::ST_NONE);
+    for(unsigned int c=0; c<coefs.size(); c++)
+        if(abs(ind.index_m(c))>mmax)
+            coefs[c] = 0;
+}
+
 // ------- Spherical-harmonic expansion of density or potential ------- //
 // The routine `computeSphHarmCoefs` can work with both density and potential classes,
 // computes the sph-harm expansion for either density (in the first case),
@@ -222,8 +236,8 @@ static void computePotentialCoefsFromPoints(
     // values of interior/exterior potential at particle radii:
     // each one is represented as a product of 'normalization' and 'value',
     // where norm is always positive and its log is being fit, and value is fit directly
-    std::vector<double> PintN(nbody), &PextN = PintN;
-    std::vector<double> PintV(nbody), &PextV = PintV;
+    std::vector<double> PintN(nbody), PextN(nbody); //&PextN = PintN;
+    std::vector<double> PintV(nbody), PextV(nbody); //&PextV = PintV;
     
     // scaled grid radii and interior/exterior potential at grid points
     std::vector<double> gridLogRadii(gridSizeR);
@@ -274,7 +288,7 @@ static void computePotentialCoefsFromPoints(
         std::vector<double> tmp;  // temp.storage for spline values
         approx.fitDataOversmooth(PintV, smoothing, tmp, derLeft, derRight);
         math::CubicSpline SintV(gridLogRadii, tmp, derLeft, derRight);
-        approx.fitData(PintN, 0, tmp, derLeft, derRight);
+        approx.fitDataOversmooth(PintN, smoothing, tmp, derLeft, derRight);
         math::CubicSpline SintN(gridLogRadii, tmp, derLeft, derRight);
 
         val = norm = 0;
@@ -329,10 +343,10 @@ static void computePotentialCoefsFromPoints(
             (mul * (exp(CiN)*(dCiN*CiV+dCiV) + exp(CeN)*(dCeN*CeV+dCeV)) / pointRadii[k]) << '\n';
         }
         strm << '\n';
-        for(unsigned int i=0; i<gridLogRadii.size(); i++) {
+       /* for(unsigned int i=0; i<gridLogRadii.size(); i++) {
             strm << exp(gridLogRadii[i]) << '\t' << CintV[i] << '\t' << CextV[i] << '\t' <<
                 CintN[i] << '\t' << CextN[i] << '\t' << Phi[i][c] << '\t' << dPhi[i][c] << '\n';
-        }
+        }*/
 #endif
     }
 }
@@ -815,7 +829,7 @@ PtrDensity DensitySphericalHarmonic::create(
         gridRadii, coefs);
     // now resize the coefficients back to the requested order
     for(unsigned int k=0; k<gridSizeR; k++)
-        coefs[k].resize(pow_2(lmax+1), 0);
+        restrictSphHarmCoefs(lmax, mmax, coefs[k]);
     return PtrDensity(new DensitySphericalHarmonic(gridRadii, coefs));
 }
 
@@ -985,8 +999,8 @@ static PtrPotential createMultipole(
         gridRadii, Phi, dPhi);
     // now resize the coefficients back to the requested order
     for(unsigned int k=0; k<gridSizeR; k++) {
-        Phi [k].resize(pow_2(lmax+1), 0);
-        dPhi[k].resize(pow_2(lmax+1), 0);
+        restrictSphHarmCoefs(lmax, mmax, Phi [k]);
+        restrictSphHarmCoefs(lmax, mmax, dPhi[k]);
     }
     return PtrPotential(new Multipole(gridRadii, Phi, dPhi));
 }
@@ -1072,19 +1086,22 @@ void Multipole::getCoefs(
     std::vector<std::vector<double> > &dPhi) const
 {
     radii = gridRadii;
+    radii.front() *= 1+SAFETY_FACTOR;  // avoid the possibility of getting outside the of radii where
+    radii.back()  *= 1-SAFETY_FACTOR;  // the interpolating splines are defined, due to roundoff errors
     // use the fact that the spherical-harmonic transform is invertible to machine precision:
     // take the values and derivatives of potential at grid nodes and apply forward transform
     // to obtain the coefficients.
     computePotentialCoefsSph(*impl, ind, radii, Phi, dPhi);
+    radii = gridRadii;  // restore the original values of radii
 }
 
 void Multipole::evalCyl(const coord::PosCyl &pos,
     double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const
 {
     double rsq = pow_2(pos.R) + pow_2(pos.z);
-    if(rsq < pow_2(gridRadii.front()))
+    if(rsq < pow_2(gridRadii.front()) * (1+SAFETY_FACTOR))
         asymptInner->eval(pos, potential, deriv, deriv2);
-    else if(rsq > pow_2(gridRadii.back()))
+    else if(rsq > pow_2(gridRadii.back()) * (1-SAFETY_FACTOR))
         asymptOuter->eval(pos, potential, deriv, deriv2);
     else
         impl->eval(pos, potential, deriv, deriv2);

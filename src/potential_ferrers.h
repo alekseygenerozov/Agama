@@ -13,8 +13,8 @@ namespace potential {
     under assumption that p<q<1 strictly (will not work if any of two axes are equal). **/
 class Ferrers: public BasePotentialCar {
 public:
-    /// Construct the potential for the following parameters: mass, radius, axis ratios q=y/x, p=z/x
-    Ferrers(double _mass, double _R, double _q, double _p);
+    /// Construct the potential for the following parameters: mass, radius, axis ratios y/x, z/x
+    Ferrers(double _mass, double _R, double _axisRatioY, double _axisRatioZ);
     ~Ferrers() {};
     virtual const char* name() const { return myName(); }
     static const char* myName() { return "Ferrers"; }
