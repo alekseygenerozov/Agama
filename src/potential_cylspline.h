@@ -93,7 +93,7 @@ private:
     to zero density outside the grid.
     The cost of evaluating the potential is roughly the same as for the spherical-harmonic
     potential approximation, although the cost of computing the coefficients (via non-member
-    functions `computePotentialCoefsCyl`) is higher.
+    functions `computePotentialCoefsCyl` or static factory functions `create`) is higher.
 */
 class CylSpline: public BasePotentialCyl
 {

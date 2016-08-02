@@ -259,7 +259,7 @@ static void computePotentialCoefsFromPoints(
     }
 
     // create the instance of smoothing spline creator
-    math::SplineApprox approx(pointLogRadii, gridLogRadii);
+    math::SplineApprox approx(gridLogRadii, pointLogRadii);
 
     // loop over non-trivial SH indices
     for(unsigned int c=0; c<coefs.size(); c++) {
@@ -284,12 +284,8 @@ static void computePotentialCoefsFromPoints(
         // first compute the smoothing spline values at grid points and its derivs at both ends,
         // then create an ordinary cubic spline from this data, which will be later used 
         // to compute values at arbitrary r
-        double derLeft, derRight;
-        std::vector<double> tmp;  // temp.storage for spline values
-        approx.fitDataOversmooth(PintV, smoothing, tmp, derLeft, derRight);
-        math::CubicSpline SintV(gridLogRadii, tmp, derLeft, derRight);
-        approx.fitDataOversmooth(PintN, smoothing, tmp, derLeft, derRight);
-        math::CubicSpline SintN(gridLogRadii, tmp, derLeft, derRight);
+        math::CubicSpline SintV(gridLogRadii, approx.fitOversmooth(PintV, smoothing));
+        math::CubicSpline SintN(gridLogRadii, approx.fitOversmooth(PintN, smoothing));
 
         val = norm = 0;
         for(unsigned int k=nbody; k>0; k--) {
@@ -302,10 +298,8 @@ static void computePotentialCoefsFromPoints(
             PextV[k-1] = val / norm;
             PextN[k-1] = log(norm);
         }
-        approx.fitDataOversmooth(PextV, smoothing, tmp, derLeft, derRight);
-        math::CubicSpline SextV(gridLogRadii, tmp, derLeft, derRight);
-        approx.fitData(PextN, 0, tmp, derLeft, derRight);
-        math::CubicSpline SextN(gridLogRadii, tmp, derLeft, derRight);
+        math::CubicSpline SextV(gridLogRadii, approx.fitOversmooth(PextV, smoothing));
+        math::CubicSpline SextN(gridLogRadii, approx.fit(PextN, 0));
 
         // Finally, put together the interior and exterior coefs to compute 
         // the potential and its radial derivative for each spherical-harmonic term

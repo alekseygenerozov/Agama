@@ -31,18 +31,19 @@ PtrPotential writeRead(const potential::BasePotential& pot)
     return newpot;
 }
 
-/// create a triaxial Hernquist model (could use galaxymodel::sampleNbody in a general case)
-particles::PointMassArray<coord::PosSph> makeHernquist(int nbody, double q, double p)
+/// create a triaxial Dehnen model (could use galaxymodel::sampleNbody in a general case)
+particles::PointMassArray<coord::PosSph> makeDehnen(int nbody, double gamma, double p, double q)
 {
-    particles::PointMassArray<coord::PosSph> pts;
+    particles::PointMassArray<coord::PosCar> pts;
     for(int i=0; i<nbody; i++) {
         double m = math::random();
-        double r = 1/(1/sqrt(m)-1);  // known inversion of M(r)
-        double theta = acos(math::random()*2 - 1);
+        double r = 1 / (pow(m, 1/(gamma-3)) - 1);  // known inversion of M(r)
+        double costheta = math::random()*2 - 1;
+        double R = r * sqrt(1 - pow_2(costheta));
         double phi = math::random()*2*M_PI;
-        pts.add(coord::PosSph(r, theta, phi), 1./nbody);
+        pts.add(coord::PosCar(R * cos(phi), p * R * sin(phi), q * r * costheta), 1./nbody);
     }
-    return pts;
+    return particles::PointMassArray<coord::PosSph>(pts);
 }
 
 PtrPotential createFromFile(
@@ -322,7 +323,7 @@ int main() {
         std::vector<potential::SphrParam>());
     const potential::Dehnen test6_Dehnen1Tri(1., 1., 1., 0.8, 0.5);      // triaxial cuspy Hernquist
     // N-body representation of the same profile
-    particles::PointMassArray<coord::PosSph> test6_points = makeHernquist(100000, 0.8, 0.5);
+    particles::PointMassArray<coord::PosSph> test6_points = makeDehnen(100000, 1., 0.8, 0.5);
 
     // 3b. test the approximating density profiles
     std::cout << "--- Testing accuracy of density profile interpolators: "

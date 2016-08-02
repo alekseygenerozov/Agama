@@ -2710,14 +2710,12 @@ static PyTypeObject SelfConsistentModelType = {
 /// Python type corresponding to SplineApprox class
 typedef struct {
     PyObject_HEAD
-    math::CubicSpline* spl;
+    math::CubicSpline spl;
 } SplineApproxObject;
 /// \endcond
 
 static void SplineApprox_dealloc(SplineApproxObject* self)
 {
-    if(self->spl)
-        delete self->spl;
     self->ob_type->tp_free((PyObject*)self);
 }
 
@@ -2739,59 +2737,55 @@ static const char* docstringSplineApprox =
 
 static int SplineApprox_init(PyObject* self, PyObject* args, PyObject* namedArgs)
 {
-    static const char* keywords[] = {"x","y","knots","smooth",NULL};
+    static const char* keywords[] = {"knots","x","y","smooth",NULL};
+    PyObject* k_obj=NULL;
     PyObject* x_obj=NULL;
     PyObject* y_obj=NULL;
-    PyObject* k_obj=NULL;
     double smoothfactor=0;
     if(!PyArg_ParseTupleAndKeywords(args, namedArgs, "OOO|d", const_cast<char **>(keywords),
-        &x_obj, &y_obj, &k_obj, &smoothfactor)) {
+        &k_obj, &x_obj, &y_obj, &smoothfactor)) {
         PyErr_SetString(PyExc_ValueError, "Incorrect parameters passed to the SplineApprox constructor: "
-            "must provide two arrays of equal length (input x and y points), "
-            "a third array of spline knots, and optionally a float (smooth factor)");
+            "must provide an array of grid nodes and two arrays of equal length (input x and y points), "
+            "and optionally a float (smooth factor)");
         return -1;
     }
     std::vector<double>
+        knots  (toFloatArray(k_obj)),
         xvalues(toFloatArray(x_obj)),
-        yvalues(toFloatArray(y_obj)),
-        knots  (toFloatArray(k_obj));
+        yvalues(toFloatArray(y_obj));
     if(xvalues.empty() || yvalues.empty() || knots.empty()) {
         PyErr_SetString(PyExc_ValueError, "Input does not contain valid arrays");
         return -1;
     }
-    if(knots.size() < 4|| xvalues.size() != yvalues.size()) {
-        PyErr_SetString(PyExc_ValueError, 
-            "Arguments must be two arrays of equal length (x and y) and a third array (knots, at least 4)");
+    if(knots.size() < 2|| xvalues.size() != yvalues.size()) {
+        PyErr_SetString(PyExc_ValueError,
+            "Arguments must be an array of grid nodes (at least 2) and two arrays of equal length (x and y)");
         return -1;
     }
     try{
-        math::SplineApprox spl(xvalues, knots);
-        std::vector<double> splinevals;
-        double der1, der2;
+        math::SplineApprox spl(knots, xvalues);
+        std::vector<double> amplitudes;
         if(smoothfactor>0)
-            spl.fitDataOversmooth(yvalues, smoothfactor, splinevals, der1, der2);
+            amplitudes = spl.fitOversmooth(yvalues, smoothfactor);
         else
-            spl.fitData(yvalues, -smoothfactor, splinevals, der1, der2);
-        // check if this is not the first time that constructor is called
-        if(((SplineApproxObject*)self)->spl)
-            delete ((SplineApproxObject*)self)->spl;
-        ((SplineApproxObject*)self)->spl = new math::CubicSpline(knots, splinevals, der1, der2);
+            amplitudes = spl.fit(yvalues, -smoothfactor);
+        ((SplineApproxObject*)self)->spl = math::CubicSpline(knots, amplitudes);
         return 0;
     }
     catch(std::exception& e) {
-        PyErr_SetString(PyExc_ValueError, 
+        PyErr_SetString(PyExc_ValueError,
             (std::string("Error in SplineApprox initialization: ")+e.what()).c_str());
         return -1;
     }
 }
 
-static double spl_eval(const math::CubicSpline* spl, double x, int der=0)
+static double spl_eval(const math::CubicSpline& spl, double x, int der=0)
 {
     double result;
     switch(der) {
-        case 0: return spl->value(x);
-        case 1: spl->evalDeriv(x, NULL, &result); return result;
-        case 2: spl->evalDeriv(x, NULL, NULL, &result); return result;
+        case 0: return spl.value(x);
+        case 1: spl.evalDeriv(x, NULL, &result); return result;
+        case 2: spl.evalDeriv(x, NULL, NULL, &result); return result;
         default: return NAN;
     }
 }
@@ -2800,7 +2794,7 @@ static PyObject* SplineApprox_value(PyObject* self, PyObject* args, PyObject* /*
 {
     PyObject* ptx=NULL;
     int der=0;
-    if(self==NULL || ((SplineApproxObject*)self)->spl==NULL) {
+    if(self==NULL || ((SplineApproxObject*)self)->spl.isEmpty()) {
         PyErr_SetString(PyExc_ValueError, "SplineApprox object is not properly initialized");
         return NULL;
     }

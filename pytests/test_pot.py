@@ -32,7 +32,7 @@ print "RMS error in density vs. laplacian =", \
 #5. test spline smoothing
 rad = (pos[:,0]**2+pos[:,1]**2+pos[:,2]**2)**0.5
 knots = [0,0.5,1,1.5,2,3,4,5,6,7,8,10,15,20,30,50,100]
-spl = agama.SplineApprox(rad,pot,knots)
+spl = agama.SplineApprox(knots,rad,pot)
 print "RMS error in Phi(r) approximating spline =", ( ((pot-spl(rad))**2).mean() )**0.5
 
 print "\033[1;32mALL TESTS PASSED\033[0m"

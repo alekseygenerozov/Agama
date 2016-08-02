@@ -15,12 +15,6 @@
 #include "torus/WD_Pspline.h"
 #endif
 
-const int NNODES  = 20;
-const int NSUBINT = 16;
-const int NPOINTS = 10000;
-const double XMIN = 0.2;
-const double XMAX = 12.;
-const double DISP = 0.5;  // y-dispersion
 const bool OUTPUT = true;
 
 // provides the integral of sin(x)*x^n
@@ -93,49 +87,145 @@ public:
     virtual unsigned int numValues() const { return 1; }
 };
 
-int main()
+//----------- test penalized smoothing spline fit to noisy data -------------//
+bool testPenalizedSplineFit()
 {
-    //----------- test penalized smoothing spline fit to noisy data -------------//
-
-    std::cout << std::setprecision(12);
     bool ok=true;
-    std::vector<double> xnodes = math::createNonuniformGrid(NNODES, XMIN, XMAX, true);
+    const int NNODES  = 20;
+    const int NPOINTS = 10000;
+    const double XMIN = 0.2;
+    const double XMAX = 12.;
+    const double DISP = 0.5;  // y-dispersion
+    std::vector<double> xnodes = math::createNonuniformGrid(NNODES, XMIN, XMAX, false);
+    xnodes.pop_back();
     std::vector<double> xvalues(NPOINTS), yvalues1(NPOINTS), yvalues2(NPOINTS);
+
     for(int i=0; i<NPOINTS; i++) {
         xvalues [i] = math::random()*XMAX;
         yvalues1[i] = sin(4*sqrt(xvalues[i])) + DISP*(math::random()-0.5);
         yvalues2[i] = cos(4*sqrt(xvalues[i])) + DISP*(math::random()-0.5)*4;
     }
-    math::SplineApprox appr(xvalues, xnodes);
+    math::SplineApprox appr(xnodes, xvalues);
+    double rms, edf, lambda;
 
-    std::vector<double> ynodes1, ynodes2;
-    double deriv_left, deriv_right, rms, edf, lambda;
-
-    appr.fitDataOptimal(yvalues1, ynodes1, deriv_left, deriv_right, &rms, &edf, &lambda);
+    math::CubicSpline fit1(xnodes, appr.fitOptimal(yvalues1, &rms, &edf, &lambda));
     std::cout << "case A: RMS="<<rms<<", EDF="<<edf<<", lambda="<<lambda<<"\n";
-    math::CubicSpline fit1(xnodes, ynodes1, deriv_left, deriv_right);
     ok &= rms<0.2 && edf>=2 && edf<NNODES+2 && lambda>0;
 
-    appr.fitDataOversmooth(yvalues2, .5, ynodes2, deriv_left, deriv_right, &rms, &edf, &lambda);
+    math::CubicSpline fit2(xnodes, appr.fitOversmooth(yvalues2, .5, &rms, &edf, &lambda));
     std::cout << "case B: RMS="<<rms<<", EDF="<<edf<<", lambda="<<lambda<<"\n";
-    math::CubicSpline fit2(xnodes, ynodes2, deriv_left, deriv_right);
     ok &= rms<1.0 && edf>=2 && edf<NNODES+2 && lambda>0;
 
     if(OUTPUT) {
         std::ofstream strm("test_math_spline_fit.dat");
-        for(size_t i=0; i<xnodes.size(); i++)
-            strm << xnodes[i] << "\t" << ynodes1[i] << "\t" << ynodes2[i] << "\n";
-        strm << "\n";
         for(size_t i=0; i<xvalues.size(); i++)
             strm << xvalues[i] << "\t" << yvalues1[i] << "\t" << yvalues2[i] << "\t" <<
                 fit1(xvalues[i]) << "\t" << fit2(xvalues[i]) << "\n";
     }
+    return ok;
+}
 
-    //-------- test cubic and quintic splines ---------//
+//-------- test penalized spline log-density estimation ---------//
+
+// probability distribution described by a sum of two Gaussians
+class ProbDensity: public math::IFunctionNoDeriv {
+public:
+    ProbDensity(double _mean1, double _disp1, double _mean2, double _disp2) :
+        mean1(_mean1), disp1(_disp1), mean2(_mean2), disp2(_disp2) {}
+    // evaluate the probability density at the given point
+    virtual double value(double x) const {
+        return
+            0.5 * exp( -0.5 * pow_2((x-mean1)/disp1) ) / sqrt(2*M_PI) / disp1 +
+            0.5 * exp( -0.5 * pow_2((x-mean2)/disp2) ) / sqrt(2*M_PI) / disp2;
+    }
+    // sample a point from this probability density
+    double sample() const {
+        double x1, x2;
+        math::getNormalRandomNumbers(x1, x2);
+        if(x2>=0)  // attribute the point to either of the two Gaussians with 50% probability
+            return mean1 + disp1 * x1;
+        else
+            return mean2 + disp2 * x1;
+    }
+private:
+    double mean1, disp1, mean2, disp2;  // parameters of the PDF
+};
+
+// Gaussian kernel density estimate for an array of points
+double kernelDensity(double x, const std::vector<double>& xvalues,
+    const std::vector<double>& weights, double width)
+{
+    double sum=0;
+    for(unsigned int i=0; i<xvalues.size(); i++)
+        sum += weights[i] * exp( -0.5*pow_2((x-xvalues[i])/width) );
+    return sum / sqrt(2*M_PI) / width;
+}
+
+bool testPenalizedSplineDensity()
+{
+    bool ok=true;
+    const double MEAN1= 1.0, DISP1=0.1, MEAN2=2.5, DISP2=1.0;
+    const double XMIN = fmin(MEAN1-3*DISP1, MEAN2-3*DISP2);  // limits of the interval for
+    const double XMAX = fmax(MEAN1+3*DISP1, MEAN2+3*DISP2);  // constructing the inferred PDF
+    const int NPOINTS = 1000; // # of points to sample
+    const int NNODES  = 50;    // nodes in the fitted probability density function
+    const int NCHECK  = 201;   // points to measure the inferred probability density
+    std::vector<double> xvalues(NPOINTS), weights(NPOINTS);
+    ProbDensity prob(MEAN1, DISP1, MEAN2, DISP2);
+    double logL = 0;
+    for(int i=0; i<NPOINTS; i++) {
+        xvalues[i] = prob.sample();
+        weights[i] = 1./NPOINTS;
+        // evaluate the likelihood of the sampled points against the true underlying prob.density
+        logL += weights[i] * prob(xvalues[i]);
+    }
+    std::cout << "True logL = " << logL << '\n';
+    if(OUTPUT) {
+        std::ofstream strm("test_math_spline_logdens.dat");
+        for(size_t i=0; i<xvalues.size(); i++)
+            strm << xvalues[i] << "\t" << weights[i] << "\n";
+    }
+    // grid defining the logdensity functions
+    std::vector<double> grid = math::createUniformGrid(NNODES, XMIN, XMAX);
+    std::sort(xvalues.begin(), xvalues.end());
+    /*for(unsigned int i=0; i<NNODES; i++) {
+        double f = (i+.5)/NNODES;
+        grid[i] = xvalues[ f*f*(3-2*f) * NPOINTS ];
+    }*/
+    std::vector<double> testgrid = math::createUniformGrid(NCHECK, grid.front(), grid.back());
+    std::vector<double> truedens(NCHECK);
+    for(int j=0; j<NCHECK; j++)
+        truedens[j] = log(prob(testgrid[j]));
+    math::CubicSpline spltrue(grid, math::SplineApprox(grid, testgrid).fit(truedens));
+    math::LinearInterpolator spl1(grid,
+        math::logSplineDensity<1>(grid, xvalues, weights, true, true, 0));   // linear fit
+    math::CubicSpline spl3o(grid,
+        math::logSplineDensity<3>(grid, xvalues, weights, true, true, 0.));  // non-penalized cubic
+    math::CubicSpline spl3p(grid,
+        math::logSplineDensity<3>(grid, xvalues, weights, true, true, 1.));  // penalized cubic
+    if(OUTPUT) {
+        std::ofstream strm("test_math_spline_logdens1.dat");
+        for(int j=0; j<NCHECK; j++) {
+            double x = testgrid[j];
+            double kernval = log(kernelDensity(x, xvalues, weights, (XMAX-XMIN)/NCHECK));
+            strm << x << '\t' << spl1(x) << '\t' << spl3o(x) << '\t' << spl3p(x) << '\t' <<
+                kernval << '\t' << truedens[j] << '\t' << spltrue(x) << '\n';
+        }
+    }
+    return ok;
+}
+
+//-------- test cubic and quintic splines ---------//
+bool test1dSpline()
+{
     // accuracy of approximation of an oscillating fnc //
-
+    bool ok=true;
+    const int NNODES  = 20;
+    const int NSUBINT = 16;
+    const double XMIN = 0.2;
+    const double XMAX = 12.;
     std::vector<double> yvalues(NNODES), yderivs(NNODES);
-    xnodes = math::createNonuniformGrid(NNODES, XMIN, XMAX, false);
+    std::vector<double> xnodes = math::createNonuniformGrid(NNODES, XMIN, XMAX, false);
     xnodes[1]=(xnodes[1]+xnodes[2])/2;  // slightly squeeze grid spacing to allow
     xnodes[0]*=2;                       // a better interpolation of a strongly varying function
     for(int i=0; i<NNODES; i++) {
@@ -193,8 +283,13 @@ int main()
     ok &= test_integral(fcubcl, (xnodes[0]+xnodes[1])/2, xnodes.back());
     ok &= test_integral(fcubna, -1.234567, xnodes.back()+1.);
 
-    //----------- test 2d cubic and quintic spline ------------//
+    return ok;
+}
 
+//----------- test 2d cubic and quintic spline ------------//
+bool test2dSpline()
+{
+    bool ok=true;
     const int NNODESX=8;
     const int NNODESY=4;
     const int NN=99;    // number of intermediate points for checking the values
@@ -297,6 +392,7 @@ int main()
                 math::fcmp(cx, qx, 1e-13)==0 && math::fcmp(cy, qy, 1e-13)==0;
         }
 
+    std::ofstream strm;
     if(OUTPUT)  // output for Gnuplot splot routine
         strm.open("test_math_spline2d.dat");
     for(int i=0; i<=NN; i++) {
@@ -332,93 +428,9 @@ int main()
     if(OUTPUT)
         strm.close();
 
-    //----------- test 3d interpolation ------------//
-
-    testfnc3d fnc3d;
-    const int NNODESZ=6;
-    std::vector<double> zval(NNODESZ,0);
-    for(int i=1; i<NNODESZ; i++)
-        zval[i] = zval[i-1] + math::random() + 0.5;
-
-    xval=math::createUniformGrid(NNODESX, 0, 6);
-    yval=math::createUniformGrid(NNODESY, 0, 3);
-    zval=math::createUniformGrid(NNODESZ, 0, 5);
-    math::Matrix<double> samples;
-    std::vector<double> lval3d(math::createInterpolator3dArray<1>(fnc3d, xval, yval, zval));
-    std::vector<double> cval3d(math::createInterpolator3dArray<3>(fnc3d, xval, yval, zval));
-    /*
-    double integr_quad, interr_quad, integr_samp, interr_samp;
-    const double xlower[3] = {xval.front(), yval.front(), zval.front()};
-    const double xupper[3] = {xval.back(),  yval.back(),  zval.back() };
-    math::integrateNdim(fnc3d, xlower, xupper, 1e-3, 1e5, &integr_quad, &interr_quad);
-    math::sampleNdim(fnc3d, xlower, xupper, 1e5, samples, NULL, &integr_samp, &interr_samp);
-    std::cout << "3d function: integral over domain by quadrature=" << integr_quad << " +- " <<
-    interr_quad << ", by sampling=" << integr_samp << " +- " << interr_samp << "\n";
-     
-    std::vector<double> lsam3d(math::createInterpolator3dArrayFromSamples<1>(
-        samples, std::vector<double>(samples.rows(), integr_samp/samples.rows()), xval, yval, zval));
-    std::vector<double> csam3d(math::createInterpolator3dArrayFromSamples<3>(
-        samples, std::vector<double>(samples.rows(), integr_samp/samples.rows()), xval, yval, zval));
-    */
-    math::LinearInterpolator3d lin3d(xval, yval, zval);
-    math::CubicInterpolator3d  cub3d(xval, yval, zval);
-
-    double point[3];
-    // test the values of interpolated function at grid nodes
-    for(int i=0; i<NNODESX; i++) {
-        point[0] = xval[i];
-        for(int j=0; j<NNODESY; j++) {
-            point[1] = yval[j];
-            for(int k=0; k<NNODESZ; k++) {
-                point[2] = zval[k];
-                double v;
-                fnc3d.eval(point, &v);
-                double l = lin3d.interpolate(point, lval3d);
-                double c = cub3d.interpolate(point, cval3d);
-                ok &= math::fcmp(v, c, 1e-13)==0;
-                ok &= math::fcmp(v, l, 1e-15)==0;
-            }
-        }
-    }
-    // test accuracy of approximation
-    double sumsqerr_l=0, sumsqerr_c=0;
-    const int NNN=24;    // number of intermediate points for checking the values
-    if(OUTPUT)
-        strm.open("test_math_spline3d.dat");
-    for(int i=0; i<=NNN; i++) {
-        point[0] = i*xval.back()/NNN;
-        for(int j=0; j<=NNN; j++) {
-            point[1] = j*yval.back()/NNN;
-            for(int k=0; k<=NNN; k++) {
-                point[2] = k*zval.back()/NNN;
-                double v;
-                fnc3d.eval(point, &v);
-                double l = lin3d.interpolate(point, lval3d);
-                double c = cub3d.interpolate(point, cval3d);
-                sumsqerr_l += pow_2(l-v);
-                sumsqerr_c += pow_2(c-v);
-                if(OUTPUT)
-                    strm << point[0] << ' ' << point[1] << ' ' << point[2] << '\t' <<
-                    v << ' ' << l << ' ' << c << "\n";
-            }
-            if(OUTPUT)
-                strm << "\n";
-        }
-    }
-    if(OUTPUT)
-        strm.close();
-    sumsqerr_l = sqrt(sumsqerr_l / pow_3(NNN+1));
-    sumsqerr_c = sqrt(sumsqerr_c / pow_3(NNN+1));
-    std::cout << "RMS error in linear 3d interpolator: " << sumsqerr_l << 
-        ", cubic 3d interpolator:" << sumsqerr_c << "\n";
-    ok &= sumsqerr_l<0.1 && sumsqerr_c<0.05;
-
 #ifdef STRESS_TEST
     //----------- test the performance of 2d spline calculation -------------//
     double z, dx, dy, dxx, dxy, dyy;
-    double wder[2];
-    double wder2x[2], wder2y[2]; 
-    double* wder2[] = {wder2x, wder2y};
     int NUM_ITER = 1000;
     clock_t clk = std::clock();
     for(int t=0; t<NUM_ITER; t++) {
@@ -488,6 +500,9 @@ int main()
     }
     std::cout << ", no deriv: " << (std::clock()-clk)*1.0/CLOCKS_PER_SEC << " seconds\n";
 #ifdef COMPARE_WD_PSPLINE
+    double wder[2];
+    double wder2x[2], wder2y[2]; 
+    double* wder2[] = {wder2x, wder2y};
     clk = std::clock();
     for(int t=0; t<NUM_ITER; t++) {
         for(int i=0; i<=NN; i++) {
@@ -527,6 +542,108 @@ int main()
 #endif
 #endif
 
+    return ok;
+}
+
+//----------- test 3d interpolation ------------//
+bool test3dSpline()
+{
+    bool ok=true;
+    testfnc3d fnc3d;
+    const int NNODESX=8, NNODESY=4, NNODESZ=6;
+    std::vector<double>
+    xval=math::createUniformGrid(NNODESX, 0, 6),
+    yval=math::createUniformGrid(NNODESY, 0, 3),
+    zval=math::createUniformGrid(NNODESZ, 0, 5);
+    math::Matrix<double> samples;
+    std::vector<double> lval3d(math::createInterpolator3dArray<1>(fnc3d, xval, yval, zval));
+    std::vector<double> cval3d(math::createInterpolator3dArray<3>(fnc3d, xval, yval, zval));
+    /*
+    double integr_quad, interr_quad, integr_samp, interr_samp;
+    const double xlower[3] = {xval.front(), yval.front(), zval.front()};
+    const double xupper[3] = {xval.back(),  yval.back(),  zval.back() };
+    math::integrateNdim(fnc3d, xlower, xupper, 1e-3, 1e5, &integr_quad, &interr_quad);
+    math::sampleNdim(fnc3d, xlower, xupper, 1e5, samples, NULL, &integr_samp, &interr_samp);
+    std::cout << "3d function: integral over domain by quadrature=" << integr_quad << " +- " <<
+    interr_quad << ", by sampling=" << integr_samp << " +- " << interr_samp << "\n";
+     
+    std::vector<double> lsam3d(math::createInterpolator3dArrayFromSamples<1>(
+        samples, std::vector<double>(samples.rows(), integr_samp/samples.rows()), xval, yval, zval));
+    std::vector<double> csam3d(math::createInterpolator3dArrayFromSamples<3>(
+        samples, std::vector<double>(samples.rows(), integr_samp/samples.rows()), xval, yval, zval));
+    */
+    math::LinearInterpolator3d lin3d(xval, yval, zval);
+    math::CubicInterpolator3d  cub3d(xval, yval, zval);
+
+    double point[3];
+    // test the values of interpolated function at grid nodes
+    for(int i=0; i<NNODESX; i++) {
+        point[0] = xval[i];
+        for(int j=0; j<NNODESY; j++) {
+            point[1] = yval[j];
+            for(int k=0; k<NNODESZ; k++) {
+                point[2] = zval[k];
+                double v;
+                fnc3d.eval(point, &v);
+                double l = lin3d.interpolate(point, lval3d);
+                double c = cub3d.interpolate(point, cval3d);
+                ok &= math::fcmp(v, c, 1e-13)==0;
+                ok &= math::fcmp(v, l, 1e-15)==0;
+            }
+        }
+    }
+    // test accuracy of approximation
+    double sumsqerr_l=0, sumsqerr_c=0;
+    const int NNN=24;    // number of intermediate points for checking the values
+    std::ofstream strm;
+    if(OUTPUT)
+        strm.open("test_math_spline3d.dat");
+    for(int i=0; i<=NNN; i++) {
+        point[0] = i*xval.back()/NNN;
+        for(int j=0; j<=NNN; j++) {
+            point[1] = j*yval.back()/NNN;
+            for(int k=0; k<=NNN; k++) {
+                point[2] = k*zval.back()/NNN;
+                double v;
+                fnc3d.eval(point, &v);
+                double l = lin3d.interpolate(point, lval3d);
+                double c = cub3d.interpolate(point, cval3d);
+                sumsqerr_l += pow_2(l-v);
+                sumsqerr_c += pow_2(c-v);
+                if(OUTPUT)
+                    strm << point[0] << ' ' << point[1] << ' ' << point[2] << '\t' <<
+                    v << ' ' << l << ' ' << c << "\n";
+            }
+            if(OUTPUT)
+                strm << "\n";
+        }
+    }
+    if(OUTPUT)
+        strm.close();
+    sumsqerr_l = sqrt(sumsqerr_l / pow_3(NNN+1));
+    sumsqerr_c = sqrt(sumsqerr_c / pow_3(NNN+1));
+    std::cout << "RMS error in linear 3d interpolator: " << sumsqerr_l << 
+        ", cubic 3d interpolator:" << sumsqerr_c << "\n";
+    ok &= sumsqerr_l<0.1 && sumsqerr_c<0.05;
+
+    return ok;
+}
+
+bool printFail(const char* msg)
+{
+    std::cout << msg << " failed\n";
+    return (msg==0);  // false
+}
+
+int main()
+{
+    std::cout << std::setprecision(12);
+    bool ok=true;
+    ok &= testPenalizedSplineFit() || printFail("Penalized spline fit");
+    ok &= testPenalizedSplineDensity() || printFail("Penalized spline density estimator");
+    ok &= test1dSpline() || printFail("1d spline");
+    ok &= test2dSpline() || printFail("2d spline");
+    ok &= test3dSpline() || printFail("3d spline");
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     return 0;

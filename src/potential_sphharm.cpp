@@ -671,7 +671,7 @@ void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosS
     // which will be approximated by a spline regression
     std::vector<double> scaledPointRadii(numPointsUsed), scaledPointCoefs(numPointsUsed);
     // transformed x- and y- values of regression spline knots
-    std::vector<double> scaledKnotRadii(numBSplineKnots), scaledSplineValues;
+    std::vector<double> scaledKnotRadii(numBSplineKnots);
 
     // SHE coefficients to pass to initspline routine
     std::vector< std::vector<double> > coefsArray(Ncoefs_radial+1);
@@ -691,16 +691,12 @@ void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosS
             scaledPointRadii[i] = log(pointRadii[i+npointsInnerSpline]);
             scaledPointCoefs[i] = log(1/(1/potcenter - 1/pointCoefs[0][i+npointsInnerSpline]));
         }
-        math::SplineApprox appr(scaledPointRadii, scaledKnotRadii);
-//        if(appr.isSingular())
-//            my_message(FUNCNAME, 
-//                "Warning, in Spline potential initialization: singular matrix for least-square fitting; fallback to a slow algorithm");
-        double derivLeft, derivRight;
-        appr.fitData(scaledPointCoefs, 0, scaledSplineValues, derivLeft, derivRight);
+        math::CubicSpline spl(scaledKnotRadii,
+            math::SplineApprox(scaledKnotRadii, scaledPointRadii).fit(scaledPointCoefs, 0));
         // now store fitted values in coefsArray to pass to initspline routine
         coefsArray[0][0] = potcenter;
         for(size_t c=1; c<=Ncoefs_radial; c++)
-            coefsArray[c][0] = -1./(exp(-scaledSplineValues[c])-1/potcenter);
+            coefsArray[c][0] = -1./(exp(-spl(scaledKnotRadii[c]))-1/potcenter);
     }
     if(lmax>0) {  // construct splines for all l>0 spherical-harmonic terms separately
         // first estimate the asymptotic power-law slope of coefficients at r=0 and r=infinity
@@ -717,10 +713,7 @@ void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosS
         scaledKnotRadii[Ncoefs_radial+1] = log(ascale+outerRadiusSpline);
         for(size_t i=0; i<numPointsUsed; i++)
             scaledPointRadii[i] = log(ascale+pointRadii[i+npointsInnerSpline]);
-        math::SplineApprox appr(scaledPointRadii, scaledKnotRadii);
-//        if(appr.status()==CSplineApprox::AS_SINGULAR)
-//            my_message(FUNCNAME, 
-//                "Warning, in Spline potential initialization: singular matrix for least-square fitting; fallback to a slow algorithm without smoothing");
+        math::SplineApprox appr(scaledKnotRadii, scaledPointRadii);
         // loop over l,m
         for(int l=lstep; l<=lmax; l+=lstep)
         {
@@ -730,21 +723,23 @@ void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosS
                 // init matrix of values to fit
                 for(size_t i=0; i<numPointsUsed; i++)
                     scaledPointCoefs[i] = pointCoefs[coefind][i+npointsInnerSpline]/pointCoefs[0][i+npointsInnerSpline];
-                double derivLeft, derivRight;
                 double edf=0;  // equivalent number of free parameters in the fit; if it is ~2, fit is oversmoothed to death (i.e. to a linear regression, which means we should ignore it)
-                appr.fitDataOversmooth(scaledPointCoefs, smoothfactor, scaledSplineValues, derivLeft, derivRight, NULL, &edf);
-                if(edf<3.0)   // in case of error or an oversmoothed fit fallback to zero values
-                    scaledSplineValues.assign(Ncoefs_radial+1, 0);
+
+                math::CubicSpline spl(scaledKnotRadii,
+                    appr.fitOversmooth(scaledPointCoefs, smoothfactor, NULL, &edf));
                 // now store fitted values in coefsArray to pass to initspline routine
                 coefsArray[0][coefind] = 0;  // unused
                 for(size_t c=1; c<=Ncoefs_radial; c++)
-                    coefsArray[c][coefind] = scaledSplineValues[c] * coefsArray[c][0];  // scale back (multiply by l=0,m=0 coefficient)
+                    coefsArray[c][coefind] = spl(scaledKnotRadii[c]) * coefsArray[c][0];  // scale back (multiply by l=0,m=0 coefficient)
                 // correction to avoid fluctuation at first and last grid radius
                 if( coefsArray[1][coefind] * coefsArray[2][coefind] < 0 || coefsArray[1][coefind]/coefsArray[2][coefind] > pow(radii[1]/radii[2], gammaInner))
                     coefsArray[1][coefind] = coefsArray[2][coefind] * pow(radii[1]/radii[2], gammaInner);   // make the smooth curve drop to zero at least as fast as gammaInner'th power of radius
                 if( coefsArray[Ncoefs_radial][coefind] * coefsArray[Ncoefs_radial-1][coefind] < 0 || 
                     coefsArray[Ncoefs_radial][coefind] / coefsArray[Ncoefs_radial-1][coefind] > pow(radii[Ncoefs_radial]/radii[Ncoefs_radial-1], gammaOuter))
                     coefsArray[Ncoefs_radial][coefind] = coefsArray[Ncoefs_radial-1][coefind] * pow(radii[Ncoefs_radial]/radii[Ncoefs_radial-1], gammaOuter);
+                if(edf<3.0)   // in case of error or an oversmoothed fit fallback to zero values
+                    for(size_t c=0; c<=Ncoefs_radial; c++)
+                        coefsArray[c][coefind] = 0;
             }
         }
     }

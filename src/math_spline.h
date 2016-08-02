@@ -9,6 +9,7 @@ This module implements various interpolation and smoothing algorithms in 1,2,3 d
 Let x[i], y[i], i=0..M-1  be two one-dimensional arrays of 'coordinates' and 'values'.
 An interpolating function f(x) passing through these points may be constructed by several
 different methods:
+- Linear interpolator is the most trivial one, uses only the values of function at grid nodes.
 - Cubic spline with natural or clamped boundary conditions. In the most familiar case of
 natural boundary condition the second derivatives of f(x) at the left- and rightmost grid point
 are set to zero; in the case of clamped spline instead the value of first derivative at these
@@ -57,19 +58,19 @@ nodes, except the case of a linear (N=1) interpolator.
 ###  Penalized spline smoothing.
 The approach based on B-spline kernels can be used also for constructing a smooth approximation
 to the set of 'measurements'.
- 
+
 For instance, in one-dimensional case  {x[p], y[p], p=0..P-1}  are the data points, and we seek
 a smooth function that passes close to these points but does not necessarily through them,
 and moreover has an adjustable tradeoff between smoothness and mean-square deviation from data.
 This approximating function is given as a weighted sum of 1d B-spline kernels of degree 3,
 where the amplitudes (or weights of these kernels) are obtained from a linear system for
 the given data points and given amount of smoothing.
- 
+
 The formulation in terms of 1d third-degree kernels is equivalent to a clamped cubic spline,
 which is more efficient to compute, so after obtaining the amplitudes they should be converted
 to the values of interpolating function at its nodes, plus two endpoint derivatives, and used to
 construct a cubic spline.
- 
+
 The same approach works in more than one dimension. The amplitudes of a 2d kernel interpolator
 may be converted into its values and derivatives, and used to construct a 2d quintic spline.
 In the 3d case, the amplitudes are directly used with a cubic (N=3) 3d kernel interpolator.
@@ -88,26 +89,75 @@ namespace math{
 ///@{
 /// \name One-dimensional interpolation
 
-/** Class that defines a cubic spline with natural or clamped boundary conditions */
-class CubicSpline: public IFunction, public IFunctionIntegral {
+/** Generic one-dimensional interpolator class */
+class BaseInterpolator1d: public IFunction {
 public:
     /** empty constructor is required for the class to be used in std::vector and alike places */
-    CubicSpline() {};
+    BaseInterpolator1d() {};
 
-    /** Initialize a cubic spline from the provided values of x and y
-        (which should be arrays of equal length, and x values must be monotonically increasing).
-        If deriv_left or deriv_right are provided, they set the slope at the lower or upper boundary
-        (so-called clamped spline); if either of them is NaN, it means a natural boundary condition.
+    /** Initialize a 1d interpolator from the provided values of x and y;
+        x should be at least of length 2 and monotonically increasing.
+    */
+    BaseInterpolator1d(const std::vector<double>& xvalues, const std::vector<double>& yvalues);
+
+    /** return the number of derivatives that the interpolator provides */
+    virtual unsigned int numDerivs() const { return 2; }
+
+    /** return the lower end of definition interval */
+    double xmin() const { return xval.size()? xval.front() : NAN; }
+
+    /** return the upper end of definition interval */
+    double xmax() const { return xval.size()? xval.back() : NAN; }
+
+    /** check if the spline is initialized */
+    bool isEmpty() const { return xval.size()==0; }
+
+    /** return the array of spline nodes */
+    const std::vector<double>& xvalues() const { return xval; }
+
+protected:
+    std::vector<double> xval;  ///< grid nodes
+    std::vector<double> yval;  ///< values of function at grid nodes
+};
+
+/** Class that provides a simple piecewise-linear interpolation for an array of x,y values */
+class LinearInterpolator: public BaseInterpolator1d {
+public:
+    LinearInterpolator() : BaseInterpolator1d() {};
+
+    LinearInterpolator(const std::vector<double>& xvalues, const std::vector<double>& yvalues);
+
+    /** compute the value of interpolator and optionally its derivatives at point x;
+        if the input location is outside the definition interval, a linear extrapolation is performed. */
+    virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
+};
+
+
+/** Class that defines a cubic spline with natural or clamped boundary conditions */
+class CubicSpline: public BaseInterpolator1d, public IFunctionIntegral {
+public:
+    CubicSpline() : BaseInterpolator1d() {};
+
+    /** There are two possible ways of initializing a cubic spline:
+        (1) from the values of the function at grid nodes, and optionally its endpoint derivatives;
+        (2) from the amplitudes of B-spline functions returned by fitting routines.
+        \param[in]  xvalues  - the array of grid nodes, should be monotonically increasing.
+        \param[in]  yvalues  - in the first case, an array of function values
+        at grid nodes (same length as xvalues);
+        in the second case, an array of B-spline amplitudes, with length equal to xvalues.size()+2.
+        \param[in]  derivLeft  (optional)  - first derivative of the spline at the leftmost
+        grid node (only in the first case), default value NaN means a natural boundary condition
+        (zero second derivative).
+        \param[in]  derivRight - same for the rightmost grid node.
+        \throws  std::invalid_argument exception if grid is too small or not monotonic,
+        or the array sizes are incorrect.
     */
     CubicSpline(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
-        double deriv_left=NAN, double deriv_right=NAN);
+        double derivLeft=NAN, double derivRight=NAN);
 
     /** compute the value of spline and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
     virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
-
-    /** return the number of derivatives that the spline provides */
-    virtual unsigned int numDerivs() const { return 2; }
 
     /** return the integral of spline function times x^n on the interval [x1..x2] */
     virtual double integrate(double x1, double x2, int n=0) const;
@@ -117,24 +167,10 @@ public:
         of f(x) * x^n for 0<=n<=3 */
     double integrate(double x1, double x2, const IFunctionIntegral& f) const;
 
-    /** return the lower end of definition interval */
-    double xmin() const { return xval.size()? xval.front() : NAN; }
-
-    /** return the upper end of definition interval */
-    double xmax() const { return xval.size()? xval.back() : NAN; }
-
-    /** check if the spline is initialized */
-    bool isEmpty() const { return xval.size()==0; }
-
     /** check if the spline is everywhere monotonic on the given interval */
     bool isMonotonic() const;
 
-    /** return the array of spline nodes */
-    const std::vector<double>& xvalues() const { return xval; }
-
 private:
-    std::vector<double> xval;  ///< grid nodes
-    std::vector<double> yval;  ///< values of function at grid nodes
     std::vector<double> cval;  ///< second derivatives of function at grid nodes
 };
 
@@ -144,38 +180,21 @@ private:
     result is a cubic function in each segment, with continuous first derivative at nodes
     (however second or third derivative is not continuous, unlike the case of quintic spline).
 */
-class HermiteSpline: public IFunction {
+class HermiteSpline: public BaseInterpolator1d {
 public:
-    /** empty constructor is required for the class to be used in std::vector and alike places */
-    HermiteSpline() {};
+    HermiteSpline() : BaseInterpolator1d() {};
 
     /** Initialize the spline from the provided values of x, y(x) and y'(x)
         (which should be arrays of equal length, and x values must be monotonically increasing).
     */
     HermiteSpline(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
-                  const std::vector<double>& yderivs);
+        const std::vector<double>& yderivs);
 
     /** compute the value of spline and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
     virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
 
-    virtual unsigned int numDerivs() const { return 2; }
-
-    /** return the lower end of definition interval */
-    double xmin() const { return xval.size()? xval.front() : NAN; }
-
-    /** return the upper end of definition interval */
-    double xmax() const { return xval.size()? xval.back() : NAN; }
-
-    /** check if the spline is initialized */
-    bool isEmpty() const { return xval.size()==0; }
-
-    /** return the array of spline nodes */
-    const std::vector<double>& xvalues() const { return xval; }
-
 private:
-    std::vector<double> xval;  ///< grid nodes
-    std::vector<double> yval;  ///< values of function at grid nodes
     std::vector<double> yder;  ///< first derivatives of function at grid nodes
 };
 
@@ -186,10 +205,9 @@ private:
     and d^3y/dx^3 on the grid are continuous in d^2y/dx^2, i.e. give the same
     value at the grid points. At the grid boundaries  d^3y/dx^3=0  is adopted.
 */
-class QuinticSpline: public IFunction {
+class QuinticSpline: public BaseInterpolator1d {
 public:
-    /** empty constructor is required for the class to be used in std::vector and alike places */
-    QuinticSpline() {};
+    QuinticSpline() : BaseInterpolator1d() {};
 
     /** Initialize a quintic spline from the provided values of x, y(x) and y'(x)
         (which should be arrays of equal length, and x values must be monotonically increasing).
@@ -207,21 +225,7 @@ public:
     /** two derivatives are returned by evalDeriv() method, and third derivative - by deriv3() */
     virtual unsigned int numDerivs() const { return 3; }
 
-    /** return the lower end of definition interval */
-    double xmin() const { return xval.size()? xval.front() : NAN; }
-
-    /** return the upper end of definition interval */
-    double xmax() const { return xval.size()? xval.back() : NAN; }
-
-    /** check if the spline is initialized */
-    bool isEmpty() const { return xval.size()==0; }
-
-    /** return the array of spline nodes */
-    const std::vector<double>& xvalues() const { return xval; }
-
 private:
-    std::vector<double> xval;  ///< grid nodes
-    std::vector<double> yval;  ///< values of function at grid nodes
     std::vector<double> yder;  ///< first derivatives of function at grid nodes
     std::vector<double> yder3; ///< third derivatives of function at grid nodes
 };
@@ -509,8 +513,8 @@ typedef KernelInterpolator3d<3> CubicInterpolator3d;
     For the case N=1, the values of source function at grid nodes are identical to the amplitudes,
     but for higher-degree interpolation this is not the case, and the amplitudes are obtained by
     solving a linear system with the size numComp*numComp, where numComp ~ (grid_size_in_1d+N-1)^3.
-    As no special methods are employed to take advantage of its sparsity, this could be prohibitively
-    expensive if numComp > ~10^3, and hence this routine should be used only for small grid sizes.
+    This could be prohibitively expensive if numComp > ~10^3, and hence this routine should be used
+    only for small grid sizes.
     Keep in mind also that the amplitudes thus obtained may be negative even if the source function
     is everywhere non-negative.
     \tparam     N  is the degree of interpolator (implemented for N=1 and N=3);
@@ -555,7 +559,7 @@ class SplineApproxImpl;
 
 /** Penalized linear least-square fitting problem.
     Approximate the data series  {x[i], y[i], i=0..numDataPoints-1}
-    with spline defined at  {X[k], Y[k], k=0..numKnots-1} in the least-square sense,
+    with a spline defined by  {X[k], Y[k], k=0..numKnots-1} in the least-square sense,
     possibly with additional penalty term for 'roughness' (curvature).
 
     Initialized once for a given set of x, X, and may be used to fit multiple sets of y
@@ -573,9 +577,9 @@ class SplineApproxImpl;
     is the approximated regression for input data,
     \f$ B_p(x) \f$ are its basis functions and \f$ w_p \f$ are weights to be found.
 
-    Basis functions are b-splines with knots at X[k], k=0..numKnots-1;
+    Basis functions are b-splines of degree 3 with knots at X[k], k=0..numKnots-1;
     the number of basis functions is numKnots+2. Equivalently, the regression
-    can be represented by clamped cubic spline with numKnots control points;
+    can be represented by a clamped cubic spline with numKnots control points;
     b-splines are only used internally.
 
     LLS fitting is done by solving the following linear system:
@@ -591,47 +595,49 @@ class SplineApproxImpl;
 */
 class SplineApprox {
 public: 
-    /** initialize workspace for xvalues=x, knots=X in the above formulation.
-        knots must be sorted in ascending order, and all xvalues must lie 
-        between knots.front() and knots.back()   */
-    SplineApprox(const std::vector<double> &xvalues, const std::vector<double> &knots);
+    /** construct the object for grid=X, xvalues=x in the above formulation.
+        Grid nodes must be sorted in ascending order.
+        Data points do not necessarily need to lie within the grid boundaries;
+        the fitted function will be linearly extrapolated outside the grid. 
+    */
+    SplineApprox(const std::vector<double> &grid, const std::vector<double> &xvalues);
+
     ~SplineApprox();
 
     /** perform actual fitting for the array of y values with the given smoothing parameter.
         \param[in]  yvalues is the array of data points corresponding to x values
         that were passed to the constructor;
         \param[in]  lambda  is the smoothing parameter;
-        \param[out] splineValues  are the values of smoothing spline function at grid nodes;
-        \param[out] derivLeft, derivRight  are the derivatives of spline at the endpoints,
-        which together with splineValues provide a complete description of the clamped cubic spline;
         \param[out] rmserror if not NULL, will contain the root-mean-square deviation of data points
         from the smoothing curve;
         \param[out] edf if not NULL, will contain the number of equivalend degrees of freedom,
         which decreases from numKnots+2 to 2 as the smoothing parameter increases from 0 to infinity.
+        \returns the array of amplitudes of B-splines, which may be used as an argument for
+        the constructor of CubicSpline class that will provide the interpolated function;
+        the length of this array is numKnots+2.
     */
-    void fitData(const std::vector<double> &yvalues, const double lambda, 
-        std::vector<double>& splineValues, double& derivLeft, double& derivRight,
+    std::vector<double> fit(const std::vector<double> &yvalues, const double lambda=0, 
         double *rmserror=0, double* edf=0) const;
 
     /** perform fitting with adaptive choice of smoothing parameter lambda, to minimize
         the value of AIC (Akaike information criterion), defined as 
           log(rmserror^2 * numDataPoints) + 2 * EDF / (numDataPoints-EDF-1) .
-        The input and output arguments are similar to `fitData()`, with the difference that
+        The input and output arguments are similar to `fit()`, with the difference that
         the smoothing parameter lambda is not provided as input, but may be reported as output
         parameter `lambda` if the latter is not NULL.
     */
-    void fitDataOptimal(const std::vector<double> &yvalues, 
-        std::vector<double>& splineValues, double& derivLeft, double& derivRight,
-        double *rmserror=0, double* edf=0, double *lambda=0) const;
+    std::vector<double> fitOptimal(const std::vector<double> &yvalues, 
+        double *rmserror=0, double* edf=0, double *lambda=0) const {
+        return fitOversmooth(yvalues, 0., rmserror, edf, lambda);
+    }
 
     /** perform an 'oversmooth' fitting with adaptive choice of smoothing parameter lambda.
         deltaAIC>=0 determines the difference in AIC (Akaike information criterion) between
         the solution with no smoothing and the returned solution which is smoothed more than
         the optimal amount defined above.
-        The other arguments have the same meaning as in `fitDataOptimal()`.
+        The other arguments have the same meaning as in `fitOptimal()`.
     */
-    void fitDataOversmooth(const std::vector<double> &yvalues, const double deltaAIC, 
-        std::vector<double>& splineValues, double& derivLeft, double& derivRight,
+    std::vector<double> fitOversmooth(const std::vector<double> &yvalues, const double deltaAIC, 
         double *rmserror=0, double* edf=0, double *lambda=0) const;
 
 private:
@@ -639,6 +645,56 @@ private:
     SplineApprox& operator= (const SplineApprox&);  ///< assignment operator forbidden
     SplineApprox(const SplineApprox&);              ///< copy constructor forbidden
 };
+
+
+/** Penalized log-spline approximation to a probability density distribution.
+    Let P(x)>0 be a probability distribution function defined on the entire real axis,
+    a semi-infinite interval [xmin,+inf) or (-inf,xmax], or a finite interval [xmin,xmax].
+    Let  {x[i], w[i], i=0..numDataPoints-1}  be an array of samples drawn from this distribution,
+    where  x[i] are their coordinates, and w[i]>=0 are weights. We follow the convention that
+    the integral of P(x) over its domain is equal to the sum of w[i] (not necessarily unity).
+
+    The task of this routine is to estimate P(x) from the samples.
+    It will represent ln(P(x)) as a sum of numBasisFnc basis functions (B-splines of degree N>=1)
+    defined by the grid nodes (numBasisFnc = numGridNodes+N-1), where the grid nodes are provided
+    by the user. In the case N=3 this is equivalent to a clamped cubic spline.
+    The amplitudes of these basis functions are computed using the penalized maximum-likelihood
+    approach for the input samples.
+    In case that the interval is finite or semi-infinite, the corresponding endpoint of input grid
+    should enclose all sample points; otherwise some sample points may be left out of the grid,
+    since the estimated ln(P(x)) is linearly extrapolated beyond the grid boundary(-ies).
+
+    Optionally the fitting procedure may employ regularization to smooth out fluctuations in
+    the estimate, at the expense of somewhat worse fit to the data.
+
+    \tparam  N is the degree of B-splines
+    (implemented for 1 or 3, smoothing is possible only for N>1).
+ 
+    \param[in]  grid     are the grid nodes defining the interpolated ln(P),
+    should be in increasing order.
+    \param[in]  xvalues  are the coordinates x[i] of input samples.
+    \param[in]  weights  are the weights w[i] of samples; should be non-negative.
+    \param[in]  leftInfinite - if true, the function ln(P(x)) is assumed to be defined
+    for all x<knots[0] and will be linearly extrapolated to the left of the first grid node
+    (obviously it will be declining towards x=-infinity); in this case input samples are
+    allowed to have x[i]<knots[0].
+    If false, the function P(x) is identically zero for x<knots[0], thus there should be no
+    sampling points leftmost of this boundary.
+    \param[in]  rightInfinite - the same for the right boundary.
+    \param[in]  smoothing  is the parameter defining the tradeoff between smoothness
+    and accuracy of approximation (only for N>1).
+    \return  the array of basis function amplitudes defining the log-density ln(P(x)).
+    For N=1, their number is equal to the number of grid points,
+    and ln(P(x)) is piecewise-linear, with the values at grid nodes equal to the amplitudes.
+    For N=3, the amplitudes may be used to construct a clamped cubic spline for ln(P(x))
+    by providing this array to the constructor of CubicSpline class.
+    \throws  std::invalid_argument exception if samples have negative weights or lie
+    outside the allowed boundaries, or grid points are invalid.
+*/
+template<int N>
+std::vector<double> logSplineDensity(const std::vector<double> &grid,
+    const std::vector<double> &xvalues, const std::vector<double> &weights,
+    bool leftInfinite, bool rightInfinite, double smoothing=0);
 
 ///@}
 /// \name Auxiliary routines for grid generation
