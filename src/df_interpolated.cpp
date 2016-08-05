@@ -9,11 +9,11 @@ namespace {
 /// auxiliary class for computing the phase volume associated with a single component of interpolated DF
 template<int N>
 class InterpolatedDFintegrand: public math::IFunctionNdim{
-    const math::KernelInterpolator3d<N> &interp;
+    const math::BsplineInterpolator3d<N> &interp;
     const BaseActionSpaceScaling &scaling;
     const unsigned int indComp;
 public:
-    InterpolatedDFintegrand(const math::KernelInterpolator3d<N> &_interp,
+    InterpolatedDFintegrand(const math::BsplineInterpolator3d<N> &_interp,
         const BaseActionSpaceScaling &_scaling, const unsigned int _indComp) :
         interp(_interp), scaling(_scaling), indComp(_indComp) {}
     virtual void eval(const double vars[], double values[]) const {

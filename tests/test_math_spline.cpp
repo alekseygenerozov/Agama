@@ -5,6 +5,7 @@
 #include "math_core.h"
 #include "math_sphharm.h"
 #include "math_sample.h"
+#include "math_specfunc.h"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -127,18 +128,22 @@ bool testPenalizedSplineFit()
 
 //-------- test penalized spline log-density estimation ---------//
 
-// probability distribution described by a sum of two Gaussians
-class ProbDensity: public math::IFunctionNoDeriv {
+// density distribution described by a sum of two Gaussians
+class Density1: public math::IFunctionNoDeriv {
 public:
-    ProbDensity(double _mean1, double _disp1, double _mean2, double _disp2) :
-        mean1(_mean1), disp1(_disp1), mean2(_mean2), disp2(_disp2) {}
-    // evaluate the probability density at the given point
+    double mean1, disp1, mean2, disp2;  // parameters of the density
+    double norm;  // overall normalization
+    int d;        // multiply P(x) by ln(P(x)^d
+    Density1(double _mean1, double _disp1, double _mean2, double _disp2, double _norm) :
+        mean1(_mean1), disp1(_disp1), mean2(_mean2), disp2(_disp2), norm(_norm), d(0) {}
+    // evaluate the density at the given point
     virtual double value(double x) const {
-        return
+        double P = norm * (
             0.5 * exp( -0.5 * pow_2((x-mean1)/disp1) ) / sqrt(2*M_PI) / disp1 +
-            0.5 * exp( -0.5 * pow_2((x-mean2)/disp2) ) / sqrt(2*M_PI) / disp2;
+            0.5 * exp( -0.5 * pow_2((x-mean2)/disp2) ) / sqrt(2*M_PI) / disp2 );
+        return d==0 ? P : P * math::powInt(log(P), d);
     }
-    // sample a point from this probability density
+    // sample a point from this density
     double sample() const {
         double x1, x2;
         math::getNormalRandomNumbers(x1, x2);
@@ -147,14 +152,41 @@ public:
         else
             return mean2 + disp2 * x1;
     }
-private:
-    double mean1, disp1, mean2, disp2;  // parameters of the PDF
+};
+
+// density described by the beta distribution
+class Density2: public math::IFunctionNoDeriv {
+public:
+    double a, b;  // parameters of the density (must be >=0)
+    double norm;  // normalization factor
+    double cap;   // upper bound on the value of density (needed for rejection sampling)
+    int d;        // multiply P(x) by ln(P(x)^d
+    Density2(double _a, double _b, double _norm) :
+        a(_a), b(_b),
+        norm(_norm * math::gamma(a+b+2) / math::gamma(a+1) / math::gamma(b+1)),
+        cap(norm * pow(a, a) * pow(b, b) / pow(a+b, a+b)),
+        d(0) {}
+    // evaluate the density at the given point
+    virtual double value(double x) const {
+        double P = x>=0 && x<=1 ? norm * pow(x, a) * pow(1-x, b) : 0;
+        return d==0 ? P : P * math::powInt(log(P), d);
+    }
+    // sample a point from this density using the rejection algorithm
+    double sample() const {
+        while(1) {
+            double x = math::random(), p = value(x), y = math::random() * cap;
+            assert(p<=cap);
+            if(y<p)
+                return x;
+        }
+    }
 };
 
 // Gaussian kernel density estimate for an array of points
 double kernelDensity(double x, const std::vector<double>& xvalues,
-    const std::vector<double>& weights, double width)
+    const std::vector<double>& weights)
 {
+    const double width = 0.05;
     double sum=0;
     for(unsigned int i=0; i<xvalues.size(); i++)
         sum += weights[i] * exp( -0.5*pow_2((x-xvalues[i])/width) );
@@ -164,50 +196,96 @@ double kernelDensity(double x, const std::vector<double>& xvalues,
 bool testPenalizedSplineDensity()
 {
     bool ok=true;
-    const double MEAN1= 1.0, DISP1=0.1, MEAN2=2.5, DISP2=1.0;
-    const double XMIN = fmin(MEAN1-3*DISP1, MEAN2-3*DISP2);  // limits of the interval for
-    const double XMAX = fmax(MEAN1+3*DISP1, MEAN2+3*DISP2);  // constructing the inferred PDF
-    const int NPOINTS = 1000; // # of points to sample
-    const int NNODES  = 50;    // nodes in the fitted probability density function
-    const int NCHECK  = 201;   // points to measure the inferred probability density
-    std::vector<double> xvalues(NPOINTS), weights(NPOINTS);
-    ProbDensity prob(MEAN1, DISP1, MEAN2, DISP2);
-    double logL = 0;
-    for(int i=0; i<NPOINTS; i++) {
-        xvalues[i] = prob.sample();
-        weights[i] = 1./NPOINTS;
-        // evaluate the likelihood of the sampled points against the true underlying prob.density
-        logL += weights[i] * prob(xvalues[i]);
+#if 1
+    const double MEAN1= 2.0, DISP1=0.1, MEAN2=3.0, DISP2=1.0;// parameters of density function
+    const double NORM = 1.;   // normalization (sum of weights of all samples)
+    const double XMIN = 0;//fmin(MEAN1-3*DISP1, MEAN2-3*DISP2);  // limits of the interval for
+    const double XMAX = 6;//fmax(MEAN1+3*DISP1, MEAN2+3*DISP2);  // constructing the estimators
+    const bool INF    = true;  // whether to assume that the domain is infinite
+    // density function from which the samples are drawn
+    Density1 dens(MEAN1, DISP1, MEAN2, DISP2, NORM);
+#else
+    const double A    = 0., B = 0.5;  // parameters of density fnc
+    const double NORM = 10.;
+    const double XMIN = 0., XMAX = 1.;
+    const bool INF    = false;
+    Density2 dens(A, B, NORM);
+#endif
+    const int NPOINTS = 10000; // # of points to sample
+    const int NNODES  = 49;    // nodes in the estimated density function
+    const int NCHECK  = 321;   // points to measure the estimated density
+    const double SMOOTHING=.5; // amount of smoothing applied to penalized spline estimate
+    const int NTRIALS = 100;   // number of different realizations of samples
+    std::vector<double> xvalues(NPOINTS), weights(NPOINTS);  // array of sample points
+
+    // first perform Monte Carlo experiment to estimate the average log-likelihood of
+    // a finite array of samples drawn from the density function, and its dispersion.
+    math::Averager avg;
+    for(int t=0; t<NTRIALS; t++) {
+        double logL = 0;
+        for(int i=0; i<NPOINTS; i++) {
+            xvalues[i] = dens.sample();
+            weights[i] = NORM/NPOINTS;
+            logL += log(dens(xvalues[i])) * weights[i];
+        }
+        avg.add(logL);
     }
-    std::cout << "True logL = " << logL << '\n';
+    std::cout << "Finite-sample log L = " << avg.mean() << " +- " << sqrt(avg.disp());
+    // compare with theoretical expectation
+    dens.d=1;   // integrate P(x) times ln(P(x)^d
+    double E = math::integrateAdaptive(dens, XMIN-5, XMAX+5, 1e-6);
+    dens.d=2;
+    double Q = math::integrateAdaptive(dens, XMIN-5, XMAX+5, 1e-6)*NORM;
+    double D = sqrt((Q-E*E)/NPOINTS);  // estimated rms scatter in log-likelihood
+    dens.d=0;   // restore the original function
+    std::cout << "  Expected log L = " << E << " +- " << D << "\n";
+
     if(OUTPUT) {
-        std::ofstream strm("test_math_spline_logdens.dat");
+        std::ofstream strm("test_math_spline_logdens_points.dat");
         for(size_t i=0; i<xvalues.size(); i++)
             strm << xvalues[i] << "\t" << weights[i] << "\n";
     }
+
     // grid defining the logdensity functions
     std::vector<double> grid = math::createUniformGrid(NNODES, XMIN, XMAX);
-    std::sort(xvalues.begin(), xvalues.end());
-    /*for(unsigned int i=0; i<NNODES; i++) {
-        double f = (i+.5)/NNODES;
-        grid[i] = xvalues[ f*f*(3-2*f) * NPOINTS ];
-    }*/
-    std::vector<double> testgrid = math::createUniformGrid(NCHECK, grid.front(), grid.back());
+
+    // grid of points to check the results
+    std::vector<double> testgrid = math::createUniformGrid(NCHECK, grid.front()-1, grid.back()+1);
     std::vector<double> truedens(NCHECK);
     for(int j=0; j<NCHECK; j++)
-        truedens[j] = log(prob(testgrid[j]));
+        truedens[j] = log(dens(testgrid[j]));
+    // spline approximation for the true density - to test how well it is described
+    // by a cubic spline defined by a small number of nodes
     math::CubicSpline spltrue(grid, math::SplineApprox(grid, testgrid).fit(truedens));
+    // estimators of various degree constructed from a finite array of samples
     math::LinearInterpolator spl1(grid,
-        math::logSplineDensity<1>(grid, xvalues, weights, true, true, 0));   // linear fit
+        math::logSplineDensity<1>(grid, xvalues, weights, INF, INF, 0));   // linear fit
     math::CubicSpline spl3o(grid,
-        math::logSplineDensity<3>(grid, xvalues, weights, true, true, 0.));  // non-penalized cubic
+        math::logSplineDensity<3>(grid, xvalues, weights, INF, INF, 0.));  // non-penalized cubic
     math::CubicSpline spl3p(grid,
-        math::logSplineDensity<3>(grid, xvalues, weights, true, true, 1.));  // penalized cubic
+        math::logSplineDensity<3>(grid, xvalues, weights, INF, INF, SMOOTHING));  // penalized cubic
+    double logLtrue=0, logL1=0, logL3o=0, logL3p=0, logL3s=0;
+    for(int i=0; i<NPOINTS; i++) {
+        // evaluate the likelihood of the sampled points against the true underlying density
+        // and against all approximations
+        logLtrue += weights[i] * log(dens(xvalues[i]));
+        logL1    += weights[i] * spl1(xvalues[i]);
+        logL3o   += weights[i] * spl3o(xvalues[i]);
+        logL3p   += weights[i] * spl3p(xvalues[i]);
+        logL3s   += weights[i] * spltrue(xvalues[i]);
+    }
+    ok &= fabs(logLtrue-logL1) < 3*D && fabs(logLtrue-logL3o) < 3*D &&
+        fabs(logL3p + SMOOTHING*D - logL3o) < 0.2*D;
+    std::cout << "Log-likelihood: true density = " << logLtrue <<
+        ", its cubic spline approximation = " << logL3s <<
+        ", linear B-spline estimate = " << logL1 <<
+        ", cubic B-spline estimate = " << logL3o <<
+        ", penalized cubic = " << logL3p << '\n';
     if(OUTPUT) {
-        std::ofstream strm("test_math_spline_logdens1.dat");
+        std::ofstream strm("test_math_spline_logdens.dat");
         for(int j=0; j<NCHECK; j++) {
             double x = testgrid[j];
-            double kernval = log(kernelDensity(x, xvalues, weights, (XMAX-XMIN)/NCHECK));
+            double kernval = log(kernelDensity(x, xvalues, weights));
             strm << x << '\t' << spl1(x) << '\t' << spl3o(x) << '\t' << spl3p(x) << '\t' <<
                 kernval << '\t' << truedens[j] << '\t' << spltrue(x) << '\n';
         }
@@ -342,29 +420,30 @@ bool test2dSpline()
 #endif
 
     // check values and derivatives at grid nodes on all four grid edges
+    const double EPS=1e-13;
     for(int i=0; i<NNODESX; i++) {
         double f, dy;
         spl2d.evalDeriv(xval[i], yval.front(), &f, NULL, &dy);
-        ok &= math::fcmp(dy, 1., 1e-13)==0 && math::fcmp(f, fval(i, 0), 1e-13)==0;
+        ok &= math::fcmp(dy, 1., EPS)==0 && math::fcmp(f, fval(i, 0), EPS)==0;
         spl2d.evalDeriv(xval[i], yval.back(), &f, NULL, &dy);
-        ok &= math::fcmp(dy, -1., 1e-13)==0 && math::fcmp(f, fval(i, NNODESY-1), 1e-13)==0;
+        ok &= math::fcmp(dy, -1., EPS)==0 && math::fcmp(f, fval(i, NNODESY-1), EPS)==0;
 
         spl2d5.evalDeriv(xval[i], yval.front(), &f, NULL, &dy);
-        ok &= math::fcmp(dy, 1., 1e-13)==0 && math::fcmp(f, fval(i, 0), 1e-13)==0;
+        ok &= math::fcmp(dy, 1., EPS)==0 && math::fcmp(f, fval(i, 0), EPS)==0;
         spl2d5.evalDeriv(xval[i], yval.back(), &f, NULL, &dy);
-        ok &= math::fcmp(dy, -1., 1e-13)==0 && math::fcmp(f, fval(i, NNODESY-1), 1e-13)==0;
+        ok &= math::fcmp(dy, -1., EPS)==0 && math::fcmp(f, fval(i, NNODESY-1), EPS)==0;
     }
     for(int j=0; j<NNODESY; j++) {
         double f, dx;
         spl2d.evalDeriv(xval.front(), yval[j], &f, &dx);
-        ok &= math::fcmp(dx, 0.)==0 && math::fcmp(f, fval(0, j), 1e-13)==0;
+        ok &= math::fcmp(dx, 0.)==0 && math::fcmp(f, fval(0, j), EPS)==0;
         spl2d.evalDeriv(xval.back(), yval[j], &f, &dx);
-        ok &= fabs(dx)<10 && math::fcmp(f, fval(NNODESX-1, j), 1e-13)==0;
+        ok &= fabs(dx)<10 && math::fcmp(f, fval(NNODESX-1, j), EPS)==0;
 
         spl2d5.evalDeriv(xval.front(), yval[j], &f, &dx);
-        ok &= math::fcmp(dx, 0.)==0 && math::fcmp(f, fval(0, j), 1e-13)==0;
+        ok &= math::fcmp(dx, 0.)==0 && math::fcmp(f, fval(0, j), EPS)==0;
         spl2d5.evalDeriv(xval.back(), yval[j], &f, &dx);
-        ok &= fabs(dx)<10 && math::fcmp(f, fval(NNODESX-1, j), 1e-13)==0;
+        ok &= fabs(dx)<10 && math::fcmp(f, fval(NNODESX-1, j), EPS)==0;
     }
 
     // check derivatives on the entire edge at the three edges that had a prescribed value of derivative
@@ -373,9 +452,9 @@ bool test2dSpline()
         double x = i*xval.back()/NN;
         double dy;
         spl2d.evalDeriv(x, yval.front(), NULL, NULL, &dy);
-        ok &= math::fcmp(dy, 1., 1e-13)==0;
+        ok &= math::fcmp(dy, 1., EPS)==0;
         spl2d.evalDeriv(x, yval.back(), NULL, NULL, &dy);
-        ok &= math::fcmp(dy, -1., 1e-13)==0;
+        ok &= math::fcmp(dy, -1., EPS)==0;
         double y = i*yval.back()/NN;
         double dx;
         spl2d.evalDeriv(xval.front(), y, NULL, &dx);
@@ -388,8 +467,7 @@ bool test2dSpline()
             double c, cx, cy, q, qx, qy;
             spl2d .evalDeriv(xval[i], yval[j], &c, &cx, &cy);
             spl2d5.evalDeriv(xval[i], yval[j], &q, &qx, &qy);
-            ok &= math::fcmp(c, q, 1e-13)==0 && 
-                math::fcmp(cx, qx, 1e-13)==0 && math::fcmp(cy, qy, 1e-13)==0;
+            ok &= fabs(c-q)<EPS && fabs(cx-qx)<EPS && fabs(cy-qy)<EPS;
         }
 
     std::ofstream strm;
@@ -410,12 +488,12 @@ bool test2dSpline()
             double wder2x[2], wder2y[2]; 
             double* wder2[] = {wder2x, wder2y};
             double wval = WD::Psplev2D(WD_X, WD_Y, WD_Z, WD_K, wx, wder, wder2);
-            ok &=      (math::fcmp(z5, wval, 1e-13)==0 || fabs(z5  -wval   )  <1e-13) && 
-                (math::fcmp(d5x,  wder[0],   1e-13)==0 || fabs(d5x -wder[0])  <1e-13) && 
-                (math::fcmp(d5y,  wder[1],   1e-13)==0 || fabs(d5y -wder[1])  <1e-13) && 
-                (math::fcmp(d5xx, wder2x[0], 1e-13)==0 || fabs(d5xx-wder2x[0])<1e-13) &&
-                (math::fcmp(d5xy, wder2x[1], 1e-13)==0 || fabs(d5xy-wder2x[1])<1e-13) && 
-                (math::fcmp(d5yy, wder2y[1], 1e-13)==0 || fabs(d5yy-wder2y[1])<1e-13);
+            ok &=      (math::fcmp(z5, wval, EPS)==0 || fabs(z5  -wval   )  <EPS) && 
+                (math::fcmp(d5x,  wder[0],   EPS)==0 || fabs(d5x -wder[0])  <EPS) && 
+                (math::fcmp(d5y,  wder[1],   EPS)==0 || fabs(d5y -wder[1])  <EPS) && 
+                (math::fcmp(d5xx, wder2x[0], EPS)==0 || fabs(d5xx-wder2x[0])<EPS) &&
+                (math::fcmp(d5xy, wder2x[1], EPS)==0 || fabs(d5xy-wder2x[1])<EPS) && 
+                (math::fcmp(d5yy, wder2y[1], EPS)==0 || fabs(d5yy-wder2y[1])<EPS);
 #endif
             if(OUTPUT)
                 strm << x << ' ' << y << ' ' << 

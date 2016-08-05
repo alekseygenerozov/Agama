@@ -594,7 +594,7 @@ double findMin(const IFunction& fnc, double xlower, double xupper, double xinit,
     xupper = F.y_from_x(xupper);
     if(xinit == xinit) 
         xinit  = F.y_from_x(xinit);
-    else {    // initial guess not provided
+    else {    // initial guess not provided - try to find it somewhere inside the interval
         xinit = (xlower+xupper)/2;
         double ylower = F(xlower);
         double yupper = F(xupper);
@@ -604,22 +604,12 @@ double findMin(const IFunction& fnc, double xlower, double xupper, double xinit,
         double abstoler = reltoler*fabs(xupper-xlower);
         int iter = 0;
         while( (yinit>=ylower || yinit>=yupper) && iter<MAXITER && fabs(xlower-xupper)>abstoler) {
-            if(yinit<ylower) {
+            if(ylower<yupper) {
+                xupper=xinit;
+                yupper=yinit;
+            } else {
                 xlower=xinit;
                 ylower=yinit;
-            } else {
-                if(yinit<yupper) {
-                    xupper=xinit;
-                    yupper=yinit;
-                } else {  // pathological case - initial guess was higher than both ends
-                    double xmin1 = findMin(F, xlower, xinit,  NAN, reltoler);
-                    double xmin2 = findMin(F, xinit,  xupper, NAN, reltoler);
-                    double ymin1 = F(xmin1);
-                    double ymin2 = F(xmin2);
-                    if(!isFinite(ymin1+ymin2))
-                        return NAN;
-                    return F.x_from_y(ymin1<ymin2 ? xmin1 : xmin2);
-                }
             }
             xinit=(xlower+xupper)/2;
             yinit=F(xinit);

@@ -65,7 +65,7 @@ private:
     PtrActionSpaceScaling scaling;
 
     /// the interpolator defined on the scaled grid in action space
-    const math::KernelInterpolator3d<N> interp;
+    const math::BsplineInterpolator3d<N> interp;
 
     /// the amplitudes of 3d interpolation kernels
     const std::vector<double> amplitudes;

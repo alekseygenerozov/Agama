@@ -23,11 +23,10 @@ const bool output = true;
 /// write potential coefs into file, load them back and create a new potential from these coefs
 PtrPotential writeRead(const potential::BasePotential& pot)
 {
-    std::string coefFile("test_potential_sphharm");
-    coefFile += getCoefFileExtension(pot);
+    const char* coefFile = "test_potential_expansions.coef";
     writePotential(coefFile, pot);
     PtrPotential newpot = potential::readPotential(coefFile);
-    std::remove(coefFile.c_str());
+    std::remove(coefFile);
     return newpot;
 }
 
@@ -324,6 +323,7 @@ int main() {
     const potential::Dehnen test6_Dehnen1Tri(1., 1., 1., 0.8, 0.5);      // triaxial cuspy Hernquist
     // N-body representation of the same profile
     particles::PointMassArray<coord::PosSph> test6_points = makeDehnen(100000, 1., 0.8, 0.5);
+#if 0
 
     // 3b. test the approximating density profiles
     std::cout << "--- Testing accuracy of density profile interpolators: "
@@ -431,12 +431,18 @@ int main() {
     PtrPotential test6b = createFromFile(test6_points, potential::BasisSetExp::myName());
     // could also use createFromFile(test6_points, "SplineExp");  below
     PtrPotential test6s(new potential::SplineExp(20, 6, test6_points, coord::ST_TRIAXIAL));
+#endif
     PtrPotential test6m = potential::Multipole::create(test6_points,
         coord::ST_TRIAXIAL, 6, 6, 20);
-    ok &= testAverageError(*test6b, test6_Dehnen1Tri, 0.5);
-    ok &= testAverageError(*test6s, test6_Dehnen1Tri, 0.5);
+    potential::PtrDensity dsh = potential::DensitySphericalHarmonic::create(test6_points, coord::ST_TRIAXIAL, 6, 6, 50, 0,0, 0.5);
+    PtrPotential test6c = potential::Multipole::create(*dsh, 6, 6, 20);
+    writeDensity("do", *potential::DensitySphericalHarmonic::create(test6_Dehnen1Tri, 6, 6, 100,1e-3,1e3));
+    writeDensity("dd", *dsh);
+    writeDensity("dm", *potential::DensitySphericalHarmonic::create(*test6m, 6, 6, 100,1e-3,1e3));
+//    ok &= testAverageError(*test6b, test6_Dehnen1Tri, 0.5);
+//    ok &= testAverageError(*test6s, test6_Dehnen1Tri, 0.5);
     ok &= testAverageError(*test6c, test6_Dehnen1Tri, 3.0);
-    ok &= testAverageError(*test6m, test6_Dehnen1Tri, 1.0);
+//    ok &= testAverageError(*test6m, test6_Dehnen1Tri, 1.0);
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n\n";
     return 0;

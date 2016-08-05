@@ -44,36 +44,37 @@ but only if its derivatives at grid nodes are known with sufficiently high accur
 
 ###  3-dimensional case.
 In this case, the strategy is somewhat different: instead of a single object encapsulating
-all data needed for interpolation, we provide the interface based on tensor product of B-spline
-kernels in each dimension, and the amplitudes of these kernels are provided by the user.
-In other words, the value of function is represented as a sum of interpolating kernels with
-adjustable amplitudes, and each kernel is a separable function of three coordinates, i.e.
-a product of three one-dimensional kernels. These 1d kernels are piecewise polynomials of degree N
-with compact support spanning at most N+1 adjacent intervals between nodes on their respective axis.
-Thus the interpolation is local, i.e. is determined by the amplitudes of at most (N+1)^3 kernels
-that are possibly non-zero at the given point; however, to find the amplitudes that yield the given
-values of function at all nodes of a 3d grid, one needs to solve a global linear system for all
-nodes, except the case of a linear (N=1) interpolator.
+all data needed for interpolation, we provide the interface based on tensor product of
+B-spline basis functions in each dimension, and their amplitudes are supplied by the user.
+In other words, the value of function is represented as a sum of interpolating basis functions
+with adjustable amplitudes, and each basis function is a separable function of three coordinates,
+i.e. a product of three one-dimensional functions. These 1d basis functions are piecewise
+polynomials of degree N with compact support spanning at most N+1 adjacent intervals between
+nodes on their respective axis. Thus the interpolation is local, i.e. is determined by
+the amplitudes of at most (N+1)^3 basis functions that are possibly non-zero at the given point;
+however, to find the amplitudes that yield the given values of function at all nodes of a 3d grid,
+one needs to solve a global linear system for all nodes, except the case of a linear (N=1)
+interpolator.
 
 ###  Penalized spline smoothing.
-The approach based on B-spline kernels can be used also for constructing a smooth approximation
-to the set of 'measurements'.
+The approach based on B-spline basis functions can be used also for constructing
+a smooth approximation to the set of 'measurements'.
 
 For instance, in one-dimensional case  {x[p], y[p], p=0..P-1}  are the data points, and we seek
 a smooth function that passes close to these points but does not necessarily through them,
 and moreover has an adjustable tradeoff between smoothness and mean-square deviation from data.
-This approximating function is given as a weighted sum of 1d B-spline kernels of degree 3,
-where the amplitudes (or weights of these kernels) are obtained from a linear system for
+This approximating function is given as a weighted sum of 1d B-splines of degree 3,
+where the amplitudes of these basis functions are obtained from a linear system for
 the given data points and given amount of smoothing.
 
-The formulation in terms of 1d third-degree kernels is equivalent to a clamped cubic spline,
+The formulation in terms of 1d third-degree B-splines is equivalent to a clamped cubic spline,
 which is more efficient to compute, so after obtaining the amplitudes they should be converted
 to the values of interpolating function at its nodes, plus two endpoint derivatives, and used to
 construct a cubic spline.
 
-The same approach works in more than one dimension. The amplitudes of a 2d kernel interpolator
+The same approach works in more than one dimension. The amplitudes of a 2d B-spline interpolator
 may be converted into its values and derivatives, and used to construct a 2d quintic spline.
-In the 3d case, the amplitudes are directly used with a cubic (N=3) 3d kernel interpolator.
+In the 3d case, the amplitudes are directly used with a cubic (N=3) 3d B-spline interpolator.
 
 ###  Code origin
 1d cubic spline is based on the GSL implementation by G.Jungman;
@@ -95,10 +96,10 @@ public:
     /** empty constructor is required for the class to be used in std::vector and alike places */
     BaseInterpolator1d() {};
 
-    /** Initialize a 1d interpolator from the provided values of x and y;
+    /** Initialize a 1d interpolator from the provided values of x and f(x);
         x should be at least of length 2 and monotonically increasing.
     */
-    BaseInterpolator1d(const std::vector<double>& xvalues, const std::vector<double>& yvalues);
+    BaseInterpolator1d(const std::vector<double>& xvalues, const std::vector<double>& fvalues);
 
     /** return the number of derivatives that the interpolator provides */
     virtual unsigned int numDerivs() const { return 2; }
@@ -117,7 +118,7 @@ public:
 
 protected:
     std::vector<double> xval;  ///< grid nodes
-    std::vector<double> yval;  ///< values of function at grid nodes
+    std::vector<double> fval;  ///< values of function at grid nodes
 };
 
 /** Class that provides a simple piecewise-linear interpolation for an array of x,y values */
@@ -125,7 +126,7 @@ class LinearInterpolator: public BaseInterpolator1d {
 public:
     LinearInterpolator() : BaseInterpolator1d() {};
 
-    LinearInterpolator(const std::vector<double>& xvalues, const std::vector<double>& yvalues);
+    LinearInterpolator(const std::vector<double>& xvalues, const std::vector<double>& fvalues);
 
     /** compute the value of interpolator and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
@@ -142,7 +143,7 @@ public:
         (1) from the values of the function at grid nodes, and optionally its endpoint derivatives;
         (2) from the amplitudes of B-spline functions returned by fitting routines.
         \param[in]  xvalues  - the array of grid nodes, should be monotonically increasing.
-        \param[in]  yvalues  - in the first case, an array of function values
+        \param[in]  fvalues  - in the first case, an array of function values
         at grid nodes (same length as xvalues);
         in the second case, an array of B-spline amplitudes, with length equal to xvalues.size()+2.
         \param[in]  derivLeft  (optional)  - first derivative of the spline at the leftmost
@@ -152,7 +153,7 @@ public:
         \throws  std::invalid_argument exception if grid is too small or not monotonic,
         or the array sizes are incorrect.
     */
-    CubicSpline(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+    CubicSpline(const std::vector<double>& xvalues, const std::vector<double>& fvalues,
         double derivLeft=NAN, double derivRight=NAN);
 
     /** compute the value of spline and optionally its derivatives at point x;
@@ -171,7 +172,7 @@ public:
     bool isMonotonic() const;
 
 private:
-    std::vector<double> cval;  ///< second derivatives of function at grid nodes
+    std::vector<double> fder2;  ///< second derivatives of function at grid nodes
 };
 
 
@@ -184,10 +185,10 @@ class HermiteSpline: public BaseInterpolator1d {
 public:
     HermiteSpline() : BaseInterpolator1d() {};
 
-    /** Initialize the spline from the provided values of x, y(x) and y'(x)
+    /** Initialize the spline from the provided values of x, f(x) and f'(x)
         (which should be arrays of equal length, and x values must be monotonically increasing).
     */
-    HermiteSpline(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
+    HermiteSpline(const std::vector<double>& xvalues, const std::vector<double>& fvalues,
         const std::vector<double>& yderivs);
 
     /** compute the value of spline and optionally its derivatives at point x;
@@ -195,7 +196,7 @@ public:
     virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
 
 private:
-    std::vector<double> yder;  ///< first derivatives of function at grid nodes
+    std::vector<double> fder;  ///< first derivatives of function at grid nodes
 };
 
 
@@ -209,11 +210,11 @@ class QuinticSpline: public BaseInterpolator1d {
 public:
     QuinticSpline() : BaseInterpolator1d() {};
 
-    /** Initialize a quintic spline from the provided values of x, y(x) and y'(x)
+    /** Initialize a quintic spline from the provided values of x, f(x) and f'(x)
         (which should be arrays of equal length, and x values must be monotonically increasing).
     */
-    QuinticSpline(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
-        const std::vector<double>& yderivs);
+    QuinticSpline(const std::vector<double>& xvalues, const std::vector<double>& fvalues,
+        const std::vector<double>& fderivs);
 
     /** compute the value of spline and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
@@ -226,8 +227,8 @@ public:
     virtual unsigned int numDerivs() const { return 3; }
 
 private:
-    std::vector<double> yder;  ///< first derivatives of function at grid nodes
-    std::vector<double> yder3; ///< third derivatives of function at grid nodes
+    std::vector<double> fder;  ///< first derivatives of function at grid nodes
+    std::vector<double> fder3; ///< third derivatives of function at grid nodes
 };
 
 
@@ -239,12 +240,12 @@ private:
 class BaseInterpolator2d: public IFunctionNdim {
 public:
     BaseInterpolator2d() {};
-    /** Initialize a 2d interpolator from the provided values of x, y and z.
-        The latter is 2d array with the following indexing convention:  z[i][j] = f(x[i],y[j]).
+    /** Initialize a 2d interpolator from the provided values of x, y and f.
+        The latter is 2d array with the following indexing convention:  f[i][j] = f(x[i],y[j]).
         Values of x and y arrays should monotonically increase.
     */
     BaseInterpolator2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
-        const Matrix<double>& zvalues);
+        const Matrix<double>& fvalues);
 
     /** compute the value of the interpolating function and optionally its derivatives at point x,y;
         if the input location is outside the definition region, the result is NaN.
@@ -286,7 +287,7 @@ public:
 
 protected:
     std::vector<double> xval, yval;  ///< grid nodes in x and y directions
-    Matrix<double> zval;             ///< flattened 2d array of z values
+    Matrix<double> fval;             ///< 2d array of f values
 };
 
 
@@ -295,13 +296,13 @@ class LinearInterpolator2d: public BaseInterpolator2d {
 public:
     LinearInterpolator2d() : BaseInterpolator2d() {};
 
-    /** Initialize a 2d interpolator from the provided values of x, y and z.
-        The latter is 2d array with the following indexing convention:  z[i][j] = f(x[i],y[j]).
+    /** Initialize a 2d interpolator from the provided values of x, y and f.
+        The latter is 2d array with the following indexing convention:  f[i][j] = f(x[i],y[j]).
         Values of x and y arrays should monotonically increase.
     */
     LinearInterpolator2d(const std::vector<double>& xgrid, const std::vector<double>& ygrid,
-        const Matrix<double>& zvalues) : 
-        BaseInterpolator2d(xgrid, ygrid, zvalues) {};
+        const Matrix<double>& fvalues) : 
+        BaseInterpolator2d(xgrid, ygrid, fvalues) {};
 
     /** Compute the value and/or derivatives of the interpolator;
         note that for the linear interpolator the 2nd derivatives are always zero. */
@@ -316,15 +317,15 @@ class CubicSpline2d: public BaseInterpolator2d {
 public:
     CubicSpline2d() : BaseInterpolator2d() {};
 
-    /** Initialize a 2d cubic spline from the provided values of x, y and z.
-        The latter is 2d array (Matrix) with the following indexing convention:  z(i,j) = f(x[i],y[j]).
+    /** Initialize a 2d cubic spline from the provided values of x, y and f.
+        The latter is 2d array (Matrix) with the following indexing convention:  f(i,j) = f(x[i],y[j]).
         Values of x and y arrays should monotonically increase.
         Derivatives at the boundaries of definition region may be provided as optional arguments
         (currently a single value per entire side of the rectangle is supported);
         if any of them is NaN this means a natural boundary condition.
     */
     CubicSpline2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
-        const Matrix<double>& zvalues,
+        const Matrix<double>& fvalues,
         double deriv_xmin=NAN, double deriv_xmax=NAN, double deriv_ymin=NAN, double deriv_ymax=NAN);
 
     /** compute the value of spline and optionally its derivatives at point x,y */
@@ -334,7 +335,7 @@ public:
 
 private:
     /// flattened 2d arrays of derivatives in x and y directions, and mixed 2nd derivatives
-    Matrix<double> zx, zy, zxy;
+    Matrix<double> fx, fy, fxy;
 };
 
 
@@ -343,13 +344,13 @@ class QuinticSpline2d: public BaseInterpolator2d {
 public:
     QuinticSpline2d() : BaseInterpolator2d() {};
 
-    /** Initialize a 2d quintic spline from the provided values of x, y, z(x,y), dz/dx and dz/dy.
+    /** Initialize a 2d quintic spline from the provided values of x, y, f(x,y), df/dx and df/dy.
         The latter three are 2d arrays (variables of Matrix type) with the following indexing
-        convention:  z(i,j) = f(x[i],y[j]), etc.
+        convention:  f(i,j) = f(x[i],y[j]), etc.
         Values of x and y arrays should monotonically increase.
     */
     QuinticSpline2d(const std::vector<double>& xvalues, const std::vector<double>& yvalues,
-        const Matrix<double>& zvalues, const Matrix<double>& dzdx, const Matrix<double>& dzdy);
+        const Matrix<double>& fvalues, const Matrix<double>& dfdx, const Matrix<double>& dfdy);
 
     /** compute the value of spline and optionally its derivatives at point x,y */
     virtual void evalDeriv(const double x, const double y,
@@ -357,7 +358,7 @@ public:
         double* deriv_xx=0, double* deriv_xy=0, double* deriv_yy=0) const;
 
 private:
-    Matrix<double> zx, zy, zxxx, zyyy, zxyy, zxxxyy;
+    Matrix<double> fx, fy, fxxx, fyyy, fxyy, fxxxyy;
 };
 
 
@@ -365,13 +366,13 @@ private:
 /// \name Three-dimensional interpolation
 ///@{
 
-/** Three-dimensional kernel interpolator class.
+/** Three-dimensional B-spline interpolator class.
     The value of interpolant is given by a weighted sum of components:
-    \f$  f(x,y,z) = \sum_n  A_n  K_n(x,y,z) ,  0 <= n < numComp  \f$,
-    where A_n are the amplitudes and K_n are 3d interpolation kernels, obtained by a tensor product
-    of three 1d interpolating kernels, which are piecewise polynomials (B-splines) of degree N>=1
-    that are nonzero on a finite interval between at most N+1 grid points in each dimension.
-    The interpolation is local - at any point, at most (N+1)^3 kernels are non-zero.
+    \f$  f(x,y,z) = \sum_n  A_n  B_n(x,y,z) ,  0 <= n < numComp  \f$,
+    where A_n are the amplitudes and B_n are 3d basis functions, obtained by a tensor product of 
+    three 1d interpolating basis functions, which are piecewise polynomials (B-splines) of degree
+    N>=1 that are nonzero on a finite interval between at most N+1 grid points in each dimension.
+    The interpolation is local - at any point, at most (N+1)^3 basis functions are non-zero.
     The total number of components numComp = (N_x+N-1) * (N_y+N-1) * (N_z+N-1), where N_x,N_y,N_z
     are the grid sizes in each dimension; the correspondence between the triplet of indices {i,j,k}
     and the index of the component n is given by two functions `indComp` and `decomposeIndComp`.
@@ -379,20 +380,22 @@ private:
     and the value of interpolant at each node of 3d grid is equal to the amplitude of
     the correspoding component; in other words, if we denote the grid nodes as X[i],Y[j],Z[k],
     0<=i<N_x, etc., then  f(X[i], Y[j], Z[k]) = A[indComp(i,j,k)].
-    However, for higher-order interpolators (N>1) there is no 1:1 correspondence between the amplitudes
-    of components and the values of interpolant at grid points (like a Bezier curve does not pass
-    through its control points), and the number of components is larger than the total number of nodes.
-    This class does not itself hold the amplitudes of components, it only manages the interpolation
-    kernels - e.g., `nonzeroKernels()` computes the values of all possibly non-zero kernels
-    at the given point, the method `eval()` implementing IFunctionNdim interface computes the values
-    of all numComp kernels at the given point, and `interpolate()` computes the value of interpolant
-    at the given point from the provided array of amplitudes, summing only over the relevant kernels.
-    The sum of all kernel functions is always unity, and the kernels themselves are non-negative.
-    \tparam  N is the degree of 1d interpolation kernels
+    However, for higher-order interpolators (N>1) there is no 1:1 correspondence between
+    the amplitudes of components and the values of interpolant at grid points (like a Bezier
+    curve does not pass through its control points), and the number of components is larger
+    than the total number of nodes.
+    This class does not itself hold the amplitudes of components, it only manages
+    the basis functions for interpolation - e.g., `nonzeroBsplines()` computes the values
+    of all possibly non-zero basis functions at the given point, the method `eval()`
+    implementing IFunctionNdim interface computes the values of all numComp basis functions
+    at the given point, and `interpolate()` computes the value of interpolant at the given
+    point from the provided array of amplitudes, summing only over the non-trivial B-splines.
+    The sum of all basis functions is always unity, and each function is non-negative.
+    \tparam  N is the degree of 1d B-splines
     (N=1 - linear, N=3 - cubic, other cases are not implemented).
 */
 template<int N>
-class KernelInterpolator3d: public math::IFunctionNdim {
+class BsplineInterpolator3d: public math::IFunctionNdim {
 public:
     /** Initialize a 3d interpolator from the provided 1d arrays of grid nodes in x, y and z dimensions.
         \param[in] xnodes, ynodes, znodes are the nodes of grid in each dimension,
@@ -400,20 +403,20 @@ public:
         There is no work done in the constructor apart from checking the validity of parameters.
         \throw std::invalid_argument if the 1d grids are invalid.
     */
-    KernelInterpolator3d(const std::vector<double>& xnodes,
+    BsplineInterpolator3d(const std::vector<double>& xnodes,
         const std::vector<double>& ynodes, const std::vector<double>& znodes);
 
-    /** Compute the values of all potentially non-zero interpolating kernels at the given point,
-        needed to obtain the value of interpolant f(x,y,z) at this point.
+    /** Compute the values of all potentially non-zero interpolating basis functions
+        at the given point, needed to obtain the value of interpolant f(x,y,z) at this point.
         \param[in]  point is the array of three coordinates of the point;
-        \param[out] leftIndices is the array of indices of leftmost elements used for kernel
+        \param[out] leftIndices is the array of indices of leftmost elements used for B-spline
         interpolation in each of 3 dimensions: N+1 consecutive elements are used per dimension;
-        \param[out] values  is the array of (N+1)^3 weights (values of 3d interpolation kernels)
+        \param[out] values  is the array of (N+1)^3 weights (values of 3d interpolation B-splines)
         that must be multiplied by the amplitudes to compute the interpolant, namely:
         \f$  f(x,y,z) = \sum_{i=0}^N \sum_{j=0}^N \sum_{k=0}^N
              A[indComp(i+l[0], j+l[1], k+l[2])  \times  values[(i * (N+1) + j) * (N+1) + k]  \f$,
         where `l` is the shortcut for `leftIndices`, and `A` is the flattened array of amplitudes.
-        The sum of weights of all kernels is always 1, and weights are non-negative.
+        The sum of weights of all B-splines is always 1, and weights are non-negative.
         The special case when one of these weigths is 1 and the rest are 0 occurs at the corners of
         the cube (the definition region), or, for a linear intepolator (N=1) also at all grid nodes,
         and means that the value of interpolant `f` is equal to the single element of the amplitudes
@@ -423,19 +426,20 @@ public:
     */
     void nonzeroComponents(const double point[3], unsigned int leftIndices[3], double values[]) const;
 
-    /** Return the value of a single component (interpolation kernel) at the given point.
+    /** Return the value of a single component (interpolation basis function) at the given point.
         Note that it is much more efficient to compute all possibly nonzero components at once,
         by calling `nonzeroComponents()`, than calling this function separately for each indComp;
         alternatively, `eval()` returns the values of all numComp (empty and non-empty) components.
         \param[in]  point  is the array of three coordinates of the point;
         \param[in]  indComp  is the index of component (0 <= indComp < numComp);
-        \return  the value of a single interpolation kernel at this point, or zero if the point
-        is outside the grid definition region;
+        \return  the value of a single interpolation basis function at this point,
+        or zero if the point is outside the grid definition region;
         \throw std::range_error if indComp is out of range.
     */
     double valueOfComponent(const double point[3], unsigned int indComp) const;
 
-    /** Report the region of 3d space where the interpolation kernel of the given component is nonzero.
+    /** Report the region of 3d space where the interpolation basis function
+        of the given component is nonzero.
         \param[in]  indComp is the index of component;
         \param[out] xlower  are the coordinates of the lower corner of the region;
         \param[out] xupper  same for the upper corner;
@@ -443,9 +447,9 @@ public:
     */
     void nonzeroDomain(unsigned int indComp, double xlower[3], double xupper[3]) const;
 
-    /** Compute the values of all numComp kernels at the given point.
+    /** Compute the values of all numComp basis functions at the given point.
         \param[in]  point is the array of three coordinates of the point;
-        \param[out] values will contain the values of all kernels at the given point
+        \param[out] values will contain the values of all basis functions at the given point
         (many of them may be zero); must point to an existing array of length numComp
         (no range check performed!).
         If the input point is outside the grid, all values will contain zeros.
@@ -454,9 +458,11 @@ public:
 
     /** Compute the value of the interpolant `f` at the given point.
         \param[in] point is the array of three coordinates of the point;
-        \param[in] amplitudes is the array of numComp amplitudes of each kernel, provided by the caller;
-        \return    the weighted sum of all potentially non-zero kernels at this point, multiplied by
-        their respective amplitudes, or 0 if the input location is outside the grid definition region.
+        \param[in] amplitudes is the array of numComp amplitudes of each basis function,
+        provided by the caller;
+        \return    the weighted sum of all potentially non-zero basis functions at this point,
+        multiplied by their respective amplitudes, or 0 if the input location is outside
+        the grid definition region.
         \throw std::range_error if the length of `amplitudes` does not correspond to numComp.
     */
     double interpolate(const double point[3], const std::vector<double> &amplitudes) const;
@@ -464,7 +470,7 @@ public:
     /** The dimensions of interpolator (3) */
     virtual unsigned int numVars()   const { return 3; }
 
-    /** The number of components (3d interpolation kernels) */
+    /** The number of components (3d interpolation basis functions) */
     virtual unsigned int numValues() const { return numComp; }
 
     /** Return the index of element in the flattened 3d array of function values
@@ -504,9 +510,9 @@ private:
 };
 
 /// trilinear interpolator
-typedef KernelInterpolator3d<1> LinearInterpolator3d;
+typedef BsplineInterpolator3d<1> LinearInterpolator3d;
 /// tricubic interpolator
-typedef KernelInterpolator3d<3> CubicInterpolator3d;
+typedef BsplineInterpolator3d<3> CubicInterpolator3d;
 
 /** Fill the array of amplitudes for a 3d interpolator by collecting the values of the source
     function F at the nodes of 3d grid.
@@ -520,7 +526,7 @@ typedef KernelInterpolator3d<3> CubicInterpolator3d;
     \tparam     N  is the degree of interpolator (implemented for N=1 and N=3);
     \param[in]  F  is the source function of 3 variables, returning one value;
     \param[in]  xnodes, ynodes, znodes are the grids in each of three coordinates;
-    \return  the array of amplitudes suitable to use with `KernelInterpolator::interpolate()` routine;
+    \return  the array of amplitudes suitable to use with `BsplineInterpolator::interpolate()` routine;
     by construction, the values of interpolant at grid nodes should be equal to the values of source
     function (but the array of amplitudes does not have a simple interpretation in the case N>1).
     \throw  std::invalid_argument if the source function has incorrect dimensions,
@@ -538,7 +544,7 @@ std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
     \param[in]  points  is the matrix with N_p rows and 3 columns, representing the sampled points;
     \param[in]  weights  is the array of point weights;
     \param[in]  xnodes, ynodes, znodes are the grids in each of three coordinates;
-    \return  the array of amplitudes suitable to use with `KernelInterpolator::interpolate()` routine;
+    \return  the array of amplitudes suitable to use with `BsplineInterpolator::interpolate()` routine;
     \throw  std::invalid_argument if the array sizes are incorrect, or std::runtime_error in case
     of other possible problems.
 */
