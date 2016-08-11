@@ -134,8 +134,8 @@ public:
     ~RandGenStorage() {
         gsl_rng_free(randgen);
     }
-    void randomize() {
-        gsl_rng_set(randgen, (unsigned int)time( NULL ));
+    void randomize(unsigned int seed) {
+        gsl_rng_set(randgen, seed ? seed : (unsigned int)time( NULL ));
     }
     inline double random() {
         return gsl_rng_uniform(randgen);
@@ -144,6 +144,11 @@ private:
     gsl_rng* randgen;
 };
 static RandGenStorage randgen;  // global random number generator
+
+void randomize(unsigned int seed)
+{
+    randgen.randomize(seed);
+}
 
 // convenience function to generate a random number using global generator
 double random()
@@ -547,7 +552,8 @@ double findRoot(const IFunction& fnc, double xlower, double xupper, double relto
 
 // 1d minimizer with known initial point
 static double findMinKnown(const IFunction& fnc, 
-    double xlower, double xupper, double xinit, double reltoler)
+    double xlower, double xupper, double xinit,
+    double flower, double fupper, double finit, double reltoler)
 {
     gsl_function F;
     F.function = &functionWrapper;
@@ -555,25 +561,33 @@ static double findMinKnown(const IFunction& fnc,
     gsl_min_fminimizer *minser = gsl_min_fminimizer_alloc(gsl_min_fminimizer_brent);
     double xroot = NAN;
     double abstoler = reltoler*fabs(xupper-xlower);
-    if(gsl_min_fminimizer_set(minser, &F, xinit, xlower, xupper) == GSL_SUCCESS) {
-        int iter=0;
-        do {
-            iter++;
-            try {
-                gsl_min_fminimizer_iterate (minser);
-            }
-            catch(std::runtime_error&) {
-                xroot = NAN;
-                break;
-            }
-            xroot  = gsl_min_fminimizer_x_minimum (minser);
-            xlower = gsl_min_fminimizer_x_lower (minser);
-            xupper = gsl_min_fminimizer_x_upper (minser);
+    gsl_min_fminimizer_set_with_values(minser, &F, xinit, finit, xlower, flower, xupper, fupper);
+    int iter=0;
+    do {
+        iter++;
+        try {
+            gsl_min_fminimizer_iterate (minser);
         }
-        while (fabs(xlower-xupper) > abstoler && iter < MAXITER);
+        catch(std::runtime_error&) {
+            xroot = NAN;
+            break;
+        }
+        xroot  = gsl_min_fminimizer_x_minimum (minser);
+        xlower = gsl_min_fminimizer_x_lower (minser);
+        xupper = gsl_min_fminimizer_x_upper (minser);
     }
+    while (fabs(xlower-xupper) > abstoler && iter < MAXITER);
     gsl_min_fminimizer_free(minser);
     return xroot;
+}
+
+static inline double minGuess(double x1, double x2, double y1, double y2)
+{
+    const double golden = 0.618034;
+    if(y1<y2)
+        return x1 * golden + x2 * (1-golden);
+    else
+        return x2 * golden + x1 * (1-golden);
 }
 
 // 1d minimizer without prior knowledge of minimum location
@@ -592,35 +606,35 @@ double findMin(const IFunction& fnc, double xlower, double xupper, double xinit,
     ScaledFunction F(fnc, xlower, xupper);
     xlower = F.y_from_x(xlower);
     xupper = F.y_from_x(xupper);
-    if(xinit == xinit) 
+    double ylower = F(xlower);
+    double yupper = F(xupper);
+    if(xinit == xinit) {
         xinit  = F.y_from_x(xinit);
-    else {    // initial guess not provided - try to find it somewhere inside the interval
-        xinit = (xlower+xupper)/2;
-        double ylower = F(xlower);
-        double yupper = F(xupper);
-        double yinit  = F(xinit);
-        if(!isFinite(ylower+yupper+yinit))
-            return NAN;
-        double abstoler = reltoler*fabs(xupper-xlower);
-        int iter = 0;
-        while( (yinit>=ylower || yinit>=yupper) && iter<MAXITER && fabs(xlower-xupper)>abstoler) {
-            if(ylower<yupper) {
-                xupper=xinit;
-                yupper=yinit;
-            } else {
-                xlower=xinit;
-                ylower=yinit;
-            }
-            xinit=(xlower+xupper)/2;
-            yinit=F(xinit);
-            if(!isFinite(yinit))
-                return NAN;
-            iter++;
-        }
-        if(yinit>=ylower || yinit>=yupper)  // couldn't locate a minimum inside the interval,
-            return F.x_from_y(ylower<yupper ? xlower : xupper);  // so return one of endpoints
+    } else {    // initial guess not provided - try to find it somewhere inside the interval
+        xinit = minGuess(xlower, xupper, ylower, yupper);
     }
-    return F.x_from_y(findMinKnown(F, xlower, xupper, xinit, reltoler));  // normal min-search
+    double yinit  = F(xinit);
+    if(!isFinite(ylower+yupper+yinit))
+        return NAN;
+    int iter = 0;
+    while( (yinit>=ylower || yinit>=yupper) && iter<MAXITER && fabs(xlower-xupper)>reltoler) {
+        // if the initial guess does not enclose minimum, provide a new guess inside a smaller range
+        if(ylower<yupper) {
+            xupper = xinit;
+            yupper = yinit;
+        } else {
+            xlower = xinit;
+            ylower = yinit;
+        }
+        xinit = minGuess(xlower, xupper, ylower, yupper);
+        yinit = F(xinit);
+        if(!isFinite(yinit))
+            return NAN;
+        iter++;
+    }
+    if(yinit>=ylower || yinit>=yupper)  // couldn't locate a minimum inside the interval,
+        return F.x_from_y(ylower<yupper ? xlower : xupper);  // so return one of endpoints
+    return F.x_from_y(findMinKnown(F, xlower, xupper, xinit, ylower, yupper, yinit, reltoler));
 }
 
 // ------- integration routines ------- //

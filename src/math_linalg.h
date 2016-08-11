@@ -168,6 +168,7 @@ struct Matrix: public IMatrix<NumT> {
     Matrix(unsigned int nRows, unsigned int nCols, const std::vector<Triplet>& values) :
         impl(nRows, nCols)
     {
+        impl.fill(0);
         for(unsigned int k=0; k<values.size(); k++)
             impl(values[k].i, values[k].j) = static_cast<NumT>(values[k].v);
     }

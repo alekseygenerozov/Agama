@@ -103,10 +103,14 @@ static inline int bsplineDerivs<3,0>(const double x, const double grid[], int si
     return bsplineWeights<3>(x, grid, size, B);
 }
 template<>
-static inline int bsplineDerivs<1,2>(const double, const double[], int, double[]) {
+static inline int bsplineDerivs<0,1>(const double, const double[], int, double[]) {
     assert(!"Should not be called");
 }
-    
+template<>
+static inline int bsplineDerivs<0,2>(const double, const double[], int, double[]) {
+    assert(!"Should not be called");
+}
+
 /** Similar to bsplineWeights, but uses linear extrapolation outside the grid domain */
 template<int N>
 static inline int bsplineWeightsExtrapolated(const double x, const double grid[], int size, double B[])
@@ -140,7 +144,7 @@ static Matrix<double> computeOverlapMatrix(const std::vector<double> &knots)
     // B-spline of degree N is a polynomial of degree N, so its Order'th derivative is a polynomial
     // of degree N-Order. To compute the integral of a product of two such functions over a sub-interval,
     // it is sufficient to employ a Gauss-Legendre quadrature rule with the number of nodes = N-Order+1.
-    const int Nnodes = N-Order+1;
+    const int Nnodes = std::max<int>(N-Order+1, 0);
     double glnodes[Nnodes], glweights[Nnodes];
     prepareIntegrationTableGL(0, 1, Nnodes, glnodes, glweights);
 
@@ -1364,16 +1368,15 @@ public:
     SplineApproxImpl(const std::vector<double> &knots, const std::vector<double> &xvalues);
 
     /** find the weights of basis functions that provide the best fit to the data points `y`
-        for the given value of smoothing parameter `lambda`.
+        for the given value of smoothing parameter `lambda`, determined indirectly by EDF.
         \param[in]  yvalues  are the data values corresponding to x-coordinates
         that were provided to the constructor;
-        \param[in]  lambda>=0  is the smoothing parameter (ignored if the matrix C is singular);
+        \param[in]  EDF>=0  is the equivalent number of degrees of freedom (2<=EDF<=numBasisFnc);
         \param[out] weights  will contain the computed weights of basis functions;
         \param[out] RSS  will contain the residual sum of squared differences between data and appxox;
-        \param[out] EDF  will contain the equivalent number of degrees of freedom (2<=EDF<=numBasisFnc).
     */
-    void solveForWeightsWithLambda(const std::vector<double> &yvalues, const double lambda,
-        std::vector<double> &weights, double &RSS, double &EDF) const;
+    void solveForWeightsWithEDF(const std::vector<double> &yvalues, double EDF,
+        std::vector<double> &weights, double &RSS) const;
 
     /** find the weights of basis functions that provide the best fit to the data points `y`
         with the Akaike information criterion (AIC) being offset by deltaAIC from its minimum value
@@ -1382,11 +1385,9 @@ public:
         \param[in]  deltaAIC is the offset of AIC (0 means the optimally smoothed spline);
         \param[out] weights  will contain the computed weights of basis functions;
         \param[out] RSS,EDF  same as in the previous function;
-        \param[out] lambda   will contain the value of smoothing parameter lambda corresponding
-        to the target value of AIC.
     */
-    void solveForWeightsWithAIC(const std::vector<double> &yvalues, const double deltaAIC,
-        std::vector<double> &weights, double &RSS, double &EDF, double &lambda) const;
+    void solveForWeightsWithAIC(const std::vector<double> &yvalues, double deltaAIC,
+        std::vector<double> &weights, double &RSS, double &EDF) const;
 
     /** Obtain the best-fit solution for the given value of smoothing parameter lambda
         (this method is called repeatedly in the process of finding the optimal value of lambda).
@@ -1396,7 +1397,7 @@ public:
         \param[out] RSS,EDF  same as in the previous function;
         \return  the value of AIC (Akaike information criterion) corresponding to these RSS and EDF
     */
-    double computeWeights(const FitData &fitData, const double lambda,
+    double computeWeights(const FitData &fitData, double lambda,
         std::vector<double> &weights, double &RSS, double &EDF) const;
 
 private:
@@ -1409,7 +1410,32 @@ private:
 };
 
 namespace{
-//-------- helper class for root-finder -------//
+// compute the number of equivalent degrees of freedom
+static double computeEDF(const std::vector<double>& singValues, double lambda)
+{
+    if(!isFinite(lambda))  // infinite smoothing leads to a straight line (2 d.o.f)
+        return 2;
+    else if(lambda==0)     // no smoothing means the number of d.o.f. equal to the number of basis fncs
+        return singValues.size();
+    else {
+        double EDF = 0;
+        for(unsigned int c=0; c<singValues.size(); c++)
+            EDF += 1 / (1 + lambda * singValues[c]);
+        return EDF;
+    }
+}
+//-------- helper classes for root-finders -------//
+class SplineEDFRootFinder: public IFunctionNoDeriv {
+    const std::vector<double>& singValues;
+    double targetEDF;
+public:
+    SplineEDFRootFinder(const std::vector<double>& _singValues, double _targetEDF) :
+        singValues(_singValues), targetEDF(_targetEDF) {}
+    virtual double value(double lambda) const {
+        return computeEDF(singValues, lambda) - targetEDF;
+    }
+};
+
 class SplineAICRootFinder: public IFunctionNoDeriv {
     const SplineApproxImpl& impl; ///< the fitting interface
     const SplineApproxImpl::FitData& fitData; ///< data for the fitting procedure
@@ -1500,7 +1526,7 @@ SplineApproxImpl::FitData SplineApproxImpl::initFit(const std::vector<double> &y
 // obtain solution of linear system for the given smoothing parameter,
 // using the pre-computed matrix M^T z, where z = C^T y is the rhs of the system of normal equations;
 // output the weights of basis functions and other relevant quantities (RSS, EDF); return AIC
-double SplineApproxImpl::computeWeights(const FitData &fitData, const double lambda,
+double SplineApproxImpl::computeWeights(const FitData &fitData, double lambda,
     std::vector<double> &weights, double &RSS, double &EDF) const
 {
     std::vector<double> tempv(numKnots+2);
@@ -1515,31 +1541,25 @@ double SplineApproxImpl::computeWeights(const FitData &fitData, const double lam
     blas_dtrmv(CblasLower, CblasTrans, CblasNonUnit, LMatrix, tempv); // tempv = L^T w
     double wTz = blas_ddot(weights, fitData.zRHS);
     RSS = (fitData.ynorm2 - 2*wTz + blas_ddot(tempv, tempv));
-    // compute the number of equivalent degrees of freedom
-    if(!isFinite(lambda))  // infinite smoothing leads to a straight line (2 d.o.f)
-        EDF = 2;
-    else if(lambda==0)     // no smoothing means the number of d.o.f. equal to the number of basis fncs
-        EDF = static_cast<double>(numKnots+2);
-    else {
-        EDF = 0;
-        for(unsigned int c=0; c<numKnots+2; c++)
-            EDF += 1 / (1 + lambda * singValues[c]);
-    }
+    EDF = computeEDF(singValues, lambda);  // equivalent degrees of freedom
     return log(RSS) + 2*EDF / (numDataPoints-EDF-1);  // AIC
 }
 
-void SplineApproxImpl::solveForWeightsWithLambda(const std::vector<double> &yvalues, const double lambda,
-    std::vector<double> &weights, double &RSS, double &EDF) const
+void SplineApproxImpl::solveForWeightsWithEDF(const std::vector<double> &yvalues, double EDF,
+    std::vector<double> &weights, double &RSS) const
 {
-    if(!(lambda>=0))
-        throw std::invalid_argument("SplineApprox: lambda must be non-negative");
+    if(EDF==0)
+        EDF = numKnots+2;
+    else if(EDF<2 || EDF>numKnots+2)
+        throw std::invalid_argument("SplineApprox: incorrect number of equivalent degrees of freedom");
+    double lambda = findRoot(SplineEDFRootFinder(singValues, EDF), 0, INFINITY, 1e-6);
     computeWeights(initFit(yvalues), lambda, weights, RSS, EDF);
 }
 
-void SplineApproxImpl::solveForWeightsWithAIC(const std::vector<double> &yvalues, const double deltaAIC,
-    std::vector<double> &weights, double &RSS, double &EDF, double &lambda) const
+void SplineApproxImpl::solveForWeightsWithAIC(const std::vector<double> &yvalues, double deltaAIC,
+    std::vector<double> &weights, double &RSS, double &EDF) const
 {
-    lambda=0;
+    double lambda=0;
     FitData fitData = initFit(yvalues);
     if(deltaAIC < 0)
         throw std::invalid_argument("SplineApprox: deltaAIC must be non-negative");
@@ -1574,32 +1594,28 @@ SplineApprox::~SplineApprox()
 }
 
 std::vector<double> SplineApprox::fit(
-    const std::vector<double> &yvalues, const double lambda,
-    double *rms, double* edf) const
+    const std::vector<double> &yvalues, const double edf,
+    double *rms) const
 {
     std::vector<double> weights;
-    double RSS, EDF;
-    impl->solveForWeightsWithLambda(yvalues, lambda, weights, RSS, EDF);
+    double RSS;
+    impl->solveForWeightsWithEDF(yvalues, edf, weights, RSS);
     if(rms)
         *rms = sqrt(RSS / yvalues.size());
-    if(edf)
-        *edf = EDF;
     return weights;
 }
 
 std::vector<double> SplineApprox::fitOversmooth(
     const std::vector<double> &yvalues, const double deltaAIC,
-    double *rms, double* edf, double *lam) const
+    double *rms, double* edf) const
 {
     std::vector<double> weights;
-    double RSS, EDF, lambda;
-    impl->solveForWeightsWithAIC(yvalues, deltaAIC, weights, RSS, EDF, lambda);
+    double RSS, EDF;
+    impl->solveForWeightsWithAIC(yvalues, deltaAIC, weights, RSS, EDF);
     if(rms)
         *rms = sqrt(RSS / yvalues.size());
     if(edf)
         *edf = EDF;
-    if(lam)
-        *lam = lambda;
     return weights;
 }
 
@@ -1612,8 +1628,8 @@ struct LogSplineFitParams {
     std::vector<double> init;   ///< array of amplitudes used to start the multidimensional minimizer
     std::vector<double> result; ///< array of amplitudes that correspond to the found minimum
     double lambda;              ///< smoothing parameter
-    double logL;                ///< target value of likelihood for the case with smoothing
-    LogSplineFitParams() : lambda(0), logL(0) {}
+    double targetLogL;          ///< target value of likelihood for the case with smoothing
+    LogSplineFitParams() : lambda(0), targetLogL(0) {}
 };
 
 /** The engine of log-spline density estimator relies on the maximization of log-likelihood
@@ -1666,9 +1682,10 @@ struct LogSplineFitParams {
     G_d = \int \exp[Q(x)] [Q(x)]^d dx  for d=0,1,2.
 
     We minimize  -log(L)  by varying the amplitudes A_k (for a fixed value of lambda),
-    using a nonlinear multidimensional minimizer with derivatives.
-    This class implements the interface needed for `findMinNdimDeriv()`: computation of
-    -log(L) and its derivatives w.r.t. each of the free parameters A_k, k=0..N_{ampl}-1.
+    using a nonlinear multidimensional root-finder with derivatives to locate the point
+    where d log(L) / d A_k = 0 for all A_k.
+    This class implements the interface needed for `findRootNdimDeriv()`: computation of
+    gradient and hessian of log(L) w.r.t. each of the free parameters A_k, k=0..N_{ampl}-1.
 */
 template<int N>
 class LogSplineDensityFitter: public IFunctionNdimDeriv {
@@ -1681,27 +1698,41 @@ public:
     /** Return the array of properly normalized amplitudes, such that the integral of
         P(x) over the entire domain is equal to the sum of sample weights M.
     */
-    std::vector<double> getNormalizedAmplitudes(const double ampl[]) const;
+    std::vector<double> getNormalizedAmplitudes(const std::vector<double>& ampl) const;
 
     /** Compute the expected rms scatter in log-likelihood for a density function defined
         by the given amplitudes, for the given number of samples */
-    double logLrms(const double ampl[]) const;
+    double logLrms(const std::vector<double>& ampl) const;
 
-    /** The function to be minimized.
-        \param[in]  ampl   is the array of amplitudes A_k, k=0..numAmpl-1.
-        \param[out] value  is the function to be minimized:
-        -\ln L = -\sum_k A_k L_k + M \ln G_0({A_k}) - M \ln M + \lambda \sum_k \sum_l A_k A_l R_{kl},
-        where both k and l are in the range 0..numAmpl-1,
+    /** Compute the log-likelihood of the data given the amplitudes.
+        \param[in]  ampl  is the array of amplitudes A_k, k=0..numAmpl-1.
+        \return     \ln L = \sum_k A_k V_k - M \ln G_0({A_k}) + M \ln M ,  where
         G_0 is the normalization constant that depends on all A_k,
-        L_k is the pre-computed array logLbasisFnc,
-        R_{kl} is the pre-computed roughnessMatrix, and
-        lambda is taken from an external LogSplineFitParams variable.
-        \param[out] deriv  if not NULL, will contain the derivatives of -\ln L  w.r.t. A_k.
+        V_k is the pre-computed array Vbasis.
     */
-    virtual void evalDeriv(const double ampl[], double *value, double deriv[]) const;
+    double logL(const std::vector<double>& ampl) const;
+
+    /** Compute the cross-validation likelihood of the data given the amplitudes.
+        \param[in]  ampl  is the array of amplitudes.
+        \return     \ln L_CV = \ln L - tr(H^{-1} B^T B) + (d \ln G_0 / d A) H^{-1} W.
+    */
+    double logLcv(const std::vector<double>& ampl) const;
+
 private:
+    /** Compute the gradient and hessian of the full log-likelihood function
+        (including the roughness penalty) multiplied by a constant:
+        \ln L_full = \ln L - \lambda \sum_k \sum_l A_k A_l R_{kl},
+        where \ln L is defined in logL(),  R_{kl} is the pre-computed roughnessMatrix,
+        and lambda is taken from an external LogSplineFitParams variable.
+        This routine is used in the nonlinear root-finder to determine the values of A_k
+        that correspond to grad=0.
+        \param[in]  ampl  is the array of amplitudes A_k that are varied during the fit;
+        \param[out] grad  = (-1/M) d \ln L / d A_k;
+        \param[out] hess  = (-1/M) d^2 \ln L / d A_k d A_l.
+    */
+    virtual void evalDeriv(const double ampl[], double grad[], double hess[]) const;
     virtual unsigned int numVars() const { return numAmpl; }
-    virtual unsigned int numValues() const { return 1; }
+    virtual unsigned int numValues() const { return numAmpl; }
 
     /** Compute the logarithm of G_d:
         \return  \ln(G_d) = \ln( \int \exp(Q(x)) [Q(x)]^d  dx ),  where
@@ -1713,10 +1744,12 @@ private:
         otherwise it is +-infinity).
         \param[in]  d     is the integer power index in the above expression.
         \param[in]  ampl  is the array of A_k.
-        \param[out] deriv if not NULL, will containt the derivatives of  \ln(G_d) w.r.t. A_k;
-        only implemented for d=0 which is used to compute the normalization constant C = ln(M/G_0)
+        \param[out] deriv if not NULL, will contain the derivatives of  \ln(G_d) w.r.t. A_k;
+        only implemented for d=0 which is used to compute the normalization constant.
+        \param[out] deriv2 if not NULL, will contain the second derivatives:
+        d^2 \ln G / d A_k d A_l, only implemented for d=0.
     */
-    double logG(const int d, const double ampl[], double deriv[]=NULL) const;
+    double logG(const int d, const double ampl[], double deriv[]=NULL, double deriv2[]=NULL) const;
 
     const std::vector<double> grid;   ///< grid nodes that define the B-splines
     const unsigned int numNodes;      ///< shortcut for grid.size()
@@ -1726,9 +1759,11 @@ private:
     const bool leftInfinite, rightInfinite;  ///< whether the definition interval extends to +-inf
     static const int GL_ORDER = 10;          ///< order of GL quadrature for computing the normalization
     double GLnodes[GL_ORDER], GLweights[GL_ORDER];  ///< nodes and weights of GL quadrature
-    std::vector<double> logLbasisFnc; ///< contributions to (unnormalized) likelihood from each B-spline
+    std::vector<double> Vbasis;       ///< basis likelihoods: V_k = \sum_i w_i B_k(x_i)
+    std::vector<double> Wbasis;       ///< W_k = \sum_i w_i^2 B_k(x_i) 
+    Matrix<double> BTBmatrix;         ///< matrix B^T B, where B_{ik} = w_i B_k(x_i)
     double sumWeights;                ///< sum of weights of input points (M)
-    Matrix<double> roughnessMatrix;   ///< roughness penalty matrix - integrals of B_i''(x) B_j''(x)
+    Matrix<double> roughnessMatrix;   ///< roughness penalty matrix - integrals of B_k''(x) B_l''(x)
     LogSplineFitParams& params;       ///< external parameters that may be changed during the fit
 };
 
@@ -1752,96 +1787,214 @@ LogSplineDensityFitter<N>::LogSplineDensityFitter(const std::vector<double>& _gr
     prepareIntegrationTableGL(0, 1, GL_ORDER, GLnodes, GLweights);
 
     // prepare the roughness penalty matrix
-    // (integrals over products of second derivatives of basis functions)
-    roughnessMatrix = computeOverlapMatrix<N,2>(grid);
+    // (integrals over products of second or third derivatives of basis functions)
+    roughnessMatrix = computeOverlapMatrix<N,3>(grid);
 
-    // prepare the log-likelihoods of each basis fnc
-    // and the histogram of samples in each bin to be used as the initial guess for amplitudes
-    logLbasisFnc.resize(numAmpl);
-    params.init.resize(numNodes-1);
+    // prepare the log-likelihoods of each basis fnc and the initial guess for amplitudes
+    params.init.assign(numBasisFnc, 0);
+    Vbasis.assign(numBasisFnc, 0);
+    Wbasis.assign(numBasisFnc, 0);
+    std::vector<Triplet> Bvalues;
+    Bvalues.reserve(numData * (N+1));
     sumWeights = 0;
+    double minWeight = INFINITY;
     for(unsigned int p=0; p<numData; p++) {
+        if(weights[p] < 0)
+            throw std::invalid_argument("LogSplineDensity: sample weights may not be negative");
+        if(weights[p] == 0)
+            continue;
         // if the interval is (semi-)finite, no samples should appear beyond its boundaries
         if( (xvalues[p] < grid[0] && !leftInfinite) ||
             (xvalues[p] > grid[numNodes-1] && !rightInfinite) )
             throw std::invalid_argument("LogSplineDensity: samples found outside the grid");
-        if(weights[p] < 0)
-            throw std::invalid_argument("LogSplineDensity: sample weights may not be negative");
         double Bspl[N+1];
         int ind = bsplineWeightsExtrapolated<N>(xvalues[p], &grid[0], numNodes, Bspl);
-        for(unsigned int b=0; b<=N && b+ind<numAmpl; b++)
-            logLbasisFnc[b+ind] += weights[p] * Bspl[b];
-        sumWeights += weights[p];
-        // add the sample to the histogram
+        for(unsigned int b=0; b<=N; b++) {
+            Vbasis[b+ind] += weights[p] * Bspl[b];
+            Wbasis[b+ind] += pow_2(weights[p]) * Bspl[b];
+            if(b+ind<numAmpl)
+                Bvalues.push_back(Triplet(p, b+ind, weights[p] * Bspl[b]));
+        }
+        // add to the initial guess for amplitudes, if the point is inside the grid
         if(xvalues[p] >= grid[0] && xvalues[p] <= grid[numNodes-1])
-            params.init.at(binSearch(xvalues[p], &grid[0], numNodes)) += weights[p];
+            for(unsigned int b=0; b<=N; b++)
+                params.init[b+ind] += weights[p] * Bspl[b];
+        sumWeights += weights[p];
+        minWeight = fmin(minWeight, weights[p]);
     }
+    // sanity check    
     if(sumWeights==0)
         throw std::invalid_argument("LogSplineDensity: sum of sample weights should be positive");
-
-    // convert the histogram into the initial guess for amplitudes (very rough - TODO: improve)
-    for(unsigned int k=0; k<numNodes-1; k++) {
-        // mean density within the bin
-        double binDensity = params.init[k] / (grid[k+1]-grid[k]);
-        // amplitude is the log of mean density (plus a small extra term to make it strictly positive)
-        params.init[k] = log(binDensity + sumWeights/numData/(grid[numNodes-1]-grid[0]));
+    
+    // sanity check: all of basis functions must have a contribution from sample points,
+    // otherwise the max-likelihood solution is unattainable
+    minWeight *= 0.1 / numNodes;
+    for(int k=0; k<(int)numBasisFnc; k++) {
+        if(Vbasis[k] == 0) {
+            // make up a fake sample to maintain positive weights of this basis fnc
+            int ind = std::min<int>(numNodes-2, std::max<int>(0, k-N/2));
+            double Bspl[N+1];
+            ind = bsplineWeights<N>((grid[ind] + grid[ind+1]) / 2, &grid[0], numNodes, Bspl);
+            for(unsigned int b=0; b<=N; b++)
+                Vbasis[b+ind] += minWeight * Bspl[b];
+            sumWeights += minWeight;
+        }
     }
-    // since the number of basis functions is, in general, not equal to the number of nodes,
-    // we add extra ones at the end (very crudely indeed)
-    params.init.resize(numBasisFnc, params.init.back());
-    // also make sure that we start with a density that is declining when extrapolated
+    Vbasis.resize(numAmpl);
+    Wbasis.resize(numAmpl);
+
+    SpMatrix<double> Bmatrix(numData, numAmpl, Bvalues);
+    SpMatrix<double> SpBTB(numAmpl, numAmpl);  // temporary sparse matrix containing B^T B
+    blas_dgemm(CblasTrans, CblasNoTrans, 1, Bmatrix, Bmatrix, 0, SpBTB);
+    BTBmatrix = Matrix<double>(SpBTB);
+#if 0
+    // compute the initial guess for amplitudes from histogrammed weights associated with each
+    // basis function (plus a small addition to keep the argument of logarithm positive)
+    for(unsigned int k=0; k<numBasisFnc; k++)
+        params.init[k] = log(fmax(params.init[k], sumWeights/numData));
+
+    // make sure that we start with a density that is declining when extrapolated
     if(leftInfinite)
-        params.init[0] = fmin(params.init[0], params.init[1]-1.);
+        params.init[0] = fmin(params.init[0], params.init[1] - 0.1 * (grid[1]-grid[0]));
     if(rightInfinite)
-        params.init[numBasisFnc-1] =
-            fmin(params.init[numBasisFnc-1], params.init[numBasisFnc-2]-1.);
+        params.init[numBasisFnc-1] = fmin(params.init[numBasisFnc-1],
+            params.init[numBasisFnc-2] - 0.1 * (grid[numBasisFnc-1]-grid[numBasisFnc-2]));
+
     // now shift all amplitudes by the value of the rightmost one, which is always kept equal to zero
     for(unsigned int k=0; k<numAmpl; k++)
         params.init[k] -= params.init.back();
     // and eliminate the last one, since it does not take part in the fitting process
     params.init.pop_back();
-    
-    //params.init.assign(params.init.size(), 1.); params.init[0]=0;
-    params.result = params.init;
+#else
+    // somehow the initial guess above leads to instability in the root-finder...
+    params.init.assign(numAmpl, 1.0);
+    params.init[0] = 0.;
+#endif
+    params.result = params.init;  // allocate space for the results
 }
 
 template<int N>
-void LogSplineDensityFitter<N>::evalDeriv(const double ampl[], double *val, double deriv[]) const
+std::vector<double> LogSplineDensityFitter<N>::getNormalizedAmplitudes(
+    const std::vector<double>& ampl) const
 {
-    double logG0 = logG(0, ampl, deriv);
-    if(val!=NULL) {
-        *val = sumWeights * (logG0 - log(sumWeights));
-        for(unsigned int k=0; k<numAmpl; k++)
-            *val -= logLbasisFnc[k] * ampl[k];
+    assert(ampl.size() == numAmpl);
+    std::vector<double> result(numBasisFnc);
+    double C = log(sumWeights) - logG(0, &ampl[0]);
+    for(unsigned int n=0; n<numBasisFnc; n++)
+        result[n] = (n<numAmpl ? ampl[n] : 0) + C;
+    return result;
+}
+
+template<int N>
+double LogSplineDensityFitter<N>::logLrms(const std::vector<double>& ampl) const
+{
+    assert(ampl.size() == numAmpl);
+    double
+    logG0 = logG(0, &ampl[0]),
+    G1G0  = exp(logG(1, &ampl[0]) - logG0),
+    G2G0  = exp(logG(2, &ampl[0]) - logG0),
+    rms   = sumWeights * sqrt((G2G0 - pow_2(G1G0)) / numData);
+#ifdef VERBOSE_REPORT
+    double avg = sumWeights * (G1G0 + log(sumWeights) - logG0);
+    std::cout << "Expected log L = " << avg << " +- " << rms << "\n";
+#endif
+    return rms;
+}
+
+template<int N>
+double LogSplineDensityFitter<N>::logL(const std::vector<double>& ampl) const
+{
+    assert(ampl.size() == numAmpl);
+    double val = sumWeights * (log(sumWeights) - logG(0, &ampl[0]));
+    for(unsigned int k=0; k<numAmpl; k++)
+        val += Vbasis[k] * ampl[k];
+    return val;
+}
+
+template<int N>
+double LogSplineDensityFitter<N>::logLcv(const std::vector<double>& ampl) const
+{
+    assert(ampl.size() == numAmpl);
+    std::vector<double> grad(numAmpl);
+    Matrix<double> hess(numAmpl, numAmpl);
+    double val = sumWeights * (log(sumWeights) - logG(0, &ampl[0], &grad[0], hess.data()));
+    for(unsigned int k=0; k<numAmpl; k++) {
+        val += Vbasis[k] * ampl[k];
+        for(unsigned int l=0; l<numAmpl; l++) {
+            hess(k, l) = sumWeights * hess(k, l) + 2 * params.lambda * roughnessMatrix(k, l);
+        }
     }
-    if(deriv!=NULL) {
-        for(unsigned int k=0; k<numAmpl; k++)
-            deriv[k] = sumWeights * deriv[k] - logLbasisFnc[k];
+    try{
+        CholeskyDecomp hessdec(hess);
+        Matrix<double> hessL(hessdec.L()), tmpmat(BTBmatrix);
+        blas_dtrsm(CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit, 1, hessL, tmpmat);
+        blas_dtrsm(CblasLeft, CblasLower, CblasTrans,   CblasNonUnit, 1, hessL, tmpmat);
+        for(unsigned int k=0; k<numAmpl; k++) {
+            val -= tmpmat(k, k);  // trace of H^{-1} B^T B
+        }
+        val += blas_ddot(grad, hessdec.solve(Wbasis));  // dG/dA H^{-1} W
     }
-    // roughness penalty (TODO: optimize to take into account symmetry and sparseness of the matrix)
+    catch(std::exception&) {
+#ifdef VERBOSE_REPORT
+        std::cout << "Hessian is not positive-definite!\n";
+#endif
+    }
+    return val;
+}
+
+template<int N>
+void LogSplineDensityFitter<N>::evalDeriv(const double ampl[], double deriv[], double deriv2[]) const
+{
+    logG(0, ampl, deriv, deriv2);
+    if(deriv!=NULL) {  // (-1/M)  d (log L) / d A_k
+        for(unsigned int k=0; k<numAmpl; k++) {
+            deriv[k] -= Vbasis[k] / sumWeights;
+        }
+    }
+    // roughness penalty (taking into account symmetry and sparseness of the matrix)
     if(params.lambda!=0) {
         for(unsigned int k=0; k<numAmpl; k++) {
-            double sum=0;
-            for(unsigned int l=0; l<numAmpl; l++)
-                sum += roughnessMatrix(k, l) * ampl[l];
-            if(val!=NULL)
-                *val += params.lambda * sum * ampl[k];
-            if(deriv!=NULL)
-                deriv[k] += 2 * params.lambda * sum;
+            for(unsigned int l=k; l<std::min(numAmpl, k+N+1); l++) {
+                double v = 2 * roughnessMatrix(k, l) * params.lambda / sumWeights;
+                if(deriv2!=NULL) {
+                    deriv2[k * numAmpl + l] += v;
+                    if(k!=l)
+                        deriv2[l * numAmpl + k] += v;
+                }
+                if(deriv!=NULL) {
+                    deriv[k] += v * ampl[l];
+                    if(k!=l)
+                        deriv[l] += v * ampl[k];
+                }
+            }
         }
     }
 }
 
 template<int N>
 double LogSplineDensityFitter<N>::logG(
-    const int d, const double ampl[], double deriv[]) const
+    const int d, const double ampl[], double deriv_arg[], double deriv2[]) const
 {
+    std::vector<double> deriv_tmp;
+    double* deriv = deriv_arg;
+    if(deriv_arg==NULL && deriv2!=NULL) {  // need a temporary workspace for the gradient vector
+        deriv_tmp.resize(numAmpl);
+        deriv = &deriv_tmp.front();
+    }
     assert(d==0 || deriv==NULL);   // can only compute derivs for the d==0 case
     assert(d==0 || d==1 || d==2);
+    // accumulator for the integral  G = \int \exp( Q(x) ) [Q(x)]^d  dx,
+    // where  Q = \sum_k  A_k B_k(x).
     double integral = 0;
+    // accumulator for d G / d A_k
     if(deriv) {
         for(unsigned int k=0; k<numAmpl; k++)
             deriv[k] = 0;
+    }
+    // accumulator for d^2 G / d A_k d A_l
+    if(deriv2) {
+        for(unsigned int kl=0; kl<pow_2(numAmpl); kl++)
+            deriv2[kl] = 0;
     }
     // determine the constant offset needed to keep the magnitude in a reasonable range
     double offset = 0;
@@ -1850,7 +2003,7 @@ double LogSplineDensityFitter<N>::logG(
 
     // loop over grid segments...
     for(unsigned int k=0; k<numNodes-1; k++) {
-        double segwidth = grid[k+1]-grid[k];
+        double segwidth = grid[k+1] - grid[k];
         // ...and over sub-nodes of Gauss-Legendre quadrature rule within each grid segment
         for(int s=0; s<GL_ORDER; s++) {
             double x = grid[k] + GLnodes[s] * segwidth;
@@ -1876,23 +2029,40 @@ double LogSplineDensityFitter<N>::logG(
                 for(unsigned int b=0; b<=N && b+ind<numAmpl; b++)
                     deriv[b+ind] += val * Bspl[b];
             }
+            // and contribution to the integral of second derivatives is multiplied
+            // by the product of two basis functions
+            if(deriv2) {
+                for(unsigned int b=0; b<=N && b+ind<numAmpl; b++)
+                    for(unsigned int c=0; c<=N && c+ind<numAmpl; c++)
+                        deriv2[(b+ind) * numAmpl + c+ind] += val * Bspl[b] * Bspl[c];
+            }
         }
     }
 
     // if the interval is (semi-)infinite, need to add contributions from the tails beyond the grid
-    if(leftInfinite) {
+    bool   infinite[2] = {leftInfinite, rightInfinite};
+    double endpoint[2] = {grid[0], grid[numNodes-1]};
+    double signder [2] = {+1, -1};
+    for(int p=0; p<2; p++) {
+        if(!infinite[p])
+            continue;
         double Bspl[N+1], Bder[N+1];
-        int ind = bsplineWeights<N>(grid[0], &grid[0], numNodes, Bspl);
-        assert(ind==0);
-        bsplineDerivs<N,1>(grid[0], &grid[0], numNodes, Bder);
+        int ind = bsplineWeights<N>(endpoint[p], &grid[0], numNodes, Bspl);
+        bsplineDerivs<N,1>(endpoint[p], &grid[0], numNodes, Bder);
         double Q = 0, Qder = 0;
         for(unsigned int b=0; b<=N && b+ind<numAmpl; b++) {
             Q    += Bspl[b] * ampl[b+ind];
             Qder += Bder[b] * ampl[b+ind];
         }
-        if(Qder<=0)   // the extrapolated function rises as x-> -inf, so the integral does not exist
+        if(signder[p] * Qder <= 0) {  
+            // the extrapolated function rises as x-> -inf, so the integral does not exist
+            if(deriv)
+                deriv[0] = INFINITY;
+            if(deriv2)
+                deriv2[0] = INFINITY;
             return INFINITY;
-        double val = exp(Q-offset) / Qder;
+        }
+        double val = signder[p] * exp(Q-offset) / Qder;
         if(d==1) val *= Q-1;
         if(d==2) val *= pow_2(Q-1)+1;
         integral += val;
@@ -1900,88 +2070,56 @@ double LogSplineDensityFitter<N>::logG(
             for(unsigned int b=0; b<=N && b+ind<numAmpl; b++)
                 deriv[b+ind] += val * (Bspl[b] - Bder[b] / Qder);
         }
-    }
-    if(rightInfinite) {
-        double Bspl[N+1], Bder[N+1];
-        int ind = bsplineWeights<N>(grid[numNodes-1], &grid[0], numNodes, Bspl);
-        bsplineDerivs<N,1>(grid[numNodes-1], &grid[0], numNodes, Bder);
-        double Q = 0, Qder = 0;
-        for(unsigned int b=0; b<=N && b+ind<numAmpl; b++) {
-            Q    += Bspl[b] * ampl[b+ind];
-            Qder += Bder[b] * ampl[b+ind];
-        }
-        if(Qder>=0)   // the extrapolated function rises as x-> +inf, so the integral does not exist
-            return INFINITY;
-        double val = -exp(Q-offset) / Qder;
-        if(d==1) val *= Q-1;
-        if(d==2) val *= pow_2(Q-1)+1;
-        integral += val;
-        if(deriv) {
+        if(deriv2) {
             for(unsigned int b=0; b<=N && b+ind<numAmpl; b++)
-                deriv[b+ind] += val * (Bspl[b] - Bder[b] / Qder);
+                for(unsigned int c=0; c<=N && c+ind<numAmpl; c++)
+                    deriv2[(b+ind) * numAmpl + c+ind] +=
+                        val * ( Bspl[b] * Bspl[c] -
+                        (Bspl[b] * Bder[c] + Bspl[c] * Bder[b]) / Qder +
+                        2 * Bder[b] * Bder[c] / pow_2(Qder) );
         }
     }
-    
-    // output the log-derivative: d (ln G) / d A_k
+
+    // output the log-derivative: d (ln G) / d A_k = (d G / d A_k) / G
     if(deriv) {
         for(unsigned int k=0; k<numAmpl; k++)
             deriv[k] /= integral;
+    }
+    // d^2 (ln G) / d A_k d A_l = d^2 G / d A_k d A_l - (d ln G / d A_k) (d ln G / d A_l)
+    if(deriv2) {
+        for(unsigned int kl=0; kl<pow_2(numAmpl); kl++)
+            deriv2[kl] = deriv2[kl] / integral - deriv[kl / numAmpl] * deriv[kl % numAmpl];
     }
     // put back the offset in the logarithm of the computed value of G
     return log(integral) + offset;
 }
 
-template<int N>
-std::vector<double> LogSplineDensityFitter<N>::getNormalizedAmplitudes(const double ampl[]) const
-{
-    std::vector<double> result(numBasisFnc);
-    double C = log(sumWeights) - logG(0, ampl);
-    for(unsigned int n=0; n<numBasisFnc; n++)
-        result[n] = (n<numAmpl ? ampl[n] : 0) + C;
-    return result;
-}
-
-template<int N>
-double LogSplineDensityFitter<N>::logLrms(const double ampl[]) const
-{
-    double
-    logG0 = logG(0, ampl),
-    G1G0  = exp(logG(1, ampl) - logG0),
-    G2G0  = exp(logG(2, ampl) - logG0),
-    rms   = sumWeights * sqrt((G2G0 - pow_2(G1G0)) / numData);
-#ifdef VERBOSE_REPORT
-    double avg = sumWeights * (G1G0 + log(sumWeights) - logG0);
-    std::cout << "Expected log L = " << avg << " +- " << rms << "\n";
-#endif
-    return rms;
-}
-
 
 /** Class for performing the search of the smoothing parameter lambda that
-    yields the required value of log-likelihood.
+    yields the required value of log-likelihood, or maximizes the cross-validation score
 */
+template<int N>
 class LogSplineDensityLambdaFinder: public IFunctionNoDeriv {
 public:
-    LogSplineDensityLambdaFinder(const IFunctionNdimDeriv& _fitter, LogSplineFitParams& _params) :
+    LogSplineDensityLambdaFinder(const LogSplineDensityFitter<N>& _fitter, LogSplineFitParams& _params) :
         fitter(_fitter), params(_params) {}
+private:
     virtual double value(const double scaledLambda) const
     {
-        double lambda = exp( 1 / (1-scaledLambda) - 1 / scaledLambda );
-        params.lambda = lambda;
-        int numIter = findMinNdimDeriv(fitter, &params.init[0], 0.1, 1e-4, 100, &params.result[0]);
-        double val;
-        params.lambda = 0;
-        fitter.evalDeriv(&params.result[0], &val);
-#ifdef VERBOSE_REPORT
-        double valR;
-        params.lambda = lambda;
-        fitter.evalDeriv(&params.result[0], &valR);
-        std::cout << "lambda= " << lambda << "  #iter= " << numIter <<
-        "  logL= " << -val << "  roughness penalty= " << (val-valR) << '\n';
+        bool useCV = params.targetLogL==0;   // whether we are in the minimizer or root-finder mode
+        params.lambda = exp( 1 / (1-scaledLambda) - 1 / scaledLambda );
+        /*int numIter =*/ findRootNdimDeriv(fitter, &params.init[0], 1e-4, 100, &params.result[0]);
+#ifdef VERBOSE_REPORT_BLAH
+        double logLcv = fitter.logLcv(params.result);
+        double logL = fitter.logL(params.result);
+        std::cout << "lambda= " << params.lambda << "  #iter= " << numIter <<
+        "  logL= " << logL << "  CV= " << logLcv << '\n';
+        return useCV ? -logLcv : params.targetLogL - logL;
+#else
+        return useCV ? -fitter.logLcv(params.result) : params.targetLogL - fitter.logL(params.result);
 #endif
-        return val-params.logL;
     }
-    const IFunctionNdimDeriv& fitter;
+    const LogSplineDensityFitter<N>& fitter;
     LogSplineFitParams& params;
 };
 }  // internal namespace
@@ -1993,27 +2131,26 @@ std::vector<double> logSplineDensity(const std::vector<double> &grid,
 {
     LogSplineFitParams params;
     const LogSplineDensityFitter<N> fitter(grid, xvalues, weights, leftInfinite, rightInfinite, params);
-    int numIter = findMinNdimDeriv(fitter, &params.init[0], 0.1, 1e-4, 200, &params.result[0]);
-    fitter.evalDeriv(&params.result[0], &params.logL, NULL);
-#ifdef VERBOSE_REPORT
-    std::cout << "lambda= 0  #iter= " << numIter << "  logL= " << -params.logL << '\n';
-#endif
-    if(smoothing) {
-        // target value of log-likelihood is allowed to be worse than
-        // the best value for the case of no smoothing by an amount
-        // that is proportional to the expected rms variation of logL
-        params.logL += smoothing * fitter.logLrms(&params.result[0]);
+    findRootNdimDeriv(fitter, &params.init[0], 1e-6, 100, &params.result[0]);
+    if(N>1 && smoothing>=0) {
         // start the search from the best-fit amplitudes for the case of no smoothing
         params.init = params.result;
-#ifdef VERBOSE_REPORT
-        std::cout << "goal: "<< -params.logL << '\n';
-#endif
-        LogSplineDensityLambdaFinder rootfinder(fitter, params);
+        LogSplineDensityLambdaFinder<N> rootfinder(fitter, params);
+        if(smoothing>0) {
+            // target value of log-likelihood is allowed to be worse than
+            // the best value for the case of no smoothing by an amount
+            // that is proportional to the expected rms variation of logL
+            params.targetLogL = fitter.logL(params.result) - smoothing * fitter.logLrms(params.result);
+            params.lambda = findRoot(rootfinder, 0.0, 0.5, 1e-4);
+        } else {
+            // find the value of lambda that maximizes the cross-validation score
+            params.lambda = findMin(rootfinder, 0.0, 0.5, NAN, 1e-4);
+        }    
         // if something goes wrong, restore the initial amplitudes (corresponding to no smoothing)
-        if(!isFinite(findRoot(rootfinder, 0.02, 0.5, 1e-4)))
+        if(!isFinite(params.lambda))
             params.result = params.init;
     }
-    return fitter.getNormalizedAmplitudes(&params.result[0]);
+    return fitter.getNormalizedAmplitudes(params.result);
 }
 
 // force the template instantiations to compile
@@ -2029,8 +2166,10 @@ std::vector<double> createUniformGrid(unsigned int nnodes, double xmin, double x
     if(nnodes<2 || xmax<=xmin)
         throw std::invalid_argument("Invalid parameters for grid creation");
     std::vector<double> grid(nnodes);
-    for(unsigned int k=0; k<nnodes; k++)
+    for(unsigned int k=1; k<nnodes-1; k++)
         grid[k] = (xmin * (nnodes-1-k) + xmax * k) / (nnodes-1);
+    grid.front() = xmin;
+    grid.back()  = xmax;
     return grid;
 }
 
@@ -2114,7 +2253,7 @@ static void makegrid(std::vector<double>::iterator begin, std::vector<double>::i
 }
 
 std::vector<double> createAlmostUniformGrid(const std::vector<double> &srcpoints, 
-    unsigned int minbin, unsigned int& gridsize)
+    unsigned int minbin, unsigned int gridsize)
 {
     if(srcpoints.size()==0)
         throw std::invalid_argument("Error in creating a grid: input points array is empty");

@@ -2,14 +2,15 @@
 #include "math_core.h"
 #include <gsl/gsl_fit.h>
 #include <gsl/gsl_multifit.h>
-#include <gsl/gsl_multifit_nlin.h>
 #include <gsl/gsl_multimin.h>
-#include <gsl/gsl_multiroots.h>
 #include <stdexcept>
 
 #ifdef HAVE_EIGEN
 #include <Eigen/Dense>
 #include <unsupported/Eigen/NonLinearOptimization>
+#else
+#include <gsl/gsl_multifit_nlin.h>
+#include <gsl/gsl_multiroots.h>
 #endif
 
 namespace math{
@@ -45,37 +46,48 @@ template <class T>
 struct FncWrapper {
     const T& F;
     std::string error;
-    explicit FncWrapper(const T& _F) : F(_F) {}
+    int numCalls;
+    explicit FncWrapper(const T& _F) : F(_F), numCalls(0) {}
 };
 
 static double functionWrapperNdim(const gsl_vector* x, void* param) {
     double val;
-    static_cast<FncWrapper<IFunctionNdim>*>(param)->F.eval(x->data, &val);
+    FncWrapper<IFunctionNdimDeriv>* p = static_cast<FncWrapper<IFunctionNdimDeriv>*>(param);
+    p->numCalls++;
+    p->F.eval(x->data, &val);
     return val;
 }
 
 static void functionWrapperNdimDer(const gsl_vector* x, void* param, gsl_vector* df) {
-    static_cast<FncWrapper<IFunctionNdimDeriv>*>(param)->F.evalDeriv(x->data, NULL, df->data);
+    FncWrapper<IFunctionNdimDeriv>* p = static_cast<FncWrapper<IFunctionNdimDeriv>*>(param);
+    p->numCalls++;
+    p->F.evalDeriv(x->data, NULL, df->data);
 }
 
 static void functionWrapperNdimFncDer(const gsl_vector* x, void* param, double* f, gsl_vector* df) {
-    static_cast<FncWrapper<IFunctionNdimDeriv>*>(param)->F.evalDeriv(x->data, f, df->data);
+    FncWrapper<IFunctionNdimDeriv>* p = static_cast<FncWrapper<IFunctionNdimDeriv>*>(param);
+    p->numCalls++;
+    p->F.evalDeriv(x->data, f, df->data);
 }
 
 // ----- wrappers for multidimensional nonlinear fitting ----- //
+#ifndef HAVE_EIGEN
 static int functionWrapperNdimMvalFncDer(const gsl_vector* x, void* param, gsl_vector* f, gsl_matrix* df) {
     FncWrapper<IFunctionNdimDeriv>* p = static_cast<FncWrapper<IFunctionNdimDeriv>*>(param);
     try{
+        p->numCalls++;
         p->F.evalDeriv(x->data, f? f->data : NULL, df? df->data : NULL);
         // check that values and/or derivatives are ok
         bool ok=true;
-        for(unsigned int i=0; f && i<p->F.numVars(); i++)
+        for(unsigned int i=0; f && i<p->F.numValues(); i++)
             ok &= isFinite(f->data[i]);
         for(unsigned int i=0; df && i<p->F.numVars()*p->F.numValues(); i++)
             ok &= isFinite(df->data[i]);
         if(!ok) {
-            p->error = "Function is not finite";
-            return GSL_FAILURE;
+            /*p->error = "Function is not finite";
+            return GSL_FAILURE;*/
+            for(unsigned int i=0; f && i<p->F.numValues(); i++)
+                f->data[i] = 1e10;
         }
         return GSL_SUCCESS;
     }
@@ -93,15 +105,17 @@ static int functionWrapperNdimMvalDer(const gsl_vector* x, void* param, gsl_matr
     return functionWrapperNdimMvalFncDer(x, param, NULL, df);
 }
 
-#ifdef HAVE_EIGEN
+#else
 template <class T>
 struct EigenFncWrapper {
     const T& F;
     mutable std::string error;
-    explicit EigenFncWrapper(const T& _F) : F(_F) {}
+    mutable int numCalls;
+    explicit EigenFncWrapper(const T& _F) : F(_F), numCalls(0) {}
 
     int operator()(const Eigen::VectorXd &x, Eigen::VectorXd &f) const {
         try{
+            numCalls++;
             F.eval(x.data(), f.data());
             for(unsigned int i=0; i<F.numValues(); i++)
                 if(!isFinite(f[i])) {
@@ -122,6 +136,7 @@ struct EigenFncWrapper {
 
     int df(const Eigen::VectorXd &x, Eigen::MatrixXd &df) const {
         try{
+            numCalls++;
             F.evalDeriv(x.data(), NULL, df.data());
             /*for(unsigned int i=0; i<F.numVars()*F.numValues(); i++)
                 if(!isFinite(df.data()[i])) {
@@ -286,7 +301,6 @@ int nonlinearMultiFit(const IFunctionNdimDeriv& F, const double xinit[],
         params.error = "invalid input parameters";
     const double* data = solver->x->data;
 #endif
-    int numIter = 0;
     bool carryon = true, converged = false;
     while(params.error.empty() && carryon && !converged) {
 #ifdef HAVE_EIGEN
@@ -294,7 +308,7 @@ int nonlinearMultiFit(const IFunctionNdimDeriv& F, const double xinit[],
 #else
         carryon = gsl_multifit_fdfsolver_iterate(solver) == GSL_SUCCESS;
 #endif
-        carryon &= ++numIter < maxNumIter;
+        carryon &= params.numCalls < maxNumIter;
         // store the current result and test for convergence
         converged = true;
         for(unsigned int i=0; i<Nparam; i++) {
@@ -303,13 +317,13 @@ int nonlinearMultiFit(const IFunctionNdimDeriv& F, const double xinit[],
         }
     }
     if(!converged)
-        numIter *= -1;  // signal of non-convergence
+        params.numCalls *= -1;  // signal of non-convergence
 #ifndef HAVE_EIGEN
     gsl_multifit_fdfsolver_free(solver);
 #endif
     if(!params.error.empty())
         throw std::runtime_error("Error in nonlinearMultiFit: "+params.error);
-    return numIter;
+    return params.numCalls;
 }
 
 // ----- multidimensional root-finding ----- //
@@ -321,33 +335,51 @@ int findRootNdimDeriv(const IFunctionNdimDeriv& F, const double xinit[],
     if(F.numValues() != F.numVars())
         throw std::invalid_argument(
             "findRootNdimDeriv: number of equations must be equal to the number of variables");
-    gsl_multiroot_fdfsolver* solver = gsl_multiroot_fdfsolver_alloc(
-        gsl_multiroot_fdfsolver_hybridsj, Ndim);
-    gsl_multiroot_function_fdf fnc;
+#ifdef HAVE_EIGEN
+    EigenFncWrapper<IFunctionNdimDeriv> params(F);
+    Eigen::VectorXd data = Eigen::Map<const Eigen::VectorXd>(xinit, Ndim);
+
+    Eigen::HybridNonLinearSolver< EigenFncWrapper<IFunctionNdimDeriv> , double > solver(params);
+    if(solver.solveInit(data) == Eigen::HybridNonLinearSolverSpace::ImproperInputParameters)
+        params.error = "invalid input parameters";
+    solver.parameters.epsfcn = absToler;
+    solver.parameters.maxfev = maxNumIter;
+    solver.useExternalScaling= true;
+    solver.diag.setConstant(Ndim, 1.);
+#else
     FncWrapper<IFunctionNdimDeriv> params(F);
+    gsl_multiroot_function_fdf fnc;
     fnc.params = &params;
     fnc.n = Ndim;
     fnc.f = functionWrapperNdimMval;
     fnc.df = functionWrapperNdimMvalDer;
     fnc.fdf = functionWrapperNdimMvalFncDer;
-    int numIter = 0;
+    gsl_multiroot_fdfsolver* solver = gsl_multiroot_fdfsolver_alloc(
+        gsl_multiroot_fdfsolver_hybridsj, Ndim);
     gsl_vector_const_view v_xinit = gsl_vector_const_view_array(xinit, Ndim);
-    if(gsl_multiroot_fdfsolver_set(solver, &fnc, &v_xinit.vector) == GSL_SUCCESS)
-    {   // iterate
-        do {
-            numIter++;
-            if(gsl_multiroot_fdfsolver_iterate(solver) != GSL_SUCCESS)
-                break;
-        } while(numIter<maxNumIter && 
-            gsl_multiroot_test_residual(solver->f, absToler) == GSL_CONTINUE);
+    if(gsl_multiroot_fdfsolver_set(solver, &fnc, &v_xinit.vector) != GSL_SUCCESS)
+        params.error = "invalid input parameters";
+    const double* data = solver->x->data;
+#endif
+    bool carryon = true;
+    while(params.error.empty() && carryon) {   // iterate
+#ifdef HAVE_EIGEN
+        carryon  = solver.solveOneStep(data) == Eigen::HybridNonLinearSolverSpace::Running;
+#else
+        carryon  = gsl_multiroot_fdfsolver_iterate(solver) == GSL_SUCCESS;
+        carryon &= gsl_multiroot_test_residual(solver->f, absToler) == GSL_CONTINUE;
+#endif
+        carryon &= params.numCalls < maxNumIter;
     }
     // store the found location of minimum
     for(unsigned int i=0; i<Ndim; i++)
-        result[i] = solver->x->data[i];
+        result[i] = data[i];
+#ifndef HAVE_EIGEN
     gsl_multiroot_fdfsolver_free(solver);
+#endif
     if(!params.error.empty())
         throw std::runtime_error("Error in findRootNdimDeriv: "+params.error);
-    return numIter;
+    return params.numCalls;
 }
 
 // ----- multidimensional minimization ----- //

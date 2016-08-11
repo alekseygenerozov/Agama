@@ -96,8 +96,8 @@ private:
     /// radial dependence of each sph.-harm. expansion term
     std::vector<math::CubicSpline> spl;
 
-    /// logarithmic density slopes 's' at small and large radii (rho ~ r^s)
-    std::vector<double> innerSlope, outerSlope;
+    /// logarithmic density slope at small and large radii (rho ~ r^s)
+    double innerSlope, outerSlope;
 
     /// whether the l=0 term is interpolated using log-scaling
     bool logScaling;
@@ -302,27 +302,5 @@ void computePotentialCoefsSph(const BasePotential& pot,
     const std::vector<double> &gridRadii,
     std::vector< std::vector<double> > &Phi,
     std::vector< std::vector<double> > &dPhi);
-
-/** Compute the coefficients of spherical-harmonic potential expansion
-    from an N-body snapshot.
-    \tparam ParticleT  is any of the 6 principal particle types
-    (3 coordinate systems, with or without velocity data, which is not used anyway).
-    \param[in] points  is the array of point masses.
-    \param[in] ind   is the coefficient indexing scheme (defines the order of expansion
-    and its symmetries).
-    \param[in] gridRadii is the grid in spherical radius.
-    \param[in] smoothing is the amount of smoothing applied in penalized spline fitting procedure.
-    \param[out] Phi, dPhi  will contain the arrays of computed coefficients
-    for potential and its radial derivative, with the same convention as used
-    in the constructor of `Multipole`; will be resized as needed.
-*/
-template<typename ParticleT>
-void computePotentialCoefsSph(
-    const particles::PointMassArray<ParticleT> &points,
-    const math::SphHarmIndices &ind,
-    const std::vector<double> &gridRadii,
-    std::vector< std::vector<double> > &Phi,
-    std::vector< std::vector<double> > &dPhi,
-    double smoothing = 1.0);
 
 }  // namespace

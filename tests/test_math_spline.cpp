@@ -107,15 +107,15 @@ bool testPenalizedSplineFit()
         yvalues2[i] = cos(4*sqrt(xvalues[i])) + DISP*(math::random()-0.5)*4;
     }
     math::SplineApprox appr(xnodes, xvalues);
-    double rms, edf, lambda;
+    double rms, edf;
 
-    math::CubicSpline fit1(xnodes, appr.fitOptimal(yvalues1, &rms, &edf, &lambda));
-    std::cout << "case A: RMS="<<rms<<", EDF="<<edf<<", lambda="<<lambda<<"\n";
-    ok &= rms<0.2 && edf>=2 && edf<NNODES+2 && lambda>0;
+    math::CubicSpline fit1(xnodes, appr.fitOptimal(yvalues1, &rms, &edf));
+    std::cout << "case A: RMS="<<rms<<", EDF="<<edf<<"\n";
+    ok &= rms<0.2 && edf>=2 && edf<NNODES+2;
 
-    math::CubicSpline fit2(xnodes, appr.fitOversmooth(yvalues2, .5, &rms, &edf, &lambda));
-    std::cout << "case B: RMS="<<rms<<", EDF="<<edf<<", lambda="<<lambda<<"\n";
-    ok &= rms<1.0 && edf>=2 && edf<NNODES+2 && lambda>0;
+    math::CubicSpline fit2(xnodes, appr.fitOversmooth(yvalues2, .5, &rms, &edf));
+    std::cout << "case B: RMS="<<rms<<", EDF="<<edf<<"\n";
+    ok &= rms<1.0 && edf>=2 && edf<NNODES+2;
 
     if(OUTPUT) {
         std::ofstream strm("test_math_spline_fit.dat");
@@ -216,27 +216,34 @@ bool testPenalizedSplineDensity()
     const int NCHECK  = 321;   // points to measure the estimated density
     const double SMOOTHING=.5; // amount of smoothing applied to penalized spline estimate
     const int NTRIALS = 100;   // number of different realizations of samples
-    std::vector<double> xvalues(NPOINTS), weights(NPOINTS);  // array of sample points
+    const double XCUT = 3.;    // unequal-mass sampling: for x>XCUT, retain only a subset of
+    const int MASSMULT= 1;     // samples with proportionally higher weight each
+    std::vector<double> xvalues, weights;  // array of sample points
 
     // first perform Monte Carlo experiment to estimate the average log-likelihood of
     // a finite array of samples drawn from the density function, and its dispersion.
-    math::Averager avg;
+    math::Averager avgL;
     for(int t=0; t<NTRIALS; t++) {
         double logL = 0;
+        xvalues.clear();
+        weights.clear();
         for(int i=0; i<NPOINTS; i++) {
-            xvalues[i] = dens.sample();
-            weights[i] = NORM/NPOINTS;
-            logL += log(dens(xvalues[i])) * weights[i];
+            double x = dens.sample();
+            if(x<XCUT || math::random()<1./MASSMULT) {
+                xvalues.push_back(x);
+                weights.push_back(NORM/NPOINTS * (x<XCUT ? 1 : MASSMULT));
+                logL += log(dens(x)) * weights.back();
+            }
         }
-        avg.add(logL);
+        avgL.add(logL);
     }
-    std::cout << "Finite-sample log L = " << avg.mean() << " +- " << sqrt(avg.disp());
+    std::cout << "Finite-sample log L = " << avgL.mean() << " +- " << sqrt(avgL.disp());
     // compare with theoretical expectation
     dens.d=1;   // integrate P(x) times ln(P(x)^d
     double E = math::integrateAdaptive(dens, XMIN-5, XMAX+5, 1e-6);
     dens.d=2;
     double Q = math::integrateAdaptive(dens, XMIN-5, XMAX+5, 1e-6)*NORM;
-    double D = sqrt((Q-E*E)/NPOINTS);  // estimated rms scatter in log-likelihood
+    double D = sqrt((Q-E*E)/xvalues.size());  // estimated rms scatter in log-likelihood
     dens.d=0;   // restore the original function
     std::cout << "  Expected log L = " << E << " +- " << D << "\n";
 
@@ -261,11 +268,11 @@ bool testPenalizedSplineDensity()
     math::LinearInterpolator spl1(grid,
         math::logSplineDensity<1>(grid, xvalues, weights, INF, INF, 0));   // linear fit
     math::CubicSpline spl3o(grid,
-        math::logSplineDensity<3>(grid, xvalues, weights, INF, INF, 0.));  // non-penalized cubic
+        math::logSplineDensity<3>(grid, xvalues, weights, INF, INF));  // non-penalized cubic
     math::CubicSpline spl3p(grid,
         math::logSplineDensity<3>(grid, xvalues, weights, INF, INF, SMOOTHING));  // penalized cubic
     double logLtrue=0, logL1=0, logL3o=0, logL3p=0, logL3s=0;
-    for(int i=0; i<NPOINTS; i++) {
+    for(unsigned int i=0; i<xvalues.size(); i++) {
         // evaluate the likelihood of the sampled points against the true underlying density
         // and against all approximations
         logLtrue += weights[i] * log(dens(xvalues[i]));
@@ -275,7 +282,7 @@ bool testPenalizedSplineDensity()
         logL3s   += weights[i] * spltrue(xvalues[i]);
     }
     ok &= fabs(logLtrue-logL1) < 3*D && fabs(logLtrue-logL3o) < 3*D &&
-        fabs(logL3p + SMOOTHING*D - logL3o) < 0.2*D;
+        fabs(logLtrue-logL3p) < 3*D;
     std::cout << "Log-likelihood: true density = " << logLtrue <<
         ", its cubic spline approximation = " << logL3s <<
         ", linear B-spline estimate = " << logL1 <<

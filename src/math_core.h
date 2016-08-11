@@ -42,6 +42,10 @@ inline int abs(int x) { return x<0?-x:x; }
 /** return an integer power of a number */
 double powInt(double x, int n);
 
+    
+/** initialize the pseudo-random number generator with the given value,
+    or a completely arbitrary value if seed==0 */
+void randomize(unsigned int seed=0);
 
 /** return a pseudo-random number in the range [0,1) */
 double random();

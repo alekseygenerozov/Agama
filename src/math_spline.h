@@ -613,38 +613,39 @@ public:
     /** perform actual fitting for the array of y values with the given smoothing parameter.
         \param[in]  yvalues is the array of data points corresponding to x values
         that were passed to the constructor;
-        \param[in]  lambda  is the smoothing parameter;
+        \param[in]  edf  is the number of equivalent degrees of freedom - the parameter that
+        controls the amount of smoothing.
+        It ranges from 2 for a linear regression (infinite smoothing) to numKnots+2 (no smoothing).
+        Default value 0 is synonymous to no smoothing; other values outside this range are not allowed.
         \param[out] rmserror if not NULL, will contain the root-mean-square deviation of data points
         from the smoothing curve;
-        \param[out] edf if not NULL, will contain the number of equivalend degrees of freedom,
-        which decreases from numKnots+2 to 2 as the smoothing parameter increases from 0 to infinity.
         \returns the array of amplitudes of B-splines, which may be used as an argument for
         the constructor of CubicSpline class that will provide the interpolated function;
         the length of this array is numKnots+2.
     */
-    std::vector<double> fit(const std::vector<double> &yvalues, const double lambda=0, 
-        double *rmserror=0, double* edf=0) const;
+    std::vector<double> fit(const std::vector<double> &yvalues, const double edf=0, 
+        double *rmserror=0) const;
 
-    /** perform fitting with adaptive choice of smoothing parameter lambda, to minimize
+    /** perform fitting with adaptive choice of smoothing parameter that minimizes
         the value of AIC (Akaike information criterion), defined as 
           log(rmserror^2 * numDataPoints) + 2 * EDF / (numDataPoints-EDF-1) .
         The input and output arguments are similar to `fit()`, with the difference that
-        the smoothing parameter lambda is not provided as input, but may be reported as output
-        parameter `lambda` if the latter is not NULL.
+        the smoothing parameter (number of equivalent degrees of freedom) is not provided as input,
+        but may be reported as output argument `edf` if the latter is not NULL.
     */
     std::vector<double> fitOptimal(const std::vector<double> &yvalues, 
-        double *rmserror=0, double* edf=0, double *lambda=0) const {
-        return fitOversmooth(yvalues, 0., rmserror, edf, lambda);
+        double *rmserror=0, double* edf=0) const {
+        return fitOversmooth(yvalues, 0., rmserror, edf);
     }
 
-    /** perform an 'oversmooth' fitting with adaptive choice of smoothing parameter lambda.
+    /** perform an 'oversmooth' fitting with adaptive choice of smoothing parameter.
         deltaAIC>=0 determines the difference in AIC (Akaike information criterion) between
         the solution with no smoothing and the returned solution which is smoothed more than
         the optimal amount defined above.
         The other arguments have the same meaning as in `fitOptimal()`.
     */
     std::vector<double> fitOversmooth(const std::vector<double> &yvalues, const double deltaAIC, 
-        double *rmserror=0, double* edf=0, double *lambda=0) const;
+        double *rmserror=0, double* edf=0) const;
 
 private:
     const SplineApproxImpl* impl;   ///< internal object hiding the implementation details
@@ -688,7 +689,18 @@ private:
     sampling points leftmost of this boundary.
     \param[in]  rightInfinite - the same for the right boundary.
     \param[in]  smoothing  is the parameter defining the tradeoff between smoothness
-    and accuracy of approximation (only for N>1).
+    and accuracy of approximation (makes sense only for N>1).
+    Best-fit parameters (amplitudes) of a model without smoothing correspond to the absolute
+    maximum likelihood of samples, but typically the model exhibits unpleasant fluctuations
+    trying to over-fit the existing samples. To cope with overfitting, there are two methods.
+    If smoothing==0 (default), this actually corresponds to the ``optimal smoothing'' determined
+    by maximizing the cross-validation likelihood.
+    Otherwise this parameter controls the difference between log-likelihoods of the smoothed
+    and best-fit unsmoothed models, expressed in units of expected dispersion of log-likelihood
+    for the given number of samples.
+    For instance, setting smoothing=1.0 will yield a model that is within 1 sigma from
+    the best-fitting unsmoothed model.
+    A negative value of this argument turns off smoothing entirely.
     \return  the array of basis function amplitudes defining the log-density ln(P(x)).
     For N=1, their number is equal to the number of grid points,
     and ln(P(x)) is piecewise-linear, with the values at grid nodes equal to the amplitudes.
@@ -746,7 +758,7 @@ std::vector<double> createNonuniformGrid(unsigned int nnodes, double xmin, doubl
     'problematic' bins only are found close to endpoints but not in the middle of the grid.
 */
 std::vector<double> createAlmostUniformGrid(const std::vector<double> &srcpoints,
-    unsigned int minbin, unsigned int& gridsize);
+    unsigned int minbin, unsigned int gridsize);
 
 /** extend the input grid to negative values, by reflecting it about origin.
     \param[in]  input is the vector of N values that should start at zero
