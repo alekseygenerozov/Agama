@@ -672,7 +672,7 @@ private:
     since the estimated ln(P(x)) is linearly extrapolated beyond the grid boundary(-ies).
 
     Optionally the fitting procedure may employ regularization to smooth out fluctuations in
-    the estimate, at the expense of somewhat worse fit to the data.
+    the estimate, at the expense of somewhat worse fit to the data (this is only possible for N>1).
 
     \tparam  N is the degree of B-splines
     (implemented for 1 or 3, smoothing is possible only for N>1).
@@ -710,7 +710,7 @@ private:
     outside the allowed boundaries, or grid points are invalid.
 */
 template<int N>
-std::vector<double> logSplineDensity(const std::vector<double> &grid,
+std::vector<double> splineLogDensity(const std::vector<double> &grid,
     const std::vector<double> &xvalues, const std::vector<double> &weights,
     bool leftInfinite, bool rightInfinite, double smoothing=0);
 

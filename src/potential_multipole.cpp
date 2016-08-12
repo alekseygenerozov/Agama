@@ -528,7 +528,7 @@ void computeDensityCoefsSph(
     }
 
     // construct the l=0 harmonic using a penalized log-density estimate
-    math::CubicSpline spl0(gridLogRadii, math::logSplineDensity<3>(
+    math::CubicSpline spl0(gridLogRadii, math::splineLogDensity<3>(
         gridLogRadii, pointRadii, harmonics[0], true, true));
     for(unsigned int k=0; k<gridSizeR; k++)
         coefs[k][0] = exp(spl0(gridLogRadii[k])) / (4*M_PI*pow_3(gridRadii[k]));
