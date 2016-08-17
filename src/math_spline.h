@@ -683,10 +683,10 @@ private:
     \param[in]  weights  are the weights w[i] of samples; should be non-negative.
     \param[in]  leftInfinite - if true, the function ln(P(x)) is assumed to be defined
     for all x<knots[0] and will be linearly extrapolated to the left of the first grid node
-    (obviously it will be declining towards x=-infinity); in this case input samples are
-    allowed to have x[i]<knots[0].
-    If false, the function P(x) is identically zero for x<knots[0], thus there should be no
-    sampling points leftmost of this boundary.
+    (obviously it will be declining towards x=-infinity); in this case input samples may
+    have x[i]<knots[0] and they will be accounted for in the fit.
+    If false, the function P(x) is identically zero for x<knots[0], and any samples that appear
+    to the left of the boundary are ignored in the fit.
     \param[in]  rightInfinite - the same for the right boundary.
     \param[in]  smoothing  is the parameter defining the tradeoff between smoothness
     and accuracy of approximation (makes sense only for N>1).
@@ -695,12 +695,12 @@ private:
     trying to over-fit the existing samples. To cope with overfitting, there are two methods.
     If smoothing==0 (default), this actually corresponds to the ``optimal smoothing'' determined
     by maximizing the cross-validation likelihood.
-    Otherwise this parameter controls the difference between log-likelihoods of the smoothed
-    and best-fit unsmoothed models, expressed in units of expected dispersion of log-likelihood
-    for the given number of samples.
+    Otherwise we first determine the expected dispersion 'logLrms' of log-likelihood
+    for the given number of samples, and then find the value of smoothing parameter
+    such that the log-likelihood of the returned model is lower than that of the optimal model
+    by an amount smoothing*logLrms.
     For instance, setting smoothing=1.0 will yield a model that is within 1 sigma from
-    the best-fitting unsmoothed model.
-    A negative value of this argument turns off smoothing entirely.
+    the best-fitting optimally smoothed model.
     \return  the array of basis function amplitudes defining the log-density ln(P(x)).
     For N=1, their number is equal to the number of grid points,
     and ln(P(x)) is piecewise-linear, with the values at grid nodes equal to the amplitudes.
@@ -747,18 +747,18 @@ std::vector<double> createExpGrid(unsigned int nnodes, double xmin, double xmax)
 */
 std::vector<double> createNonuniformGrid(unsigned int nnodes, double xmin, double xmax, bool zeroelem);
 
-/** create an almost uniform grid so that each bin contains at least minbin points from input array.
-    Input points are in srcpoints array and MUST BE SORTED in ascending order (assumed but not cheched).
+/** create an almost uniform grid enclosing all input points,
+    so that each bin contains at least minbin points from input array.
+    \param[in]  nnodes    is the number of grid nodes (>=2);
     \param[in]  srcpoints is the input array of points;
     \param[in]  minbin    is the minimum number of points per bin;
-    \param[in]  gridsize  is the required length of the output array;
     \return     the array of grid nodes. 
     NB: in the present implementation, the algorithm is not very robust 
-    and works well only for gridsize*minbin << srcpoints.size, assuming that 
+    and works well only for nnodes*minbin << srcpoints.size, assuming that 
     'problematic' bins only are found close to endpoints but not in the middle of the grid.
 */
-std::vector<double> createAlmostUniformGrid(const std::vector<double> &srcpoints,
-    unsigned int minbin, unsigned int gridsize);
+std::vector<double> createAlmostUniformGrid(unsigned int nnodes, 
+    const std::vector<double> &srcpoints, unsigned int minbin);
 
 /** extend the input grid to negative values, by reflecting it about origin.
     \param[in]  input is the vector of N values that should start at zero

@@ -336,50 +336,55 @@ int findRootNdimDeriv(const IFunctionNdimDeriv& F, const double xinit[],
         throw std::invalid_argument(
             "findRootNdimDeriv: number of equations must be equal to the number of variables");
 #ifdef HAVE_EIGEN
-    EigenFncWrapper<IFunctionNdimDeriv> params(F);
-    Eigen::VectorXd data = Eigen::Map<const Eigen::VectorXd>(xinit, Ndim);
-
-    Eigen::HybridNonLinearSolver< EigenFncWrapper<IFunctionNdimDeriv> , double > solver(params);
-    if(solver.solveInit(data) == Eigen::HybridNonLinearSolverSpace::ImproperInputParameters)
-        params.error = "invalid input parameters";
-    solver.parameters.epsfcn = absToler;
+    EigenFncWrapper<IFunctionNdimDeriv> fnc(F);
+    Eigen::VectorXd vars = Eigen::Map<const Eigen::VectorXd>(xinit, Ndim);
+    Eigen::HybridNonLinearSolver< EigenFncWrapper<IFunctionNdimDeriv> , double > solver(fnc);
+    if(solver.solveInit(vars) == Eigen::HybridNonLinearSolverSpace::ImproperInputParameters)
+        fnc.error = "invalid input parameters";
     solver.parameters.maxfev = maxNumIter;
     solver.useExternalScaling= true;
     solver.diag.setConstant(Ndim, 1.);
+    const double* values = solver.fvec.data();
 #else
-    FncWrapper<IFunctionNdimDeriv> params(F);
-    gsl_multiroot_function_fdf fnc;
-    fnc.params = &params;
-    fnc.n = Ndim;
-    fnc.f = functionWrapperNdimMval;
-    fnc.df = functionWrapperNdimMvalDer;
-    fnc.fdf = functionWrapperNdimMvalFncDer;
+    FncWrapper<IFunctionNdimDeriv> fnc(F);
+    gsl_multiroot_function_fdf gfnc;
+    gfnc.params = &fnc;
+    gfnc.n = Ndim;
+    gfnc.f = functionWrapperNdimMval;
+    gfnc.df = functionWrapperNdimMvalDer;
+    gfnc.fdf = functionWrapperNdimMvalFncDer;
     gsl_multiroot_fdfsolver* solver = gsl_multiroot_fdfsolver_alloc(
         gsl_multiroot_fdfsolver_hybridsj, Ndim);
     gsl_vector_const_view v_xinit = gsl_vector_const_view_array(xinit, Ndim);
-    if(gsl_multiroot_fdfsolver_set(solver, &fnc, &v_xinit.vector) != GSL_SUCCESS)
-        params.error = "invalid input parameters";
-    const double* data = solver->x->data;
+    if(gsl_multiroot_fdfsolver_set(solver, &gfnc, &v_xinit.vector) != GSL_SUCCESS)
+        fnc.error = "invalid input parameters";
+    const double* vars = solver->x->data;
+    const double* values = solver->f->data;
 #endif
-    bool carryon = true;
-    while(params.error.empty() && carryon) {   // iterate
+    bool carryon = true, converged = false;
+    while(fnc.error.empty() && carryon && !converged) {   // iterate
 #ifdef HAVE_EIGEN
-        carryon  = solver.solveOneStep(data) == Eigen::HybridNonLinearSolverSpace::Running;
+        carryon  = solver.solveOneStep(vars) == Eigen::HybridNonLinearSolverSpace::Running;
 #else
         carryon  = gsl_multiroot_fdfsolver_iterate(solver) == GSL_SUCCESS;
-        carryon &= gsl_multiroot_test_residual(solver->f, absToler) == GSL_CONTINUE;
 #endif
-        carryon &= params.numCalls < maxNumIter;
+        carryon &= fnc.numCalls < maxNumIter;
+        // test for convergence
+        converged = true;
+        for(unsigned int i=0; i<Ndim; i++)
+            converged &= fabs(values[i]) <= absToler;
     }
+    if(!converged)
+        fnc.numCalls *= -1;  // signal of error
     // store the found location of minimum
     for(unsigned int i=0; i<Ndim; i++)
-        result[i] = data[i];
+        result[i] = vars[i];
 #ifndef HAVE_EIGEN
     gsl_multiroot_fdfsolver_free(solver);
 #endif
-    if(!params.error.empty())
-        throw std::runtime_error("Error in findRootNdimDeriv: "+params.error);
-    return params.numCalls;
+    if(!fnc.error.empty())
+        throw std::runtime_error("Error in findRootNdimDeriv: "+fnc.error);
+    return fnc.numCalls;
 }
 
 // ----- multidimensional minimization ----- //

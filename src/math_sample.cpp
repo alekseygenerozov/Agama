@@ -702,10 +702,6 @@ private:
     //double outputSampleWeight;
     int numActivePoints;
 
-    static const double oversamplingFactor = 1.25;
-
-    static const unsigned int minNumPointsInCell = 16;
-
     /// analyze the sampling points inside a leaf cell and perform one of the following actions:
     /// - if all sampling points have weights less than the maximum allowed value, do nothing;
     /// - otherwise, decide whether to split the cell, and if yes, along which dimension;
@@ -740,6 +736,10 @@ private:
 
     std::ofstream strm;
 };
+
+static const double oversamplingFactor = 1.25;
+
+static const unsigned int minNumPointsInCell = 16;
 
 NewSampler::NewSampler(const IFunctionNdim& _fnc, const double _xlower[], const double _xupper[],
     unsigned int _numOutputSamples) :

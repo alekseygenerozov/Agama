@@ -232,6 +232,11 @@ private:
     double a, b;
 };
 
+bool err() {
+    std::cout << "\033[1;31m **\033[0m\n";
+    return false;
+}
+
 int main()
 {
     std::cout << std::setprecision(10);
@@ -242,81 +247,81 @@ int main()
     double exact = (M_PI*2/3), error=0, result;
     result = math::integrate(test1(), -1, 1./2, toler, &error, &numEval);
     std::cout << "Int1: naive="<<result<<" +- "<<error<<" (delta="<<(result-exact)<<", neval="<<numEval;
-    ok &= fabs(1-result/exact)<2e-3 && fabs(result-exact)<error;
+    ok &= (fabs(1-result/exact)<2e-3 && fabs(result-exact)<error) || err();
     result = math::integrateAdaptive(test1(), -1, 1./2, toler, &error, &numEval);
     std::cout << "), adaptive="<<result<<" +- "<<error<<" (delta="<<(result-exact)<<", neval="<<numEval;
-    ok &= fabs(1-result/exact)<toler && fabs(result-exact)<error;
+    ok &= (fabs(1-result/exact)<toler && fabs(result-exact)<error) || err();
     test1 t1;
     math::ScaledIntegrandEndpointSing test1s(t1, -1, 1);
     result = math::integrate(test1s, test1s.y_from_x(-1), test1s.y_from_x(1./2), toler, &error, &numEval);
     std::cout<<"), scaled="<<result<<" +- "<<error<<" (delta="<<(result-exact)<<", neval="<<numEval<<")\n";
-    ok &= fabs(1-result/exact)<1e-8 && fabs(result-exact)<error;
+    ok &= (fabs(1-result/exact)<1e-8 && fabs(result-exact)<error) || err();
 
     exact = 2.274454287;
     result = math::integrate(test2(), -1, 2./3, toler, &error, &numEval);
     std::cout << "Int2: naive="<<result<<" +- "<<error<<" (delta="<<(result-exact)<<", neval="<<numEval;
-    ok &= fabs(1-result/exact)<2e-2 && fabs(result-exact)<error;
+    ok &= (fabs(1-result/exact)<2e-2 && fabs(result-exact)<error) || err();
     result = math::integrateAdaptive(test2(), -1, 2./3, toler*15, &error, &numEval);
     std::cout << "), adaptive="<<result<<" +- "<<error<<" (delta="<<(result-exact)<<", neval="<<numEval;
-    ok &= fabs(1-result/exact)<toler*15 && fabs(result-exact)<error;
+    ok &= (fabs(1-result/exact)<toler*15 && fabs(result-exact)<error) || err();
     test2 t2;
     math::ScaledIntegrandEndpointSing test2s(t2, -1, 1);
     result = math::integrate(test2s, test2s.y_from_x(-1), test2s.y_from_x(2./3), toler, &error, &numEval);
     std::cout<<"), scaled="<<result<<" +- "<<error<<" (delta="<<(result-exact)<<", neval="<<numEval<<")\n";
-    ok &= fabs(1-result/exact)<2e-4 && fabs(result-exact)<error;
+    ok &= (fabs(1-result/exact)<2e-4 && fabs(result-exact)<error) || err();
 
     // root-finding
     exact=0.3;
     numEval=0;
     result = math::findRoot(test3(0), 0, 0.8, toler);
     std::cout << "Root3="<<result<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
-    ok &= fabs(1-result/exact)<toler;
+    ok &= (fabs(1-result/exact)<toler) || err();
     numEval=0;
     result = math::findRoot(test3(1), 0, 0.8, toler);
     std::cout << "with derivative: Root3="<<result<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
-    ok &= fabs(1-result/exact)<toler;
+    ok &= (fabs(1-result/exact)<toler) || err();
 
     exact=1.000002e-6;
     numEval=0;
     result = math::findRoot(test4(0), 1e-15, 0.8, 1e-8);
     std::cout << "Root4="<<result<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
-    ok &= fabs(result-exact)<1e-8*0.8;
+    ok &= (fabs(result-exact)<1e-8*0.8) || err();
     numEval=0;
     result = math::findRoot(test4(1), 1e-15, 0.8, 1e-8);
     std::cout << "with derivative: Root4="<<result<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
-    ok &= fabs(result-exact)<1e-8*0.8;
+    ok &= (fabs(result-exact)<1e-8*0.8) || err();
 
     double x0 = exact*2;
     double x1 = x0 + math::PointNeighborhood(test4(0), x0).dxToPositive();
     result = test4(0)(x1);
     std::cout << "positive value at x="<<x1<<", value="<<result<<"\n";
-    ok &= math::isFinite(x1+result) && x1>0 && x1<exact && result>0;
+    ok &= (math::isFinite(x1+result) && x1>0 && x1<exact && result>0) || err();
     x0 = exact*0.9;
     x1 = x0 + math::PointNeighborhood(test4(0), x0).dxToNegative();
     result = test4(0)(x1);
     std::cout << "negative value at x="<<x1<<", value="<<result<<"\n";
-    ok &= math::isFinite(x1+result) && result<0;
+    ok &= (math::isFinite(x1+result) && result<0) || err();
     x1 = x0 + math::PointNeighborhood(test4(1), x0).dxToNegative();
     result = test4(0)(x1);
     std::cout << "(with deriv) negative value at x="<<x1<<", value="<<result<<"\n";
-    ok &= math::isFinite(x1+result) && result<0;
+    ok &= (math::isFinite(x1+result) && result<0) || err();
 
     x0 = 1.00009;
     exact = 1.000100000002;
     x1 = x0 + math::PointNeighborhood(test5(), x0).dxToPositive();
     result = test5()(x1);
     std::cout << "f5: positive value at x="<<exact<<"+"<<(x1-exact)<<", value="<<result<<"\n";
-    ok &= math::isFinite(x1+result) && result>0;
+    ok &= (math::isFinite(x1+result) && result>0) || err();
     numEval=0;
     result = math::findRoot(test5(), 1, x1, toler);
     std::cout << "Root5="<<result<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
-    ok &= fabs(result-exact)<toler*exact;
+    ok &= (fabs(result-exact)<toler*exact) || err();
 
     exact=1.000109999998;
     numEval=0;
     result = math::findRoot(test5(), x1, INFINITY, toler);
     std::cout << "Another root="<<result<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
-    ok &= fabs(result-exact)<toler*exact;
+    ok &= (fabs(result-exact)<toler*exact) || err();
 
     // minimization
     numEval=0;
@@ -324,7 +329,7 @@ int main()
     result = math::findMin(test4(0), 1e-15, 1, NAN, toler);
     std::cout << "Minimum of f4(x) at x="<<result<<" is "<<test4(0)(result)<<
         " (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
-    ok &= fabs(result-exact)<toler*exact;
+    ok &= (fabs(result-exact)<toler*exact) || err();
     numEval=0;
     double xinit[] = {0.5};
     double xstep[] = {0.1};
@@ -332,7 +337,7 @@ int main()
     int numIter = findMinNdim(test4Ndim(), xinit, xstep, toler, 100, xresult);
     std::cout << "N-dimensional minimization (N=1) of the same function: minimum at x="<<xresult[0]<<
         " is "<<test4(0)(xresult[0])<<" (delta="<<(xresult[0]-exact)<<"; neval="<<numEval<<", nIter="<<numIter<<")\n";
-    ok &= fabs(result-exact)<toler;
+    ok &= (fabs(result-exact)<toler) || err();
 
     numEval=0;
     double yinit[] = {5.0,-4.,2.5};
@@ -343,7 +348,7 @@ int main()
     std::cout << "N-dimensional minimization (N=3): minimum at x=("<<
         yresult[0]<<","<<yresult[1]<<","<<yresult[2]<<")"
         " is "<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
-    ok &= fabs(yresult[0]-c0) * fabs(yresult[1]-c1) * fabs(yresult[2]-c2) < 1e-10;
+    ok &= (fabs(yresult[0]-c0) * fabs(yresult[1]-c1) * fabs(yresult[2]-c2) < 1e-10) || err();
 
     numEval=0;
     numIter = findMinNdimDeriv(test7Ndim(), yinit, ystep[0], 1e-10, 1000, yresult);
@@ -353,7 +358,7 @@ int main()
         " is "<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
     // the test function is quartic, not quadratic, near minimum,
     // which is tough for derivative-based minimizers - hence a looser tolerance
-    ok &= fabs(yresult[0]-c0) * fabs(yresult[1]-c1) * fabs(yresult[2]-c2) < 1e-8;
+    ok &= (fabs(yresult[0]-c0) * fabs(yresult[1]-c1) * fabs(yresult[2]-c2) < 1e-8) || err();
 
     // N-dimensional root finding
     numEval=0;
@@ -362,7 +367,7 @@ int main()
     numIter = math::findRootNdimDeriv(test10Ndim(1, 10), yinit, 1e-10, 100, yresult);
     std::cout << "RootNdim(N=2): "<<yresult[0]<<","<<yresult[1]<<
         " (delta="<<(yresult[0]-1)<<","<<(yresult[1]-1)<<"; neval="<<numEval<<", nIter="<<numIter<<")\n";
-    ok &= fabs(yresult[0]-1)<toler && fabs(yresult[1]-1)<toler;
+    ok &= (fabs(yresult[0]-1)<toler && fabs(yresult[1]-1)<toler) || err();
 
     // N-dimensional integration
     numEval=0;
@@ -372,15 +377,15 @@ int main()
     exact = 2*pow_2(M_PI*Rin)*Rout;  // volume of a torus
     integrateNdim(fnc8, ymin, ymax, toler, 1000000, &result, &error);
     std::cout << "Volume of a 3d torus = "<<result<<" +- "<<error<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
-    ok &= fabs(result-exact)<error;
+    ok &= (fabs(result-exact)<error) || err();
 
     numEval=0;
     math::Matrix<double> points;
     sampleNdim(fnc8, ymin, ymax, 100000, points, NULL, &result, &error);
     std::cout << "Monte Carlo Volume of a 3d torus = "<<result<<" +- "<<error<<
         " (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
-    ok &= fabs(result-exact)<error*2;  // loose tolerance on MC error estimate
-    if(1) {
+    ok &= (fabs(result-exact)<error*2) || err();  // loose tolerance on MC error estimate
+    if(0) {
         std::ofstream fout("torus.dat");
         for(unsigned int i=0; i<points.rows(); i++)
             fout << points(i,0) << "\t" << points(i,1) << "\t" << points(i,2) << "\n";
@@ -426,7 +431,7 @@ int main()
         yresult[0]<<","<<yresult[1]<<","<<yresult[2]<<")"
         ", sum square dif="<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
     //fncLM.dump(yresult, "fit.log");
-    ok &= fabs(result) < 1.5;  // well it's not a particularly good fit by design
+    ok &= fabs(result) < 1.5 || err();  // well it's not a particularly good fit by design
 
     // same problem using a generic minimizer with derivatives
     numEval = 0;
@@ -435,7 +440,7 @@ int main()
     std::cout << "Same with deriv. minimizer: parameters x=("<<
         yresult[0]<<","<<yresult[1]<<","<<yresult[2]<<")"
         ", sum square dif="<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
-    ok &= fabs(result) < 1.5;
+    ok &= fabs(result) < 1.5 || err();
 
     // same problem using a generic minimizer without derivatives
     numEval = 0;
@@ -444,7 +449,7 @@ int main()
     std::cout << "Same minimizer w/o derivs : parameters x=("<<
         yresult[0]<<","<<yresult[1]<<","<<yresult[2]<<")"
         ", sum square dif="<<result<<" (neval="<<numEval<<", nIter="<<numIter<<")\n";
-    ok &= fabs(result) < 1.5;
+    ok &= fabs(result) < 1.5 || err();
 
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";

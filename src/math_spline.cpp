@@ -87,27 +87,27 @@ static inline int bsplineDerivs(const double x, const double grid[], int size, d
 /// however, C++ rules do not permit to declare a partial function template specialization
 /// (for arbitrary N and order 0), therefore we use full specializations for several values of N
 template<>
-static inline int bsplineDerivs<0,0>(const double x, const double grid[], int size, double B[]) {
+inline int bsplineDerivs<0,0>(const double x, const double grid[], int size, double B[]) {
     return bsplineValues<0>(x, grid, size, B);
 }
 template<>
-static inline int bsplineDerivs<1,0>(const double x, const double grid[], int size, double B[]) {
+inline int bsplineDerivs<1,0>(const double x, const double grid[], int size, double B[]) {
     return bsplineValues<1>(x, grid, size, B);
 }
 template<>
-static inline int bsplineDerivs<2,0>(const double x, const double grid[], int size, double B[]) {
+inline int bsplineDerivs<2,0>(const double x, const double grid[], int size, double B[]) {
     return bsplineValues<2>(x, grid, size, B);
 }
 template<>
-static inline int bsplineDerivs<3,0>(const double x, const double grid[], int size, double B[]) {
+inline int bsplineDerivs<3,0>(const double x, const double grid[], int size, double B[]) {
     return bsplineValues<3>(x, grid, size, B);
 }
 template<>
-static inline int bsplineDerivs<0,1>(const double, const double[], int, double[]) {
+inline int bsplineDerivs<0,1>(const double, const double[], int, double[]) {
     assert(!"Should not be called");
 }
 template<>
-static inline int bsplineDerivs<0,2>(const double, const double[], int, double[]) {
+inline int bsplineDerivs<0,2>(const double, const double[], int, double[]) {
     assert(!"Should not be called");
 }
 
@@ -1623,16 +1623,15 @@ std::vector<double> SplineApprox::fitOversmooth(
 //------------ LOG-SPLINE DENSITY ESTIMATOR ------------//
 namespace {
 
-// whether to use multidimensional root-finder for d ln L / d A_k (true) or minimizer for -ln L (false)
-#define USE_ROOT_FINDER
-
 /** Data for SplineLogDensity fitting procedure that is changing during the fit */
 struct SplineLogFitParams {
     std::vector<double> init;   ///< array of amplitudes used to start the multidimensional minimizer
     std::vector<double> result; ///< array of amplitudes that correspond to the found minimum
     double lambda;              ///< smoothing parameter
     double targetLogL;          ///< target value of likelihood for the case with smoothing
-    SplineLogFitParams() : lambda(0), targetLogL(0) {}
+    double bestLogLcv;          ///< highest cross-validation score obtained so far
+    double gradNorm;            ///< normalization factor for determining the root-finder tolerance
+    SplineLogFitParams() : lambda(0), targetLogL(0), bestLogLcv(-INFINITY), gradNorm(0) {}
 };
 
 /** The engine of log-spline density estimator relies on the maximization of log-likelihood
@@ -1735,11 +1734,8 @@ private:
     */
     virtual void evalDeriv(const double ampl[], double grad[], double hess[]) const;
     virtual unsigned int numVars() const { return numAmpl; }
-#ifdef USE_ROOT_FINDER
     virtual unsigned int numValues() const { return numAmpl; }
-#else
-    virtual unsigned int numValues() const { return 1; }
-#endif
+
     /** Compute the values and derivatives of  G_d = \int \exp(Q(x)) [Q(x)]^d  dx,  where
         Q(x) = \sum_{k=0}^{N_{ampl}-1}  A_k B_k(x)  is the weighted sum of basis functions,
         B_k(x) are basis functions (B-splines of degree N defined by the grid nodes),
@@ -1762,7 +1758,7 @@ private:
     const unsigned int numAmpl;       ///< the number of amplitudes that may be varied (numBasisFnc-1)
     const unsigned int numData;       ///< number of sample points
     const bool leftInfinite, rightInfinite;  ///< whether the definition interval extends to +-inf
-    static const int GL_ORDER = 10;          ///< order of GL quadrature for computing the normalization
+    static const int GL_ORDER = 8;           ///< order of GL quadrature for computing the normalization
     double GLnodes[GL_ORDER], GLweights[GL_ORDER];  ///< nodes and weights of GL quadrature
     std::vector<double> Vbasis;       ///< basis likelihoods: V_k = \sum_i w_i B_k(x_i)
     std::vector<double> Wbasis;       ///< W_k = \sum_i w_i^2 B_k(x_i) 
@@ -1781,18 +1777,18 @@ SplineLogDensityFitter<N>::SplineLogDensityFitter(const std::vector<double>& _gr
     params(_params)
 {
     if(numData <= 0)
-        throw std::invalid_argument("logSplineDensity: no data");
+        throw std::invalid_argument("splineLogDensity: no data");
     if(numData != weights.size())
-        throw std::invalid_argument("logSplineDensity: sizes of input arrays are not equal");
+        throw std::invalid_argument("splineLogDensity: sizes of input arrays are not equal");
     if(numNodes<2)
-        throw std::invalid_argument("logSplineDensity: grid size should be at least 2");
+        throw std::invalid_argument("splineLogDensity: grid size should be at least 2");
     for(unsigned int k=1; k<numNodes; k++)
         if(grid[k-1] >= grid[k])
-            throw std::invalid_argument("logSplineDensity: grid nodes are not monotonic");
+            throw std::invalid_argument("splineLogDensity: grid nodes are not monotonic");
     prepareIntegrationTableGL(0, 1, GL_ORDER, GLnodes, GLweights);
 
     // prepare the roughness penalty matrix
-    // (integrals over products of second or third derivatives of basis functions)
+    // (integrals over products of certain derivatives of basis functions)
     roughnessMatrix = computeOverlapMatrix<N,3>(grid);
 
     // prepare the log-likelihoods of each basis fnc and other useful arrays
@@ -1805,13 +1801,13 @@ SplineLogDensityFitter<N>::SplineLogDensityFitter(const std::vector<double>& _gr
     double avgx = 0, avgx2 = 0;
     for(unsigned int p=0; p<numData; p++) {
         if(weights[p] < 0)
-            throw std::invalid_argument("SplineLogDensity: sample weights may not be negative");
+            throw std::invalid_argument("splineLogDensity: sample weights may not be negative");
         if(weights[p] == 0)
             continue;
-        // if the interval is (semi-)finite, no samples should appear beyond its boundaries
+        // if the interval is (semi-)finite, samples beyond its boundaries are ignored
         if( (xvalues[p] < grid[0] && !leftInfinite) ||
             (xvalues[p] > grid[numNodes-1] && !rightInfinite) )
-            throw std::invalid_argument("SplineLogDensity: samples found outside the grid");
+            continue;
         double Bspl[N+1];
         int ind = bsplineValuesExtrapolated<N>(xvalues[p], &grid[0], numNodes, Bspl);
         for(unsigned int b=0; b<=N; b++) {
@@ -1828,13 +1824,15 @@ SplineLogDensityFitter<N>::SplineLogDensityFitter(const std::vector<double>& _gr
     }
     // sanity check    
     if(sumWeights==0)
-        throw std::invalid_argument("SplineLogDensity: sum of sample weights should be positive");
+        throw std::invalid_argument("splineLogDensity: sum of sample weights should be positive");
     
     // sanity check: all of basis functions must have a contribution from sample points,
     // otherwise the problem is singular and the max-likelihood solution is unattainable
     bool isSingular = false;
-    for(unsigned int k=0; k<numBasisFnc; k++)
+    for(unsigned int k=0; k<numBasisFnc; k++) {
         isSingular |= Vbasis[k]==0;
+        params.gradNorm = fmax(params.gradNorm, fabs(Vbasis[k]));
+    }
     if(isSingular) {
         // add fake contributions to all basis functions that would have arisen from
         // a uniformly distributed minWeight over each grid segment
@@ -1936,41 +1934,31 @@ double SplineLogDensityFitter<N>::logLcv(const std::vector<double>& ampl) const
     try{
         CholeskyDecomp hessdec(hess);
         Matrix<double> hessL(hessdec.L()), tmpmat(BTBmatrix);
+        // tmpmat = H^{-1} (B^T B)
         blas_dtrsm(CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit, 1, hessL, tmpmat);
         blas_dtrsm(CblasLeft, CblasLower, CblasTrans,   CblasNonUnit, 1, hessL, tmpmat);
         double add = 0;
         for(unsigned int k=0; k<numAmpl; k++) {
             add -= tmpmat(k, k);  // trace of H^{-1} B^T B
-        }
-        add += blas_ddot(grad, hessdec.solve(Wbasis));  // dG/dA H^{-1} W
+        }        
+        std::vector<double> Hm1W = hessdec.solve(Wbasis);  // H^{-1} W
+        add += blas_ddot(grad, Hm1W);  // dG/dA H^{-1} W
         // don't allow the cross-validation likelihood to be higher than log L itself
         val += fmin(add, 0);  // (this shouldn't occur under normal circumstances)
     }
-    catch(std::exception&) {
+    catch(std::exception&) {  // may happen if the fit did not converge, i.e. gradient != 0
 #ifdef VERBOSE_REPORT
         std::cout << "Hessian is not positive-definite!\n";
 #endif
+        val -= 1e10;   // this will never be a good fit
     }
     return val;
 }
 
-#ifdef USE_ROOT_FINDER
 template<int N>
 void SplineLogDensityFitter<N>::evalDeriv(const double ampl[], double deriv[], double deriv2[]) const
 {
     logG(ampl, deriv, deriv2);
-#else
-template<int N>
-void SplineLogDensityFitter<N>::evalDeriv(const double ampl[], double *value, double deriv[]) const
-{
-    double* deriv2 = NULL;
-    double val = logG(ampl, deriv, deriv2);
-    if(value) {
-        for(unsigned int k=0; k<numAmpl; k++)
-            val -= Vbasis[k] * ampl[k] / sumWeights;
-        *value = val;
-    }
-#endif
     if(deriv!=NULL) {  // (-1/M)  d (log L) / d A_k
         for(unsigned int k=0; k<numAmpl; k++) {
             deriv[k] -= Vbasis[k] / sumWeights;
@@ -1991,10 +1979,6 @@ void SplineLogDensityFitter<N>::evalDeriv(const double ampl[], double *value, do
                     if(k!=l)
                         deriv[l] += v * ampl[k];
                 }
-#ifndef USE_ROOT_FINDER
-                if(value!=NULL)
-                    *value += v * ampl[k] * ampl[l] * (k==l ? 0.5 : 1.);
-#endif
             }
         }
     }
@@ -2140,21 +2124,21 @@ private:
     virtual double value(const double scaledLambda) const
     {
         bool useCV = params.targetLogL==0;   // whether we are in the minimizer or root-finder mode
-        params.lambda = exp( 1 / (1-scaledLambda) - 1 / scaledLambda );
-#ifdef USE_ROOT_FINDER
-        /*int numIter =*/ findRootNdimDeriv(fitter, &params.init[0], 1e-4, 100, &params.result[0]);
-#else
-        /*int numIter =*/ findMinNdimDeriv(fitter, &params.init[0], 0.1, 1e-4, 100, &params.result[0]);
-#endif
-#ifdef VERBOSE_REPORT_BLAH
+        params.lambda = exp( 1 / scaledLambda - 1 / (1-scaledLambda) );
+        int numIter   = findRootNdimDeriv(fitter,
+            &params.init[0], 1e-8*params.gradNorm, 100, &params.result[0]);
+        double logL   = fitter.logL(params.result);
         double logLcv = fitter.logLcv(params.result);
-        double logL = fitter.logL(params.result);
-        std::cout << "lambda= " << params.lambda << //"  #iter= " << numIter <<
-        "  logL= " << logL << "  CV= " << logLcv << '\n';
-        return useCV ? -logLcv : params.targetLogL - logL;
-#else
-        return useCV ? -fitter.logLcv(params.result) : params.targetLogL - fitter.logL(params.result);
+#ifdef VERBOSE_REPORT_BLAH
+        if(numIter<0) std::cout <<"Warning, lambda="<<params.lambda<<" did not converge\n";
+        std::cout << "lambda= " << params.lambda << "  #iter= " << numIter <<
+        "  logL= " << logL << "  CV= " << logLcv << (params.bestLogLcv < logLcv ? " improved\n" : "\n");
 #endif
+        if(params.bestLogLcv < logLcv) {   // update the best-fit params and the starting point for fitting
+            params.bestLogLcv = logLcv;
+            params.init = params.result;
+        }
+        return useCV ? -logLcv : params.targetLogL - logL;
     }
     const SplineLogDensityFitter<N>& fitter;
     SplineLogFitParams& params;
@@ -2168,32 +2152,20 @@ std::vector<double> splineLogDensity(const std::vector<double> &grid,
 {
     SplineLogFitParams params;
     const SplineLogDensityFitter<N> fitter(grid, xvalues, weights, leftInfinite, rightInfinite, params);
-#ifdef USE_ROOT_FINDER
-    findRootNdimDeriv(fitter, &params.init[0], 1e-6, 100, &params.result[0]);
-    params.init = params.result;
-    // sometimes the root-finder does not converge on the first attempt
-    findRootNdimDeriv(fitter, &params.init[0], 1e-6, 50, &params.result[0]);
-    //std::cout << ", logL="<< fitter.logL(params.result) << "\n";
-#else
-    findMinNdimDeriv(fitter, &params.init[0], 0.1, 1e-6, 100, &params.result[0]);
-#endif
-    if(N>1 && smoothing>=0) {
-        // start the search from the best-fit amplitudes for the case of no smoothing
-        params.init = params.result;
-        SplineLogDensityLambdaFinder<N> rootfinder(fitter, params);
+    if(N==1)  // find the best-fit amplitudes without any smoothing
+        findRootNdimDeriv(fitter, &params.init[0], 1e-8*params.gradNorm, 100, &params.result[0]);
+    else {
+        // find the value of lambda and corresponding amplitudes that maximize the cross-validation score
+        const SplineLogDensityLambdaFinder<N> finder(fitter, params);
+        // search for scaled lambda, such that 1 corresponds to lambda=0 and 0 -- to lambda=infinity
+        findMin(finder, 0.1, 1.0, NAN, 1e-4);
         if(smoothing>0) {
             // target value of log-likelihood is allowed to be worse than
             // the best value for the case of no smoothing by an amount
             // that is proportional to the expected rms variation of logL
             params.targetLogL = fitter.logL(params.result) - smoothing * fitter.logLrms(params.result);
-            params.lambda = findRoot(rootfinder, 0.0, 0.5, 1e-4);
-        } else {
-            // find the value of lambda that maximizes the cross-validation score
-            params.lambda = findMin(rootfinder, 0.0, 0.5, NAN, 1e-4);
-        }    
-        // if something goes wrong, restore the initial amplitudes (corresponding to no smoothing)
-        if(!isFinite(params.lambda))
-            params.result = params.init;
+            findRoot(finder, 0.1, 1.0, 1e-4);
+        }
     }
     return fitter.getNormalizedAmplitudes(params.result);
 }
@@ -2297,13 +2269,15 @@ static void makegrid(std::vector<double>::iterator begin, std::vector<double>::i
     *(end-1)=endval;  // exact value
 }
 
-std::vector<double> createAlmostUniformGrid(const std::vector<double> &srcpoints, 
-    unsigned int minbin, unsigned int gridsize)
+std::vector<double> createAlmostUniformGrid(unsigned int gridsize, 
+    const std::vector<double> &srcpoints_unsorted, unsigned int minbin)
 {
-    if(srcpoints.size()==0)
+    if(srcpoints_unsorted.size()==0)
         throw std::invalid_argument("Error in creating a grid: input points array is empty");
-    gridsize = std::max<unsigned int>(2, std::min<unsigned int>(gridsize,
-        static_cast<unsigned int>(srcpoints.size()/minbin)));
+    if(gridsize < 2 || (gridsize-1)*minbin > srcpoints_unsorted.size())
+        throw std::invalid_argument("Invalid grid size");
+    std::vector<double> srcpoints(srcpoints_unsorted);
+    std::sort(srcpoints.begin(), srcpoints.end());
     std::vector<double> grid(gridsize);
     std::vector<double>::iterator gridbegin=grid.begin(), gridend=grid.end();
     std::vector<double>::const_iterator srcbegin=srcpoints.begin(), srcend=srcpoints.end();

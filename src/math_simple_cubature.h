@@ -11,6 +11,9 @@
     in single precision, thus the accuracy is ~1e-7 at best.
     For generic smooth integrands, relative error is of order 1e-3.
 */
+#pragma once
+#include "math_base.h"
+
 namespace math{
 
 /// nodes of Gauss-Patterson quadrature in one dimension
@@ -81,16 +84,44 @@ static const double GPweight3d[NumNodes3d] = {
  .021433475651577910, .014535585949738588, .014535585949738588, .014535585949738588,
 -.005814238566143851, .014535585949738588, .014535585949738588};
 
-/// example of usage: integration over the domain [0:1]^3
-static inline double integrate3d(const math::IFunctionNdim &fnc)
+/** Integration of a 2d function using a fixed-order rule with 33 points.
+    \param[in]  fnc  is a function of 2 variables that returns 1 value;
+    \param[in]  xlower  is the lower corner of integration cube;
+    \param[in]  xupper  is the upper corner;
+    \return     the value of integral (no error estimate).
+*/
+static inline double integrate2d(const math::IFunctionNdim &fnc, const double xlower[2], const double xupper[2])
 {
-    double sum = 0, val;
+    if(fnc.numVars() != 2 || fnc.numValues() != 1)
+        return NAN;  // should rather throw an exception...
+    double x[2], sum = 0, val;
     for(int i=0; i<NumNodes2d; i++) {
-        double x[3] = {GPnodes[GPindex2d[i][0]], GPnodes[GPindex2d[i][1]], GPnodes[GPindex3d[i][2]] };
+        for(int d=0; d<2; d++)
+            x[d] = xlower[d] + (xupper[d]-xlower[d]) * GPnodes[GPindex2d[i][d]];
         fnc.eval(x, &val);
         sum += val * GPweight2d[i];
     }
-    return sum;
+    return sum * (xupper[0]-xlower[0]) * (xupper[1]-xlower[1]);
+}
+
+/** Integration of a 3d function using a fixed-order rule with 87 points.
+    \param[in]  fnc  is a function of 3 variables that returns 1 value;
+    \param[in]  xlower  is the lower corner of integration cube;
+    \param[in]  xupper  is the upper corner;
+    \return     the value of integral (no error estimate).
+*/
+static inline double integrate3d(const math::IFunctionNdim &fnc, const double xlower[3], const double xupper[3])
+{
+    if(fnc.numVars() != 3 || fnc.numValues() != 1)
+        return NAN;
+    double x[3], sum = 0, val;
+    for(int i=0; i<NumNodes3d; i++) {
+        for(int d=0; d<3; d++)
+            x[d] = xlower[d] + (xupper[d]-xlower[d]) * GPnodes[GPindex3d[i][d]];
+        fnc.eval(x, &val);
+        sum += val * GPweight3d[i];
+    }
+    return sum * (xupper[0]-xlower[0]) * (xupper[1]-xlower[1]) * (xupper[2]-xlower[2]);
 }
 
 } // namespace

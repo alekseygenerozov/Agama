@@ -745,7 +745,7 @@ bool writeDensity(const std::string& fileName, const BaseDensity& dens,
             compPot = dynamic_cast<const CompositeCyl*>(&dens);
             numComp = compPot->size();
         }
-        assert(compDens!=NULL ^ compPot!=NULL);
+        assert((compDens!=NULL) ^ (compPot!=NULL));
         for(unsigned int i=0; i<numComp; i++) {
             const BaseDensity* dens=NULL;
             if(compDens)

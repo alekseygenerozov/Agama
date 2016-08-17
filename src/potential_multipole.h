@@ -214,6 +214,7 @@ public:
     virtual coord::SymmetryType symmetry() const { return ind.symmetry(); }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "Multipole"; };
+    virtual double enclosedMass(const double radius) const;
 
 private:
     /// radial grid

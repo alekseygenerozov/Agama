@@ -530,6 +530,14 @@ void computeDensityCoefsSph(
     // construct the l=0 harmonic using a penalized log-density estimate
     math::CubicSpline spl0(gridLogRadii, math::splineLogDensity<3>(
         gridLogRadii, pointRadii, harmonics[0], true, true));
+#ifdef VERBOSE_REPORT_BLAH
+    double derl, derr;
+    spl0.evalDeriv(gridLogRadii.front(), NULL, &derl);
+    spl0.evalDeriv(gridLogRadii.back(),  NULL, &derr);
+    std::cout << "Density slope: inner= " << derl-3 << " outer= " << derr-3 << '\n';
+    for(double logr=gridLogRadii.front()-2; logr<gridLogRadii.back()+2; logr+=0.1)
+        std::cout << logr << ' ' << spl0(logr) << '\n';
+#endif
     for(unsigned int k=0; k<gridSizeR; k++)
         coefs[k][0] = exp(spl0(gridLogRadii[k])) / (4*M_PI*pow_3(gridRadii[k]));
     if(ind.size()==1)
@@ -1037,6 +1045,20 @@ void Multipole::evalCyl(const coord::PosCyl &pos,
         asymptOuter->eval(pos, potential, deriv, deriv2);
     else
         impl->eval(pos, potential, deriv, deriv2);
+}
+
+double Multipole::enclosedMass(double radius) const
+{
+    if(radius==0)
+        return 0;
+    // use the l=0 harmonic term of dPhi/dr to estimate the spherically-averaged enclosed mass
+    const BasePotential& pot =
+        radius <= gridRadii.front()* (1+SAFETY_FACTOR) ? *asymptInner :
+        radius >= gridRadii.back() * (1-SAFETY_FACTOR) ? *asymptOuter : *impl;
+    std::vector< std::vector<double> > Phi, dPhi;
+    std::vector< std::vector<double> > *coefs[2] = {&Phi, &dPhi};
+    computeSphHarmCoefs<BasePotential, 2>(pot, ind, std::vector<double>(1, radius), coefs);
+    return pow_2(radius) * dPhi[0][0];
 }
 
 // ------- Implementations of multipole potential interpolators ------- //
