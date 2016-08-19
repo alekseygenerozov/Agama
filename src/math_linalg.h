@@ -226,7 +226,7 @@ template<typename NumT>
 struct SpMatrix: public IMatrix<NumT> {
     void* impl;  /// implementation details, not to be used directly outside this module
 
-    SpMatrix() : impl(NULL) {}
+    SpMatrix() : impl(0) {}
     SpMatrix(const SpMatrix<NumT>&);
     SpMatrix& operator=(const SpMatrix<NumT>&);
     virtual ~SpMatrix();
@@ -445,7 +445,7 @@ class LUDecomp {
     void* impl;  ///< opaque implementation details
 public:
     // default constructor and other boilerplate definitions
-    LUDecomp() : sparse(false), impl(NULL) {}
+    LUDecomp() : sparse(false), impl(0) {}
     ~LUDecomp();
     LUDecomp(const LUDecomp&);
     LUDecomp& operator=(const LUDecomp&);
@@ -469,7 +469,7 @@ public:
 class CholeskyDecomp {
     void* impl;  ///< opaque implementation details
 public:
-    CholeskyDecomp() : impl(NULL) {}
+    CholeskyDecomp() : impl(0) {}
     CholeskyDecomp(const CholeskyDecomp&);
     CholeskyDecomp& operator=(const CholeskyDecomp&);
     ~CholeskyDecomp();
@@ -501,7 +501,7 @@ public:
 class SVDecomp {
     void* impl;  ///< opaque implementation details
 public:
-    SVDecomp() : impl(NULL) {}
+    SVDecomp() : impl(0) {}
     SVDecomp(const SVDecomp&);
     SVDecomp& operator=(const SVDecomp&);
     ~SVDecomp();

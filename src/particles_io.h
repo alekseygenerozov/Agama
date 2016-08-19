@@ -5,7 +5,7 @@
 
     The base class, particles::BaseIOSnapshot, is used as the common interface 
     for reading and writing Nbody snapshots to disk. 
-    The snapshots are provided by particles::PointMassArray.
+    The snapshots are provided by particles::ParticleArray.
     Derived classes implement the data storage in various formats.
     Helper routines create an instance of the class corresponding to a given 
     format string or to the actual file format.
@@ -29,15 +29,15 @@ class BaseIOSnapshot {
 public:
     virtual ~BaseIOSnapshot() {};
     /** read a snapshot from the file;
-        \returns a new instance of PointMassArray class.
+        \returns a new instance of ParticleArray class.
         \throws  std::runtime_error in case of error (e.g., file doesn't exist).
     */
-    virtual PointMassArrayCar readSnapshot() const=0;
+    virtual ParticleArrayCar readSnapshot() const=0;
     /** write a snapshot to the file;  
-        \param[in] points is an instance of PointMassArray class to be stored;
+        \param[in] particles is an instance of ParticleArray class to be stored;
         \throws  std::runtime_error in case of error (e.g., file is not writable)
     */
-    virtual void writeSnapshot(const PointMassArrayCar& points) const=0;
+    virtual void writeSnapshot(const ParticleArrayCar& particles) const=0;
 };
 
 /// Text file with three coordinates, possibly three velocities and mass, space or tab-separated.
@@ -45,8 +45,8 @@ class IOSnapshotText: public BaseIOSnapshot {
 public:
     IOSnapshotText(const std::string &_fileName, const units::ExternalUnits& unitConverter): 
         fileName(_fileName), conv(unitConverter) {};
-    virtual PointMassArrayCar readSnapshot() const;
-    virtual void writeSnapshot(const PointMassArrayCar& points) const;
+    virtual ParticleArrayCar readSnapshot() const;
+    virtual void writeSnapshot(const ParticleArrayCar& particles) const;
 private:
     const std::string fileName;
     const units::ExternalUnits conv;
@@ -63,8 +63,8 @@ public:
     IOSnapshotNemo(const std::string &_fileName, const units::ExternalUnits& unitConverter,
         const std::string &_header="", double _time=0, bool _append=false) :
         fileName(_fileName), conv(unitConverter), header(_header), time(_time), append(_append) {};
-    virtual PointMassArrayCar readSnapshot() const;
-    virtual void writeSnapshot(const PointMassArrayCar& points) const;
+    virtual ParticleArrayCar readSnapshot() const;
+    virtual void writeSnapshot(const ParticleArrayCar& particles) const;
 private:
     const std::string fileName;
     const units::ExternalUnits conv;
@@ -79,8 +79,8 @@ class IOSnapshotGadget: public BaseIOSnapshot {
 public:
     IOSnapshotGadget(const std::string &_fileName, const units::ExternalUnits& unitConverter):
         fileName(_fileName), conv(unitConverter) {};
-    virtual PointMassArrayCar readSnapshot() const;
-    virtual void writeSnapshot(const PointMassArrayCar& points) const;
+    virtual ParticleArrayCar readSnapshot() const;
+    virtual void writeSnapshot(const ParticleArrayCar& particles) const;
 private:
     const std::string fileName;
     const units::ExternalUnits conv;
@@ -109,9 +109,9 @@ PtrIOSnapshot createIOSnapshotWrite(const std::string &fileName,
 /** convenience function for reading an N-body snapshot in arbitrary format.
     \param[in]  fileName  is the file to read, its format is determined automatically;
     \param[in]  unitConverter  is the instance of unit conversion object (may be a trivial one);
-    \returns    a new instance of PointMassArray containing the particles read from the file.
+    \returns    a new instance of ParticleArray containing the particles read from the file.
 */
-inline PointMassArrayCar readSnapshot(const std::string& fileName, 
+inline ParticleArrayCar readSnapshot(const std::string& fileName, 
     const units::ExternalUnits& unitConverter = units::ExternalUnits())
 {
     return createIOSnapshotRead(fileName, unitConverter)->readSnapshot();
@@ -119,16 +119,16 @@ inline PointMassArrayCar readSnapshot(const std::string& fileName,
 
 /** convenience function for writing an N-body snapshot in the given format.
     \param[in]  fileName is the file to write;
-    \param[in]  points  is the array of points (positions,velocities and masses) to write;
+    \param[in]  particles  is the array of particles (positions,velocities and masses) to write;
     \param[in]  fileFormat  is the output format (optional; default is 'Text');
     \param[in]  unitConverter is the instance of unit conversion (may be a trivial one).
 */
 inline void writeSnapshot(const std::string& fileName, 
-    const PointMassArrayCar& points,
+    const ParticleArrayCar& particles,
     const std::string &fileFormat="Text",
     const units::ExternalUnits& unitConverter = units::ExternalUnits())
 {
-    createIOSnapshotWrite(fileName, fileFormat, unitConverter)->writeSnapshot(points);
+    createIOSnapshotWrite(fileName, fileFormat, unitConverter)->writeSnapshot(particles);
 }
 
 /** convenience function for writing an N-body snapshot that contains only positions.
@@ -139,16 +139,16 @@ inline void writeSnapshot(const std::string& fileName,
 */
 template<typename CoordT>
 inline void writeSnapshot(const std::string& fileName, 
-    const PointMassArray<coord::PosT<CoordT> >& points,
+    const ParticleArray<coord::PosT<CoordT> >& particles,
     const std::string &fileFormat="Text",
     const units::ExternalUnits& unitConverter = units::ExternalUnits())
 {
-    PointMassArrayCar tmpPoints;
-    tmpPoints.data.reserve(points.size());
-    for(unsigned int i=0; i<points.size(); i++)
-        tmpPoints.data.push_back(std::make_pair(coord::PosVelCar(toPosCar(points[i].first),
-            coord::VelCar(0,0,0)), points[i].second));  // convert the position and assign zero velocity
-    createIOSnapshotWrite(fileName, fileFormat, unitConverter)->writeSnapshot(tmpPoints);
+    ParticleArrayCar tmpParticles;
+    tmpParticles.data.reserve(particles.size());
+    for(unsigned int i=0; i<particles.size(); i++)
+        tmpParticles.data.push_back(std::make_pair(coord::PosVelCar(toPosCar(particles[i].first),
+            coord::VelCar(0,0,0)), particles[i].second));  // convert the position and assign zero velocity
+    createIOSnapshotWrite(fileName, fileFormat, unitConverter)->writeSnapshot(tmpParticles);
 }
 
 /* ------ Correspondence between file format names and types ------- */

@@ -35,7 +35,7 @@ int main() {
 
     // #2. Get in N-body snapshots
     clock_t tbegin=std::clock();
-    particles::PointMassArrayCar
+    particles::ParticleArrayCar
         diskparticles = particles::readSnapshot("../temp/disk.gadget", extUnits),
         haloparticles = particles::readSnapshot("../temp/halo.gadget", extUnits);
     std::cout << (std::clock()-tbegin)*1.0/CLOCKS_PER_SEC << " s to load snapshots;  "
@@ -75,7 +75,9 @@ int main() {
     tbegin=std::clock();
     int nbody = diskparticles.size();
     std::vector<actions::Actions> acts(nbody);
+#ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic,1024)
+#endif
     for(int i=0; i<nbody; i++) {
         acts[i] = actFinder.actions(toPosVelCyl(diskparticles[i].first));
     }

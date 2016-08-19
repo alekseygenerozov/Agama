@@ -60,9 +60,7 @@ public:
         unsigned int gridSizeR, double rmin, double rmax);
 
     /** construct the density interpolator from an N-body snapshot.
-        \tparam ParticleT  is any of the 6 principal particle types
-        (3 coordinate systems, with or without velocity data, which is not used anyway).
-        \param[in]  points  is the array of point masses.
+        \param[in]  particles  is the array of particles.
         \param[in]  sym  is the assumed symmetry of the input snapshot,
         which defines the list of spherical harmonics to compute and to ignore
         (e.g. if it is set to coord::ST_TRIAXIAL, all negative or odd l,m terms are zeros).
@@ -72,22 +70,23 @@ public:
         \param[in]  rmin, rmax give the radial grid extent; 0 means auto-detect.
         \param[in]  smoothing  is the amount of smoothing applied during penalized spline fitting.
     */
-    template<typename ParticleT>
     static PtrDensity create(
-        const particles::PointMassArray<ParticleT> &points,
+        const particles::ParticleArray<coord::PosCyl> &particles,
         coord::SymmetryType sym, int lmax, int mmax,
         unsigned int gridSizeR, double rmin = 0., double rmax = 0., double smoothing = 1.);
 
     /** construct the object from stored coefficients */
     DensitySphericalHarmonic(const std::vector<double> &gridRadii,
-        const std::vector< std::vector<double> > &coefs);
+        const std::vector< std::vector<double> > &coefs, double innerSlope=NAN, double outerSlope=NAN);
 
     virtual coord::SymmetryType symmetry() const { return ind.symmetry(); }
     virtual const char* name() const { return myName(); };
     static const char* myName() { return "DensitySphericalHarmonic"; };
 
-    /** return the radii of spline nodes and the array of density expansion coefficients */
-    void getCoefs(std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray) const;
+    /** return the radii of spline nodes and the array of density expansion coefficients,
+        together with power-law indices of extrapolation to small and large radii */
+    void getCoefs(std::vector<double> &radii, std::vector< std::vector<double> > &coefsArray,
+        double &innerSlope, double &outerSlope) const;
 
 private:
     /// indexing scheme for sph.-harm. coefficients
@@ -171,9 +170,7 @@ public:
         unsigned int gridSizeR, double rmin = 0., double rmax = 0.);
 
     /** create the potential from an N-body snapshot.
-        \tparam ParticleT  is any of the 6 principal particle types
-        (3 coordinate systems, with or without velocity data, which is not used anyway).
-        \param[in]  points  is the array of point masses.
+        \param[in]  particles  is the array of particles.
         \param[in]  sym  is the assumed symmetry of the input snapshot,
         which defines the list of spherical harmonics to compute and to ignore
         (e.g. if it is set to coord::ST_TRIAXIAL, all negative or odd l,m terms are zeros).
@@ -183,9 +180,8 @@ public:
         \param[in]  rmin, rmax give the radial grid extent; 0 means auto-detect.
         \param[in]  smoothing  is the amount of smoothing applied during penalized spline fitting.
     */
-    template<typename ParticleT>
     static PtrPotential create(
-        const particles::PointMassArray<ParticleT> &points,
+        const particles::ParticleArray<coord::PosCyl> &points,
         coord::SymmetryType sym, int lmax, int mmax,
         unsigned int gridSizeR, double rmin = 0., double rmax = 0., double smoothing = 1.);
 
@@ -256,9 +252,7 @@ void computeDensityCoefsSph(const BaseDensity& dens,
 
 /** Compute the coefficients of spherical-harmonic density expansion
     from an N-body snapshot.
-    \tparam ParticleT  is any of the 6 principal particle types
-    (3 coordinate systems, with or without velocity data, which is not used anyway).
-    \param[in] points  is the array of point masses.
+    \param[in] particles  is the array of particles.
     \param[in] ind   is the coefficient indexing scheme (defines the order of expansion
     and its symmetries).
     \param[in] gridRadii is the grid in spherical radius.
@@ -267,12 +261,12 @@ void computeDensityCoefsSph(const BaseDensity& dens,
     that can be provided to the constructor of `DensitySphericalHarmonic` class;
     will be resized as needed.
 */
-template<typename ParticleT>
 void computeDensityCoefsSph(
-    const particles::PointMassArray<ParticleT> &points,
+    const particles::ParticleArray<coord::PosCyl> &points,
     const math::SphHarmIndices &ind,
     const std::vector<double> &gridRadii,
     std::vector< std::vector<double> > &coefs,
+    double &innerSlope, double &outerSlope,
     double smoothing = 1.0);
 
 /** Compute spherical-harmonic potential expansion coefficients,

@@ -664,11 +664,11 @@ static void writePotentialCylSpline(std::ostream& strm, const CylSpline& potenti
     int mmax = Phi.size()/2;
     strm << CylSpline::myName() << "\t#header\n" << gridR.size() << "\t#size_R\n" << mmax << "\t#m_max\n" <<
         gridz.size() << "\t#size_z\n" << std::setprecision(12);
-    strm << "Phi\n";
+    strm << "#Phi\n";
     writeAzimuthalHarmonics(strm, gridR, gridz, Phi);
-    strm << "\ndPhi/dR\n";
+    strm << "\n#dPhi/dR\n";
     writeAzimuthalHarmonics(strm, gridR, gridz, dPhidR);
-    strm << "\ndPhi/dz\n";
+    strm << "\n#dPhi/dz\n";
     writeAzimuthalHarmonics(strm, gridR, gridz, dPhidz);
 }
 
@@ -677,12 +677,14 @@ static void writeDensitySphericalHarmonic(std::ostream& strm, const DensitySpher
 {
     std::vector<double> radii;
     std::vector<std::vector<double> > coefs;
-    density.getCoefs(radii, coefs);
+    double innerSlope, outerSlope;
+    density.getCoefs(radii, coefs, innerSlope, outerSlope);
     // convert units
     math::blas_dmul(1/converter.lengthUnit, radii);
     for(unsigned int i=0; i<coefs.size(); i++)
         math::blas_dmul(1/converter.massUnit*pow_3(converter.lengthUnit), coefs[i]);
-    strm << "radius";
+    strm << DensitySphericalHarmonic::myName() <<
+    "\n#InnerSlope:\t" << innerSlope << "\tOuterSlope:\t" << outerSlope << "\n#radius";
     writeSphericalHarmonics(strm, radii, coefs);
 }
 
@@ -827,20 +829,19 @@ PtrPotential readGalaxyPotential(const std::string& filename, const units::Exter
 namespace {
 
 /// create potential expansion of a given type from a set of point masses
-template<typename ParticleT>
 static PtrPotential createPotentialFromParticles(const ConfigPotential& config,
-    const particles::PointMassArray<ParticleT>& particles)
+    const particles::ParticleArray<coord::PosCyl>& particles)
 {
     switch(config.potentialType) {
     case PT_SPLINE:
         return PtrPotential(new SplineExp(
             config.gridSizeR, config.lmax, 
-            particles::PointMassArray<coord::PosSph>(particles), config.symmetryType, config.smoothing, 
+            particles, config.symmetryType, config.smoothing, 
             config.rmin, config.rmax));
     case PT_BSE:
         return PtrPotential(new BasisSetExp(
-            /*config.alpha*/0., config.gridSizeR, 
-            config.lmax, particles::PointMassArray<coord::PosSph>(particles), config.symmetryType));
+            /*config.alpha*/0., config.gridSizeR, config.lmax,
+            particles, config.symmetryType));
     case PT_CYLSPLINE:
         return CylSpline::create(particles, config.symmetryType, config.mmax,
             config.gridSizeR, config.rmin, config.rmax,
@@ -1000,7 +1001,7 @@ static PtrPotential createAnyPotential(const ConfigPotential& params,
             // otherwise the file is assumed to contain an N-body snapshot
             if(!isPotentialExpansion(params.potentialType))
                 throw std::runtime_error("Must specify the potential expansion type");
-            const particles::PointMassArrayCar particles =
+            const particles::ParticleArrayCar particles =
                 particles::readSnapshot(params.file, converter);
             if(particles.size()==0)
                 throw std::runtime_error("Error loading N-body snapshot from " + params.file);
@@ -1125,25 +1126,11 @@ PtrPotential createPotential(
 }
 
 // create potential from particles
-template<typename ParticleT>
 PtrPotential createPotential(const utils::KeyValueMap& params,
-    const particles::PointMassArray<ParticleT>& particles, const units::ExternalUnits& converter)
+    const particles::ParticleArray<coord::PosCyl>& particles, const units::ExternalUnits& converter)
 {
     return createPotentialFromParticles(parseParams(params, converter), particles);
 }
-// instantiations
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosCar>&, const units::ExternalUnits&);
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosVelCar>&, const units::ExternalUnits&);
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosCyl>&, const units::ExternalUnits&);
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosVelCyl>&, const units::ExternalUnits&);
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosSph>&, const units::ExternalUnits&);
-template PtrPotential createPotential(const utils::KeyValueMap&,
-    const particles::PointMassArray<coord::PosVelSph>&, const units::ExternalUnits&);
 
 ///@}
 }; // namespace

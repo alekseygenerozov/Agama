@@ -7,6 +7,7 @@
 #include "math_sphharm.h"
 #include "utils.h"
 #include <cmath>
+#include <algorithm>
 #include <cassert>
 #include <stdexcept>
 
@@ -303,15 +304,14 @@ static void computePotentialCoefsFromDensity(const BaseDensity &src,
 }
 
 // transform an N-body snapshot to an array of Fourier harmonic coefficients
-template<typename ParticleT>
-static void computeAzimuthalHarmonics(
-    const particles::PointMassArray<ParticleT>& points,
+static void computeAzimuthalHarmonicsFromParticles(
+    const particles::ParticleArray<coord::PosCyl>& particles,
     const std::vector<int>& indices,
     std::vector<std::vector<double> >& harmonics,
     std::vector<std::pair<double, double> > &Rz)
 {
     assert(harmonics.size()>0 && indices.size()>0);
-    unsigned int nbody = points.size();
+    unsigned int nbody = particles.size();
     unsigned int nind  = indices.size();
     int mmax = (harmonics.size()-1)/2;
     bool needSine = false;
@@ -322,19 +322,19 @@ static void computeAzimuthalHarmonics(
     Rz.resize(nbody);
     std::vector<double> tmpharm(2*mmax);
     for(unsigned int b=0; b<nbody; b++) {
-        const coord::PosCyl pc = coord::toPosCyl(points.point(b));
+        const coord::PosCyl& pc = particles.point(b);
         Rz[b].first = pc.R;
         Rz[b].second= pc.z;
         math::trigMultiAngle(pc.phi, mmax, needSine, &tmpharm.front());
         for(unsigned int i=0; i<nind; i++) {
             int m = indices[i];
-            harmonics[m+mmax][b] = points.mass(b) *
+            harmonics[m+mmax][b] = particles.mass(b) *
                 (m==0 ? 1 : m>0 ? 2*tmpharm[m-1] : 2*tmpharm[mmax-m-1]);
         }
     }
 }
 
-static void computePotentialCoefsFromPoints(
+static void computePotentialCoefsFromParticles(
     const std::vector<int>& indices,
     const std::vector<std::vector<double> > &harmonics,
     const std::vector<std::pair<double, double> > &Rz,
@@ -456,9 +456,8 @@ void computePotentialCoefsCyl(const BaseDensity &src,
 }
 
 // potential coefs from N-body array, with derivatives
-template<typename ParticleT>
 void computePotentialCoefsCyl(
-    const particles::PointMassArray<ParticleT>& points,
+    const particles::ParticleArray<coord::PosCyl>& particles,
     coord::SymmetryType sym,
     const unsigned int mmax,
     const std::vector<double> &gridR,
@@ -475,15 +474,14 @@ void computePotentialCoefsCyl(
     std::vector<int> indices = math::getIndicesAzimuthal(mmax, sym);
     std::vector<std::vector<double> > harmonics(2*mmax+1);
     std::vector<std::pair<double, double> > Rz;
-    computeAzimuthalHarmonics(points, indices, harmonics, Rz);
+    computeAzimuthalHarmonicsFromParticles(particles, indices, harmonics, Rz);
     std::vector< math::Matrix<double> >* output[] = {&Phi, &dPhidR, &dPhidz};
-    computePotentialCoefsFromPoints(indices, harmonics, Rz, gridR, gridz, true, output);
+    computePotentialCoefsFromParticles(indices, harmonics, Rz, gridR, gridz, true, output);
 }
 
 // potential coefs from N-body array, without derivatives
-template<typename ParticleT>
 void computePotentialCoefsCyl(
-    const particles::PointMassArray<ParticleT>& points,
+    const particles::ParticleArray<coord::PosCyl>& particles,
     coord::SymmetryType sym,
     const unsigned int mmax,
     const std::vector<double> &gridR,
@@ -498,9 +496,9 @@ void computePotentialCoefsCyl(
     std::vector<int> indices = math::getIndicesAzimuthal(mmax, sym);
     std::vector<std::vector<double> > harmonics(2*mmax+1);
     std::vector<std::pair<double, double> > Rz;
-    computeAzimuthalHarmonics(points, indices, harmonics, Rz);
+    computeAzimuthalHarmonicsFromParticles(particles, indices, harmonics, Rz);
     std::vector< math::Matrix<double> >* output = &Phi;
-    computePotentialCoefsFromPoints(indices, harmonics, Rz, gridR, gridz, false, &output);
+    computePotentialCoefsFromParticles(indices, harmonics, Rz, gridR, gridz, false, &output);
 }
 
 // -------- public classes: DensityAzimuthalHarmonic --------- //
@@ -780,8 +778,7 @@ static void chooseGridRadii(const BaseDensity& src,
 #endif
 }
 
-template<typename ParticleT>
-static void chooseGridRadii(const particles::PointMassArray<ParticleT>& points,
+static void chooseGridRadii(const particles::ParticleArray<coord::PosCyl>& points,
     unsigned int gridSizeR, double &Rmin, double &Rmax, 
     unsigned int gridSizez, double &zmin, double &zmax)
 {
@@ -790,12 +787,12 @@ static void chooseGridRadii(const particles::PointMassArray<ParticleT>& points,
     unsigned int Npoints = points.size();
     std::vector<double> radii(Npoints);
     for(unsigned int i=0; i<Npoints; i++)
-        radii[i] = toPosSph(points.point(i)).r;
+        radii[i] = hypot(points.point(i).R, points.point(i).z);
     std::nth_element(radii.begin(), radii.begin() + Npoints/2, radii.end());
     double gridSize = sqrt(gridSizeR*gridSizez);  // average of the two sizes
     double Rhalf = radii[Npoints/2];   // half-mass radius (if all particles have equal mass)
     double spacing = 1 + sqrt(10./gridSize);
-    int Nmin = log(Npoints+1)/log(2);  // # of points in the inner cell
+    int Nmin = static_cast<int>(log(Npoints+1)/log(2));  // # of points in the inner cell
     if(Rmin==0) {
         std::nth_element(radii.begin(), radii.begin() + Nmin, radii.end());
         Rmin = std::max(radii[Nmin], Rhalf * pow(spacing, -0.5*gridSize));
@@ -864,9 +861,8 @@ PtrPotential CylSpline::create(const BasePotential& src, int mmax,
     return PtrPotential(new CylSpline(gridR, gridz, Phi, dPhidR, dPhidz));
 }
 
-template<typename ParticleT>
 PtrPotential CylSpline::create(
-    const particles::PointMassArray<ParticleT>& points,
+    const particles::ParticleArray<coord::PosCyl>& points,
     coord::SymmetryType sym, int mmax,
     unsigned int gridSizeR, double Rmin, double Rmax, 
     unsigned int gridSizez, double zmin, double zmax, bool useDerivs)
@@ -886,26 +882,6 @@ PtrPotential CylSpline::create(
         computePotentialCoefsCyl(points, sym, mmax, gridR, gridz, Phi);
     return PtrPotential(new CylSpline(gridR, gridz, Phi, dPhidR, dPhidz));
 }
-
-// template instantiations
-template PtrPotential CylSpline::create(
-    const particles::PointMassArray<coord::PosCar>&, coord::SymmetryType, int,
-    unsigned int, double, double, unsigned int, double, double, bool);
-template PtrPotential CylSpline::create(
-    const particles::PointMassArray<coord::PosCyl>&, coord::SymmetryType, int,
-    unsigned int, double, double, unsigned int, double, double, bool);
-template PtrPotential CylSpline::create(
-    const particles::PointMassArray<coord::PosSph>&, coord::SymmetryType, int,
-    unsigned int, double, double, unsigned int, double, double, bool);
-template PtrPotential CylSpline::create(
-    const particles::PointMassArray<coord::PosVelCar>&, coord::SymmetryType, int,
-    unsigned int, double, double, unsigned int, double, double, bool);
-template PtrPotential CylSpline::create(
-    const particles::PointMassArray<coord::PosVelCyl>&, coord::SymmetryType, int,
-    unsigned int, double, double, unsigned int, double, double, bool);
-template PtrPotential CylSpline::create(
-    const particles::PointMassArray<coord::PosVelSph>&, coord::SymmetryType, int,
-    unsigned int, double, double, unsigned int, double, double, bool);
 
 CylSpline::CylSpline(
     const std::vector<double> &gridR_orig,

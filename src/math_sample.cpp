@@ -606,6 +606,7 @@ void Sampler::drawSamples(const unsigned int numOutputSamples, Matrix<double>& o
         outputSamples.conservativeResize(outputIndex, Ndim);
 }
 
+#if 0
 class NewSampler {
 public:
     /** Construct an N-dimensional sampler object */
@@ -734,7 +735,6 @@ private:
     /// update the estimate of integral and its error, using all collected samples
     double computeResult();
 
-    std::ofstream strm;
 };
 
 static const double oversamplingFactor = 1.25;
@@ -1023,7 +1023,7 @@ void NewSampler::processCell(const int cellIndex, double& newRefFactor)
         std::cout << " => " << refineFactor << " finish"<<std::endl;
     else
         std::cout << " finish"<<std::endl;
-*/
+
     Averager avg;
     for(unsigned int p=0; p<numPointsInCell; p++)
         avg.add(points[stack[p]].fncValue);
@@ -1032,6 +1032,7 @@ void NewSampler::processCell(const int cellIndex, double& newRefFactor)
         strm << '\t' << cellXlower[d] << ' ' << cellXupper[d];
     strm << '\t' << cellVolume << ' ' << cells[cellIndex].prob << ' ' << refineFactor << '\t' <<
         numPointsInCell << ' ' << avg.mean() << ' ' << sqrt(avg.disp()) << '\n';
+*/
 }
 
 void NewSampler::run()
@@ -1040,9 +1041,9 @@ void NewSampler::run()
 
     // collect the initial batch of points in the root cell
     addPoints(numPointsInit);
-    strm.open("iter0.points");
+//    strm.open("iter0.points");
     evalFncLoop(0, numPointsInit);
-    strm.close();
+//    strm.close();
     double refineFactor = computeResult();
     if(refineFactor <= 1)
         return;
@@ -1062,14 +1063,16 @@ void NewSampler::run()
         nextPoint.back() = -1;
 
         double newRefFactor = 0;
-        strm.open((std::string("iter")+char(nIter+48)+".cells").c_str());
+//        strm.open((std::string("iter")+char(nIter+48)+".cells").c_str());
         for(unsigned int cellIndex=0; cellIndex<cells.size(); cellIndex++) {
             processCell(cellIndex, newRefFactor);
         }
-        strm.close();
+//        strm.close();
         
-        double numAdd = numActivePoints * newRefFactor * oversamplingFactor;
+        int numAdd = numActivePoints * newRefFactor * oversamplingFactor;
+#ifdef VERBOSE_REPORT
         std::cout << "New ref factor="<<newRefFactor<<"\n";
+#endif
         if(newRefFactor+1 < refineFactor) {  // discard old points
             for(unsigned int p=0; p<numPoints; p++)
                 points[p].weight = 0;
@@ -1083,9 +1086,9 @@ void NewSampler::run()
 #ifdef VERBOSE_REPORT
             std::cout << ", collecting samples" << std::endl;
 #endif
-            strm.open((std::string("iter")+char(nIter+49)+".points").c_str());
+//            strm.open((std::string("iter")+char(nIter+49)+".points").c_str());
             evalFncLoop(numPoints, numAdd);
-            strm.close();
+//            strm.close();
             refineFactor = computeResult();
             if(refineFactor <= 1)
                 return;
@@ -1119,7 +1122,7 @@ void NewSampler::drawSamples(Matrix<double>& outputSamples) const
     if(outputIndex != numOutputSamples)
         outputSamples.conservativeResize(outputIndex, Ndim);
 }
-
+#endif
 }  // unnamed namespace
 
 void sampleNdim(const IFunctionNdim& fnc, const double xlower[], const double xupper[], 

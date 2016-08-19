@@ -1,10 +1,11 @@
 #include "potential_multipole.h"
 #include "math_core.h"
 #include "math_specfunc.h"
-#include <cfloat>
 #include <cassert>
-#include <algorithm>
 #include <stdexcept>
+#include <cmath>
+#include <cfloat>
+#include <algorithm>
 
 #ifdef VERBOSE_REPORT
 #include <iostream>
@@ -170,46 +171,53 @@ static void computeSphHarmCoefs(const BaseDensityOrPotential& src,
 // C_lm(particle_k) = coefs[SphHarmIndices::index(l,m)][k].
 // This saves memory, since only the arrays for harmonic coefficients allowed
 // by the indexing scheme are allocated and returned.
-template<typename ParticleT>
-static void computeSphericalHarmonics(
-    const particles::PointMassArray<ParticleT> &points,
+static void computeSphericalHarmonicsFromParticles(
+    const particles::ParticleArray<coord::PosCyl> &particles,
     const math::SphHarmIndices &ind,
-    std::vector<double> &pointRadii,
+    std::vector<double> &particleRadii,
     std::vector< std::vector<double> > &coefs)
 {
+    if((int)ind.size() > pow_2(1+LMAX_SPHHARM))
+        throw std::invalid_argument(
+            "computeSphericalHarmonicsFromParticles: order of expansion is too large");
     // allocate space
-    unsigned int nbody = points.size();
-    pointRadii.reserve(nbody);
+    int nbody = particles.size();
+    particleRadii.resize(nbody);
     coefs.resize(ind.size());
     for(int m=ind.mmin(); m<=ind.mmax; m++)
         for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step)
-            coefs[ind.index(l, m)].reserve(nbody);
-    std::vector<double> tmpLeg(ind.lmax+1), tmpTrig(ind.mmax*2);
+            coefs[ind.index(l, m)].resize(nbody);
     bool needSine = ind.mmin()<0;
+    bool r0encountered = false;
 
     // compute Y_lm for each particle
-    for(unsigned int i=0; i<nbody; i++) {
-        const coord::PosCyl pos = toPosCyl(points.point(i));
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic,1024)
+#endif
+    for(int i=0; i<nbody; i++) {
+        // temporary arrays for Legendre and trigonometric functions, separate for each thread
+        double leg[LMAX_SPHHARM+1], trig[2*LMAX_SPHHARM];
+        const coord::PosCyl& pos = particles.point(i);
         double r   = hypot(pos.R, pos.z);
         double tau = pos.z / (r + pos.R);
-        const double mass = points.mass(i);
-        if(mass==0)
-            continue;
-        if(r==0)
-            throw std::runtime_error("computeSphericalHarmonics: no massive particles at r=0 allowed");
-        pointRadii.push_back(r);
-        math::trigMultiAngle(pos.phi, ind.mmax, needSine, &tmpTrig.front());
+        const double mass = particles.mass(i);
+        r0encountered |= r==0 && mass!=0;
+        particleRadii[i] = r;
+        math::trigMultiAngle(pos.phi, ind.mmax, needSine, trig);
         for(int m=0; m<=ind.mmax; m++) {
-            math::sphHarmArray(ind.lmax, m, tau, &tmpLeg.front());
+            math::sphHarmArray(ind.lmax, m, tau, leg);
             for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step)
-                coefs[ind.index(l, m)].push_back(mass * tmpLeg[l-m] * 2*M_SQRTPI *
-                    (m==0 ? 1 : M_SQRT2 * tmpTrig[m-1]));
+                coefs[ind.index(l, m)][i] = mass * leg[l-m] * 2*M_SQRTPI *
+                    (m==0 ? 1 : M_SQRT2 * trig[m-1]);
             if(needSine && m>0)
                 for(int l=ind.lmin(-m); l<=ind.lmax; l+=ind.step)
-                    coefs[ind.index(l, -m)].push_back(mass * tmpLeg[l-m] * 2*M_SQRTPI *
-                        M_SQRT2 * tmpTrig[ind.mmax+m-1]);
+                    coefs[ind.index(l, -m)][i] = mass * leg[l-m] * 2*M_SQRTPI *
+                        M_SQRT2 * trig[ind.mmax+m-1];
         }
     }
+    if(r0encountered)
+        throw std::runtime_error(
+            "computeSphericalHarmonicsFromParticles: no massive particles at r=0 allowed");
 }
 
 
@@ -232,20 +240,20 @@ static void chooseGridRadii(const BaseDensity& src, const unsigned int gridSizeR
 #endif
 }
 
-template<typename ParticleT>
-static void chooseGridRadii(const particles::PointMassArray<ParticleT>& points,
+static void chooseGridRadii(const particles::ParticleArray<coord::PosCyl>& particles,
     unsigned int gridSizeR, double &rmin, double &rmax) 
 {
     if(rmin!=0 && rmax!=0)
         return;
-    unsigned int Npoints = points.size();
+    unsigned int Npoints = particles.size();
     std::vector<double> radii(Npoints);
     for(unsigned int i=0; i<Npoints; i++)
-        radii[i] = toPosSph(points.point(i)).r;
+        radii[i] = hypot(particles.point(i).R, particles.point(i).z);
     std::nth_element(radii.begin(), radii.begin() + Npoints/2, radii.end());
     double rhalf = radii[Npoints/2];   // half-mass radius (if all particles have equal mass)
-    double spacing = 1 + sqrt(20./gridSizeR);
-    int Nmin = log(Npoints+1)/log(2);  // # of points inside the first or outside the last grid node
+    double spacing = 1 + sqrt(20./gridSizeR);  // ratio between two adjacent grid nodes
+    // # of points inside the first or outside the last grid node
+    int Nmin = static_cast<int>(log(Npoints+1)/log(2));
     if(rmin==0) {
         std::nth_element(radii.begin(), radii.begin() + Nmin, radii.end());
         rmin = std::max(radii[Nmin], rhalf * pow(spacing, -0.5*gridSizeR));
@@ -318,7 +326,10 @@ static PtrPotential initAsympt(double r1, double r2,
         // but the slope should already have been adjusted before computing the coefs U and W.
 #ifdef VERBOSE_REPORT
         if(l==0) {
-            std::cout << (inner?"Inner":"Outer")<<" slope of density profile is "<<(S[c]-2)<<'\n';
+            if(inner)
+                std::cout << "Power-law index of density profile: inner= " << S[c]-2;
+            else
+                std::cout << ", outer= " << S[c]-2 <<'\n';
         }
 #endif
     }
@@ -494,12 +505,12 @@ void computeDensityCoefsSph(const BaseDensity& src,
 }
 
 // density coefs from N-body snapshot
-template<typename ParticleT>
 void computeDensityCoefsSph(
-    const particles::PointMassArray<ParticleT> &points,
+    const particles::ParticleArray<coord::PosCyl> &particles,
     const math::SphHarmIndices &ind,
     const std::vector<double> &gridRadii,
     std::vector< std::vector<double> > &coefs,
+    double &innerSlope, double &outerSlope,
     double smoothing)
 {
     unsigned int gridSizeR = gridRadii.size();
@@ -516,12 +527,12 @@ void computeDensityCoefsSph(
         coefs[k].resize(ind.size());
     }
     std::vector<std::vector<double> > harmonics(ind.size());
-    std::vector<double> pointRadii;
-    computeSphericalHarmonics(points, ind, pointRadii, harmonics);
+    std::vector<double> particleRadii;
+    computeSphericalHarmonicsFromParticles(particles, ind, particleRadii, harmonics);
 
     // normalize all l>0 harmonics by the value of l=0 term
-    for(unsigned int i=0; i<pointRadii.size(); i++) {
-        pointRadii[i] = log(pointRadii[i]);
+    for(unsigned int i=0; i<particleRadii.size(); i++) {
+        particleRadii[i] = log(particleRadii[i]);
         for(unsigned int c=1; c<ind.size(); c++)
             if(!harmonics[c].empty())
                 harmonics[c][i] /= harmonics[0][i];
@@ -529,22 +540,23 @@ void computeDensityCoefsSph(
 
     // construct the l=0 harmonic using a penalized log-density estimate
     math::CubicSpline spl0(gridLogRadii, math::splineLogDensity<3>(
-        gridLogRadii, pointRadii, harmonics[0], true, true));
-#ifdef VERBOSE_REPORT_BLAH
-    double derl, derr;
-    spl0.evalDeriv(gridLogRadii.front(), NULL, &derl);
-    spl0.evalDeriv(gridLogRadii.back(),  NULL, &derr);
-    std::cout << "Density slope: inner= " << derl-3 << " outer= " << derr-3 << '\n';
-    for(double logr=gridLogRadii.front()-2; logr<gridLogRadii.back()+2; logr+=0.1)
-        std::cout << logr << ' ' << spl0(logr) << '\n';
-#endif
+        gridLogRadii, particleRadii, harmonics[0],
+        math::FitOptions(math::FO_INFINITE_LEFT | math::FO_INFINITE_RIGHT | math::FO_PENALTY_3RD_DERIV)));
+    spl0.evalDeriv(gridLogRadii.front(), NULL, &innerSlope);
+    spl0.evalDeriv(gridLogRadii.back(),  NULL, &outerSlope);
+    innerSlope -= 3;  // we have computed the log of density of particles in log(r),
+    outerSlope -= 3;  // which is equal to the true density multiplied by 4 pi r^3
     for(unsigned int k=0; k<gridSizeR; k++)
         coefs[k][0] = exp(spl0(gridLogRadii[k])) / (4*M_PI*pow_3(gridRadii[k]));
+#ifdef VERBOSE_REPORT
+    //std::cout << "Power-law index of density profile: inner= " <<
+    //innerSlope << ", outer= " << outerSlope <<'\n';
+#endif
     if(ind.size()==1)
         return;
 
     // construct the l>0 terms by fitting a penalized smoothing spline
-    math::SplineApprox fitter(gridLogRadii, pointRadii);
+    math::SplineApprox fitter(gridLogRadii, particleRadii);
     double edf = 2 + gridSizeR / (smoothing+1);
     for(unsigned int c=1; c<ind.size(); c++) {
         if(!harmonics[c].empty()) {
@@ -731,9 +743,8 @@ PtrDensity DensitySphericalHarmonic::create(
     return PtrDensity(new DensitySphericalHarmonic(gridRadii, coefs));
 }
 
-template<typename ParticleT>
 PtrDensity DensitySphericalHarmonic::create(
-    const particles::PointMassArray<ParticleT> &points,
+    const particles::ParticleArray<coord::PosCyl> &particles,
     coord::SymmetryType sym, int lmax, int mmax,
     unsigned int gridSizeR, double rmin, double rmax, double smoothing)
 {
@@ -741,37 +752,25 @@ PtrDensity DensitySphericalHarmonic::create(
         throw std::invalid_argument("DensitySphericalHarmonic: invalid grid parameters");
     if(lmax<0 || lmax>LMAX_SPHHARM || mmax<0 || mmax>lmax)
         throw std::invalid_argument("DensitySphericalHarmonic: invalid choice of expansion order");
-    chooseGridRadii(points, gridSizeR, rmin, rmax);
+    chooseGridRadii(particles, gridSizeR, rmin, rmax);
     std::vector<double> gridRadii = math::createExpGrid(gridSizeR, rmin, rmax);
     if(isSpherical(sym))
         lmax = 0;
     if(isZRotSymmetric(sym))
         mmax = 0;
     std::vector<std::vector<double> > coefs;
-    computeDensityCoefsSph(points,
+    double innerSlope, outerSlope;
+    computeDensityCoefsSph(particles,
         math::SphHarmIndices(lmax, mmax, sym),
-        gridRadii, coefs, smoothing);
-    return PtrDensity(new DensitySphericalHarmonic(gridRadii, coefs));
+        gridRadii, coefs, innerSlope, outerSlope, smoothing);
+    return PtrDensity(new DensitySphericalHarmonic(gridRadii, coefs, innerSlope, outerSlope));
 }
-
-// list all template instantiations
-template PtrDensity DensitySphericalHarmonic::create(const particles::PointMassArray<coord::PosCar>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
-template PtrDensity DensitySphericalHarmonic::create(const particles::PointMassArray<coord::PosCyl>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
-template PtrDensity DensitySphericalHarmonic::create(const particles::PointMassArray<coord::PosSph>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
-template PtrDensity DensitySphericalHarmonic::create(const particles::PointMassArray<coord::PosVelCar>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
-template PtrDensity DensitySphericalHarmonic::create(const particles::PointMassArray<coord::PosVelCyl>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
-template PtrDensity DensitySphericalHarmonic::create(const particles::PointMassArray<coord::PosVelSph>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
 
 // the actual constructor
 DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gridRadii,
-    const std::vector< std::vector<double> > &coefs) :
-    BaseDensity(), ind(getIndicesFromCoefs(coefs)), logScaling(true)
+    const std::vector< std::vector<double> > &coefs, double _innerSlope, double _outerSlope) :
+    BaseDensity(), ind(getIndicesFromCoefs(coefs)),
+    innerSlope(_innerSlope), outerSlope(_outerSlope), logScaling(true)
 {
     unsigned int gridSizeR = gridRadii.size();
     if(gridSizeR < MULTIPOLE_MIN_GRID_SIZE || gridSizeR != coefs.size())
@@ -781,23 +780,6 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gr
             throw std::invalid_argument("DensitySphericalHarmonic: incorrect size of coefficients array");
     if(ind.lmax>LMAX_SPHHARM)
         throw std::invalid_argument("DensitySphericalHarmonic: invalid choice of expansion order");
-
-    // We check (and correct if necessary) the logarithmic slopes of multipole components
-    // at the innermost and outermost grid radii, used in power-law extrapolation.
-    // slope = (1/rho) d(rho)/d(logr), is usually negative (at least at large radii).
-    // Note that the inner slope less than -2 leads to a divergent potential at origin,
-    // but the enclosed mass is still finite if slope is greater than -3;
-    // similarly, outer slope greater than -3 leads to a divergent total mass,
-    // but the potential tends to a finite limit as long as the slope is less than -2.
-    // Both these 'dangerous' semi-infinite regimes are allowed here, but likely may result
-    // in problems elsewhere.
-    innerSlope = fmax(-2.8, log(coefs[1][0] / coefs[0][0]) / log(gridRadii[1] / gridRadii[0]));
-    outerSlope = fmin(-2.2, log(coefs[gridSizeR-1][0] / coefs[gridSizeR-2][0]) /
-        log(gridRadii[gridSizeR-1] / gridRadii[gridSizeR-2]));
-    if(!math::isFinite(innerSlope))
-        innerSlope = 0;
-    if(!math::isFinite(outerSlope))
-        outerSlope = coefs[gridSizeR-1][0]==0 ? 0 : -4.;
 
     spl.resize(ind.size());
     std::vector<double> gridLogR(gridSizeR), tmparr(gridSizeR);
@@ -810,7 +792,6 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gr
         int m = ind.index_m(c);
         if(ind.lmin(m) > ind.lmax || (l-ind.lmin(m)) % ind.step != 0)
             continue;  // skip identically zero harmonics
-        double derivInner = 0, derivOuter = 0;
         if(l==0) {
             // for the l=0 coefficient (main spherically-symmetric component), we may use
             // logarithmic scaling of its amplitude, if it is everywhere positive
@@ -822,24 +803,58 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gr
             // d[log(rho(log(r)))] / d[log(r)] = power-law indices of the inner/outer slope;
             // without log-scaling, the endpoint derivatives of spline are
             // d[rho(log(r))] / d[log(r)] = power-law indices multiplied by the values of rho.
-            derivInner = innerSlope * (logScaling ? 1 : coefs.front()[0]);
-            derivOuter = outerSlope * (logScaling ? 1 : coefs.back ()[0]);
+            spl[0] = math::CubicSpline(gridLogR, tmparr,
+                innerSlope * (logScaling ? 1 : coefs.front()[0]),
+                outerSlope * (logScaling ? 1 : coefs.back()[0]));
+            spl[0].evalDeriv(gridLogR.front(), NULL, &innerSlope);
+            spl[0].evalDeriv(gridLogR.back(),  NULL, &outerSlope);
+            if(!logScaling) {
+                if(coefs.front()[0] != 0)
+                    innerSlope /= coefs.front()[0];
+                else
+                    innerSlope = 0;
+                if(coefs.back()[0] != 0)
+                    outerSlope /= coefs.back()[0];
+                else
+                    outerSlope = 0;
+            }
+
+            // We check (and correct if necessary) the logarithmic slope of density profile
+            // at the innermost and outermost grid radii, used in power-law extrapolation.
+            // slope = (1/rho) d(rho)/d(logr), is usually negative (at least at large radii).
+            // Note that the inner slope less than -2 leads to a divergent potential at origin,
+            // but the enclosed mass is still finite if slope is greater than -3;
+            // similarly, outer slope greater than -3 leads to a divergent total mass,
+            // but the potential tends to a finite limit as long as the slope is less than -2.
+            // Both these 'dangerous' semi-infinite regimes are allowed here,
+            // but likely may result in problems elsewhere.
+            if(!math::isFinite(innerSlope))
+                innerSlope = 0;
+            if(!math::isFinite(outerSlope))
+                outerSlope = coefs.back()[0]==0 ? 0 : -4.;
+            innerSlope = fmax(innerSlope, -2.8);
+            outerSlope = fmin(outerSlope, -2.2);
         } else {
             // values of l!=0 components are normalized to the value of l=0 component at each radius
+            // and are extrapolated as constants beyond the extent of the grid
+            // (with zero endpoint derivatives)
             for(unsigned int k=0; k<gridSizeR; k++)
                 tmparr[k] = coefs[k][0]!=0 ? coefs[k][c] / coefs[k][0] : 0;
+            spl[c] = math::CubicSpline(gridLogR, tmparr, 0, 0);
         }
-        spl[c] = math::CubicSpline(gridLogR, tmparr, derivInner, derivOuter);
     }
 }
 
 void DensitySphericalHarmonic::getCoefs(
-    std::vector<double> &radii, std::vector< std::vector<double> > &coefs) const
+    std::vector<double> &radii, std::vector< std::vector<double> > &coefs,
+    double &slopeInner, double &slopeOuter) const
 {
     radii.resize(spl[0].xvalues().size());
     for(unsigned int k=0; k<radii.size(); k++)
         radii[k] = exp(spl[0].xvalues()[k]);
     computeDensityCoefsSph(*this, ind, radii, coefs);
+    slopeInner = innerSlope;
+    slopeOuter = outerSlope;
 }
 
 double DensitySphericalHarmonic::densityCyl(const coord::PosCyl &pos) const
@@ -954,9 +969,8 @@ PtrPotential Multipole::create(
     unsigned int gridSizeR, double rmin, double rmax)
 { return createMultipole(src, lmax, mmax, gridSizeR, rmin, rmax); }
 
-template<typename ParticleT>
 PtrPotential Multipole::create(
-    const particles::PointMassArray<ParticleT> &points,
+    const particles::ParticleArray<coord::PosCyl> &particles,
     coord::SymmetryType sym, int lmax, int mmax,
     unsigned int gridSizeR, double rmin, double rmax, double smoothing)
 {
@@ -964,7 +978,14 @@ PtrPotential Multipole::create(
         throw std::invalid_argument("Multipole: invalid grid parameters");
     if(lmax<0 || lmax>LMAX_SPHHARM || mmax<0 || mmax>lmax)
         throw std::invalid_argument("Multipole: invalid choice of expansion order");
-    chooseGridRadii(points, gridSizeR, rmin, rmax);
+    // we first reduce the grid size by two, and then add two extra nodes at ends:
+    // this is necessary for an accurate extrapolation that requires a robust estimate
+    // of 2nd derivative of potential, using 0th and 1st radial node at each end.
+    // The constructed density approximation has a power-law asymptotic behaviour
+    // beyond its grid domain, and by creating additional grid point for the potential,
+    // we robustly capture this power-law slope.
+    gridSizeR = std::max<unsigned int>(gridSizeR-2, MULTIPOLE_MIN_GRID_SIZE);
+    chooseGridRadii(particles, gridSizeR, rmin, rmax);
     std::vector<double> gridRadii = math::createExpGrid(gridSizeR, rmin, rmax);
     if(isSpherical(sym))
         lmax = 0;
@@ -972,25 +993,16 @@ PtrPotential Multipole::create(
         mmax = 0;
     std::vector<std::vector<double> > coefDens, Phi, dPhi;
     math::SphHarmIndices ind(lmax, mmax, sym);
-    computeDensityCoefsSph(points, ind, gridRadii, coefDens, smoothing);
-    DensitySphericalHarmonic dens(gridRadii, coefDens);   // temporary density object
+    // create an intermediate density approximation
+    double innerSlope, outerSlope;
+    computeDensityCoefsSph(particles, ind, gridRadii, coefDens, innerSlope, outerSlope, smoothing);
+    DensitySphericalHarmonic dens(gridRadii, coefDens, innerSlope, outerSlope);
+    // add two extra points to the radial grid for the potential, for the reason explained above
+    gridRadii.insert(gridRadii.begin(), pow_2(gridRadii[0])/gridRadii[1]);
+    gridRadii.push_back(pow_2(gridRadii.back())/gridRadii[gridRadii.size()-2]);
     computePotentialCoefsSph(dens, ind, gridRadii, Phi, dPhi);
     return PtrPotential(new Multipole(gridRadii, Phi, dPhi));
 }
-
-// list all template instantiations
-template PtrPotential Multipole::create(const particles::PointMassArray<coord::PosCar>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
-template PtrPotential Multipole::create(const particles::PointMassArray<coord::PosCyl>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
-template PtrPotential Multipole::create(const particles::PointMassArray<coord::PosSph>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
-template PtrPotential Multipole::create(const particles::PointMassArray<coord::PosVelCar>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
-template PtrPotential Multipole::create(const particles::PointMassArray<coord::PosVelCyl>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
-template PtrPotential Multipole::create(const particles::PointMassArray<coord::PosVelSph>&,
-    coord::SymmetryType, int, int, unsigned int, double, double, double);
 
 // now the one and only 'proper' constructor
 Multipole::Multipole(
@@ -1282,7 +1294,7 @@ MultipoleInterp2d::MultipoleInterp2d(
         // assign Phi_m, dPhi_m/d(ln r) & dPhi_m/d(tau) at each node of 2d grid (r_k, tau_j)
         for(unsigned int j=0; j<gridSizeT; j++) {
             math::sphHarmArray(ind.lmax, absm, gridT[j], &Plm.front(), &dPlm.front());
-            for(unsigned int k=0; k<gridSizeR; k++) {            
+            for(unsigned int k=0; k<gridSizeR; k++) {
                 double val=0, dR=0, dT=0;
                 for(int l=lmin; l<=ind.lmax; l+=ind.step) {
                     unsigned int c = ind.index(l, m);

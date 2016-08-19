@@ -8,12 +8,12 @@
 
 namespace particles {
 
-PointMassArrayCar IOSnapshotText::readSnapshot() const
+ParticleArrayCar IOSnapshotText::readSnapshot() const
 {
     std::ifstream strm(fileName.c_str(), std::ios::in);
     if(!strm) 
         throw std::runtime_error("IOSnapshotText: cannot read from file "+fileName);
-    PointMassArrayCar points;
+    ParticleArrayCar points;
     std::string buffer;
     std::vector<std::string> fields;
     while(std::getline(strm, buffer) && !strm.eof())
@@ -36,7 +36,7 @@ PointMassArrayCar IOSnapshotText::readSnapshot() const
     return points;
 };
 
-void IOSnapshotText::writeSnapshot(const PointMassArrayCar& points) const
+void IOSnapshotText::writeSnapshot(const ParticleArrayCar& points) const
 {
     std::ofstream strm(fileName.c_str(), std::ios::out);
     if(!strm) 
@@ -61,7 +61,7 @@ void IOSnapshotText::writeSnapshot(const PointMassArrayCar& points) const
 #ifdef HAVE_UNSIO
 namespace{  // internal
 
-static PointMassArrayCar readSnapshotUNSIO(const std::string& fileName, 
+static ParticleArrayCar readSnapshotUNSIO(const std::string& fileName, 
     const units::ExternalUnits& conv) 
 { 
     uns::CunsIn input(fileName, "all", "all");
@@ -78,7 +78,7 @@ static PointMassArrayCar readSnapshotUNSIO(const std::string& fileName,
         if(nbodyp==0) pos=NULL;
         if(nbodyv==0) vel=NULL;
         if(nbodym==0) mass=NULL;
-        PointMassArrayCar points;
+        ParticleArrayCar points;
         if(nbodyp>0) {
             points.data.reserve(nbodyp);
             for(int i=0; i<nbodyp; i++)
@@ -97,7 +97,7 @@ static PointMassArrayCar readSnapshotUNSIO(const std::string& fileName,
 };
 
 static void writeSnapshotUNSIO(const std::string& fileName,
-    const units::ExternalUnits& conv, const PointMassArrayCar& points, const std::string& type)
+    const units::ExternalUnits& conv, const ParticleArrayCar& points, const std::string& type)
 {
     uns::CunsOut output(fileName, type);
     bool result = 1 || output.isValid();  // this flag is apparently not initialized properly
@@ -124,21 +124,21 @@ static void writeSnapshotUNSIO(const std::string& fileName,
 };
 }  // internal ns
 
-PointMassArrayCar IOSnapshotGadget::readSnapshot() const {
+ParticleArrayCar IOSnapshotGadget::readSnapshot() const {
     return readSnapshotUNSIO(fileName, conv);
 }
 
-void IOSnapshotGadget::writeSnapshot(const PointMassArrayCar& points) const {
+void IOSnapshotGadget::writeSnapshot(const ParticleArrayCar& points) const {
     writeSnapshotUNSIO(fileName, conv, points, "gadget2");
 }
 
-PointMassArrayCar IOSnapshotNemo::readSnapshot() const {
+ParticleArrayCar IOSnapshotNemo::readSnapshot() const {
     return readSnapshotUNSIO(fileName, conv);
 }
 
 #else
 // no UNSIO
-PointMassArrayCar IOSnapshotNemo::readSnapshot() const
+ParticleArrayCar IOSnapshotNemo::readSnapshot() const
 {
     throw std::runtime_error("Error, compiled without support for reading NEMO snapshots");
 };
@@ -218,7 +218,7 @@ public:
     }
     /// write phase space (positions and velocities); NumT may be float or double
     template<typename NumT> 
-    void writePhase(const PointMassArrayCar& points, double time, const units::ExternalUnits& conv) 
+    void writePhase(const ParticleArrayCar& points, double time, const units::ExternalUnits& conv) 
     {
         int nbody    = static_cast<int>(points.size());
         NumT* phase = new NumT[nbody * 6];
@@ -263,7 +263,7 @@ template<> char CNemoSnapshotWriter::typeLetter<double>(){ return 'd'; };
 template<> char CNemoSnapshotWriter::typeLetter<char>()  { return 'c'; };
 }  // end internal namespace
 
-void IOSnapshotNemo::writeSnapshot(const PointMassArrayCar& points) const
+void IOSnapshotNemo::writeSnapshot(const ParticleArrayCar& points) const
 {
     CNemoSnapshotWriter SnapshotWriter(fileName, append);
     bool result = SnapshotWriter.ok();

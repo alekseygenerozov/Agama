@@ -870,7 +870,7 @@ static PyObject* sampleDensity(const potential::BaseDensity& dens, PyObject* arg
     }
     try{
         // do the sampling
-        particles::PointMassArray<coord::PosCyl> points =
+        particles::ParticleArray<coord::PosCyl> points =
             galaxymodel::generateDensitySamples(dens, numPoints);
 
         // convert output to NumPy array
@@ -1141,7 +1141,7 @@ static potential::PtrPotential Potential_initFromParticles(
         throw std::invalid_argument("'particles' does not contain valid arrays "
             "(the first one must be 2d array of shape Nx3 and the second one must be 1d array of length N)");
     }
-    particles::PointMassArray<coord::PosCar> pointArray;
+    particles::ParticleArray<coord::PosCar> pointArray;
     pointArray.data.reserve(numpt);
     for(int i=0; i<numpt; i++) {
         pointArray.add(convertPos((double*)PyArray_GETPTR2(pointCoordArr, i, 0)), 
@@ -2043,7 +2043,7 @@ static PyObject* GalaxyModel_sample_posvel(GalaxyModelObject* self, PyObject* ar
     try{
         // do the sampling
         galaxymodel::GalaxyModel galmod(*self->pot_obj->pot, *self->af_obj->af, *self->df_obj->df);
-        particles::PointMassArrayCar points = galaxymodel::generatePosVelSamples(galmod, numPoints);
+        particles::ParticleArrayCyl points = galaxymodel::generatePosVelSamples(galmod, numPoints);
 
         // convert output to NumPy array
         numPoints = points.size();
@@ -2051,7 +2051,7 @@ static PyObject* GalaxyModel_sample_posvel(GalaxyModelObject* self, PyObject* ar
         PyArrayObject* posvel_arr = (PyArrayObject*)PyArray_SimpleNew(2, dims, NPY_DOUBLE);
         PyArrayObject* mass_arr   = (PyArrayObject*)PyArray_SimpleNew(1, dims, NPY_DOUBLE);
         for(int i=0; i<numPoints; i++) {
-            unconvertPosVel(points.point(i), ((double*)PyArray_DATA(posvel_arr))+i*6);
+            unconvertPosVel(coord::toPosVelCar(points.point(i)), ((double*)PyArray_DATA(posvel_arr))+i*6);
             ((double*)PyArray_DATA(mass_arr))[i] = points.mass(i) / conv->massUnit;
         }
         return Py_BuildValue("NN", posvel_arr, mass_arr);

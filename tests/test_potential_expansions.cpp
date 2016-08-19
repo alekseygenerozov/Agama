@@ -31,23 +31,23 @@ PtrPotential writeRead(const potential::BasePotential& pot)
 }
 
 /// create a triaxial Dehnen model (could use galaxymodel::sampleNbody in a general case)
-particles::PointMassArray<coord::PosSph> makeDehnen(int nbody, double gamma, double p, double q)
+particles::ParticleArray<coord::PosCar> makeDehnen(int nbody, double gamma, double p, double q)
 {
     //math::randomize();
-    particles::PointMassArray<coord::PosCar> pts;
+    particles::ParticleArray<coord::PosCar> pts;
     for(int i=0; i<nbody; i++) {
         double m = math::random();
         double r = 1 / (pow(m, 1/(gamma-3)) - 1);  // known inversion of M(r)
         double costheta = math::random()*2 - 1;
-        double R = r * sqrt(1 - pow_2(costheta));
         double phi = math::random()*2*M_PI;
+        double R = r * sqrt(1 - pow_2(costheta));
         pts.add(coord::PosCar(R * cos(phi), p * R * sin(phi), q * r * costheta), 1./nbody);
     }
-    return particles::PointMassArray<coord::PosSph>(pts);
+    return pts;
 }
 
 PtrPotential createFromFile(
-    const particles::PointMassArray<coord::PosSph>& points, const std::string& potType)
+    const particles::ParticleArray<coord::PosCar>& points, const std::string& potType)
 {
     const std::string fileName = "test.txt";
     writeSnapshot(fileName, points, "Text");
@@ -55,12 +55,12 @@ PtrPotential createFromFile(
 
     // illustrates two possible ways of creating a potential from points
     if(potType == "BasisSetExp") {
-        particles::PointMassArrayCar pts = particles::readSnapshot(fileName);
+        particles::ParticleArrayCar pts = particles::readSnapshot(fileName);
         newpot = PtrPotential(new potential::BasisSetExp(
             1.0, /*alpha*/
             20,  /*numCoefsRadial*/
             6,   /*numCoefsAngular*/
-            particles::PointMassArray<coord::PosSph>(pts), /*points*/
+            pts, /*points*/
             coord::ST_DEFAULT));  /*symmetry (default value)*/
     } else {
         // a rather lengthy way of setting parameters, used only for illustration:
@@ -324,7 +324,7 @@ int main() {
         std::vector<potential::SphrParam>());
     const potential::Dehnen test6_Dehnen05Tri(1., 1., 0.5, 0.8, 0.5);     // triaxial weakly cuspy
     // N-body representation of the same profile
-    particles::PointMassArray<coord::PosSph> test6_points = makeDehnen(100000, 0.5, 0.8, 0.5);
+    particles::ParticleArray<coord::PosCar> test6_points = makeDehnen(100000, 0.5, 0.8, 0.5);
 
     // 3b. test the approximating density profiles
     std::cout << "--- Testing accuracy of density profile interpolators: "

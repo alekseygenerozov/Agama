@@ -10,8 +10,10 @@
 #include <fstream>
 #include <iomanip>
 #include <cmath>
+#include <algorithm>
 #include <cstdlib>
 #include <ctime>
+#include <cassert>
 #ifdef COMPARE_WD_PSPLINE
 #include "torus/WD_Pspline.h"
 #endif
@@ -201,14 +203,15 @@ bool testPenalizedSplineDensity()
     const double NORM = 1.;   // normalization (sum of weights of all samples)
     const double XMIN = 0;//fmin(MEAN1-3*DISP1, MEAN2-3*DISP2);  // limits of the interval for
     const double XMAX = 6;//fmax(MEAN1+3*DISP1, MEAN2+3*DISP2);  // constructing the estimators
-    const bool INF    = true;  // whether to assume that the domain is infinite
+    // whether to assume that the domain is infinite
+    const math::FitOptions OPTIONS = math::FitOptions(math::FO_INFINITE_LEFT | math::FO_INFINITE_RIGHT);
     // density function from which the samples are drawn
     Density1 dens(MEAN1, DISP1, MEAN2, DISP2, NORM);
 #else
     const double A    = 0., B = 0.5;  // parameters of density fnc
     const double NORM = 10.;
     const double XMIN = 0., XMAX = 1.;
-    const bool INF    = false;
+    const math::FitOptions OPTIONS = math::FitOptions();
     Density2 dens(A, B, NORM);
 #endif
     const int NPOINTS = 1000; // # of points to sample
@@ -266,11 +269,11 @@ bool testPenalizedSplineDensity()
     math::CubicSpline spltrue(grid, math::SplineApprox(grid, testgrid).fit(truedens));
     // estimators of various degree constructed from a finite array of samples
     math::LinearInterpolator spl1(grid,
-        math::splineLogDensity<1>(grid, xvalues, weights, INF, INF));  // linear fit
+        math::splineLogDensity<1>(grid, xvalues, weights, OPTIONS));  // linear fit
     math::CubicSpline spl3o(grid,
-        math::splineLogDensity<3>(grid, xvalues, weights, INF, INF));  // optimally smoothed cubic
+        math::splineLogDensity<3>(grid, xvalues, weights, OPTIONS));  // optimally smoothed cubic
     math::CubicSpline spl3p(grid,
-        math::splineLogDensity<3>(grid, xvalues, weights, INF, INF, SMOOTHING));  // penalized cubic
+        math::splineLogDensity<3>(grid, xvalues, weights, OPTIONS, SMOOTHING));  // penalized cubic
     double logLtrue=0, logL1=0, logL3o=0, logL3p=0, logL3s=0;
     for(unsigned int i=0; i<xvalues.size(); i++) {
         // evaluate the likelihood of the sampled points against the true underlying density
@@ -431,26 +434,26 @@ bool test2dSpline()
     for(int i=0; i<NNODESX; i++) {
         double f, dy;
         spl2d.evalDeriv(xval[i], yval.front(), &f, NULL, &dy);
-        ok &= math::fcmp(dy, 1., EPS)==0 && math::fcmp(f, fval(i, 0), EPS)==0;
+        ok &= fabs(dy - 1.) < EPS && fabs(f - fval(i, 0)) < EPS;
         spl2d.evalDeriv(xval[i], yval.back(), &f, NULL, &dy);
-        ok &= math::fcmp(dy, -1., EPS)==0 && math::fcmp(f, fval(i, NNODESY-1), EPS)==0;
+        ok &= fabs(dy + 1.) < EPS && fabs(f - fval(i, NNODESY-1)) < EPS;
 
         spl2d5.evalDeriv(xval[i], yval.front(), &f, NULL, &dy);
-        ok &= math::fcmp(dy, 1., EPS)==0 && math::fcmp(f, fval(i, 0), EPS)==0;
+        ok &= fabs(dy - 1.) < EPS && fabs(f - fval(i, 0)) < EPS;
         spl2d5.evalDeriv(xval[i], yval.back(), &f, NULL, &dy);
-        ok &= math::fcmp(dy, -1., EPS)==0 && math::fcmp(f, fval(i, NNODESY-1), EPS)==0;
+        ok &= fabs(dy + 1.) < EPS && fabs(f - fval(i, NNODESY-1)) < EPS;
     }
     for(int j=0; j<NNODESY; j++) {
         double f, dx;
         spl2d.evalDeriv(xval.front(), yval[j], &f, &dx);
-        ok &= math::fcmp(dx, 0.)==0 && math::fcmp(f, fval(0, j), EPS)==0;
+        ok &= fabs(dx) < EPS && fabs(f - fval(0, j)) < EPS;
         spl2d.evalDeriv(xval.back(), yval[j], &f, &dx);
-        ok &= fabs(dx)<10 && math::fcmp(f, fval(NNODESX-1, j), EPS)==0;
+        ok &= fabs(dx) < 10  && fabs(f - fval(NNODESX-1, j)) < EPS;
 
         spl2d5.evalDeriv(xval.front(), yval[j], &f, &dx);
-        ok &= math::fcmp(dx, 0.)==0 && math::fcmp(f, fval(0, j), EPS)==0;
+        ok &= fabs(dx) < EPS && fabs(f - fval(0, j)) < EPS;
         spl2d5.evalDeriv(xval.back(), yval[j], &f, &dx);
-        ok &= fabs(dx)<10 && math::fcmp(f, fval(NNODESX-1, j), EPS)==0;
+        ok &= fabs(dx) < 10  && fabs(f - fval(NNODESX-1, j)) < EPS;
     }
 
     // check derivatives on the entire edge at the three edges that had a prescribed value of derivative
@@ -716,7 +719,7 @@ bool test3dSpline()
 
 bool printFail(const char* msg)
 {
-    std::cout << msg << " failed\n";
+    std::cout << "\033[1;31m " << msg << " failed\033[0m\n";
     return (msg==0);  // false
 }
 
@@ -731,5 +734,7 @@ int main()
     ok &= test3dSpline() || printFail("3d spline");
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mFAILED\033[0m\n";
     return 0;
 }

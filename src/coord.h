@@ -170,7 +170,7 @@ struct ProlMod{
 /// position in arbitrary coordinates:
 /// the data types are defined as templates with the template parameter
 /// being any of the coordinate system names defined above
-template<typename coordSysT> struct PosT;
+template<typename CoordSysT> struct PosT;
 
 /// position in cartesian coordinates
 template<> struct PosT<Car>{
@@ -252,7 +252,7 @@ typedef struct PosT<ProlMod> PosProlMod;
 ///@{
 
 /// velocity in arbitrary coordinates
-template<typename coordSysT> struct VelT;
+template<typename CoordSysT> struct VelT;
 
 /// velocity in cartesian coordinates
 template<> struct VelT<Car> {
@@ -294,7 +294,7 @@ typedef struct VelT<ProlMod> VelProlMod;
 ///@{
 
 /// second moment of velocity in arbitrary coordinates
-template<typename coordSysT> struct Vel2T;
+template<typename CoordSysT> struct Vel2T;
 
 /// velocity in cartesian coordinates
 template<> struct Vel2T<Car> {
@@ -319,7 +319,7 @@ typedef struct Vel2T<Sph> Vel2Sph;
 ///@{
 
 /// combined position and velocity in arbitrary coordinates
-template<typename coordSysT> struct PosVelT;
+template<typename CoordSysT> struct PosVelT;
 
 /// combined position and velocity in cartesian coordinates
 template<> struct PosVelT<Car>: public PosCar, public VelCar {
@@ -405,7 +405,7 @@ typedef struct PosVelT<ProlMod> PosVelProlMod;
 ///@{
 
 /// components of a gradient in a given coordinate system
-template<typename coordSysT> struct GradT;
+template<typename CoordSysT> struct GradT;
 
 /// gradient of scalar function in cartesian coordinates
 template<> struct GradT<Car>{
@@ -442,7 +442,7 @@ typedef struct GradT<ProlMod> GradProlMod;
 ///@{
 
 /// components of a hessian of a scalar function (matrix of its second derivatives)
-template<typename coordSysT> struct HessT;
+template<typename CoordSysT> struct HessT;
 
 /// Hessian of scalar function F in cartesian coordinates: d2F/dx^2, d2F/dxdy, etc
 template<> struct HessT<Car>{
@@ -479,17 +479,17 @@ typedef struct HessT<ProlMod> HessProlMod;
 ///@{
 
 /** Prototype of a scalar function which is computed in a particular coordinate system */
-template<typename coordSysT>
+template<typename CoordSysT>
 class IScalarFunction {
 public:
     IScalarFunction() {};
     virtual ~IScalarFunction() {};
     /** Evaluate any combination of value, gradient and hessian of the function at a given point.
         Each of these quantities is computed and stored in the output pointer if it was not NULL. */
-    virtual void evalScalar(const PosT<coordSysT>& x,
+    virtual void evalScalar(const PosT<CoordSysT>& x,
         double* value=0,
-        GradT<coordSysT>* deriv=0,
-        HessT<coordSysT>* deriv2=0) const=0;
+        GradT<CoordSysT>* deriv=0,
+        HessT<CoordSysT>* deriv2=0) const=0;
 };
 
 ///@}

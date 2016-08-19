@@ -138,9 +138,7 @@ public:
         unsigned int gridSizez, double zmin, double zmax);
 
     /** Create the potential from an N-body snapshot.
-        \tparam ParticleT  is any of the 6 principal particle types
-        (3 coordinate systems, with or without velocity data, which is not used anyway).
-        \param[in] points  is the array of point masses.
+        \param[in] particles  is the array of particles.
         \param[in] sym  is the assumed symmetry of the input snapshot,
         which defines the list of angular harmonics to compute and to ignore
         (e.g. if it is set to coord::ST_TRIAXIAL, all negative or odd m terms are zeros).
@@ -159,8 +157,8 @@ public:
         and construct a quintic spline, or skip it and construct a cubic spline
         (due to noisy nature of N-body models, higher order does not necessarily imply more accuracy).
     */
-    template<typename ParticleT>
-    static PtrPotential create(const particles::PointMassArray<ParticleT>& points,
+    static PtrPotential create(
+        const particles::ParticleArray<coord::PosCyl>& particles,
         coord::SymmetryType sym, int mmax,
         unsigned int gridSizeR, double Rmin, double Rmax, 
         unsigned int gridSizez, double zmin, double zmax, bool useDerivs=false);
@@ -297,9 +295,7 @@ void computePotentialCoefsCyl(const BaseDensity& dens,
 
 /** Compute the coefficients of azimuthal Fourier expansion of potential and
     its derivatives from an N-body snapshot.
-    \tparam ParticleT  is any of the 6 principal particle types
-    (3 coordinate systems, with or without velocity data, which is not used anyway).
-    \param[in] points  is the array of point masses.
+    \param[in] particles  is the array of particles.
     \param[in] sym  is the assumed symmetry of the input snapshot,
     which defines the list of angular harmonics to compute and to ignore
     (e.g. if it is set to coord::ST_TRIAXIAL, all negative or odd m terms are zeros).
@@ -313,9 +309,8 @@ void computePotentialCoefsCyl(const BaseDensity& dens,
     with the same convention as used in the constructor of `CylSpline`;
     will be resized as needed.
 */
-template<typename ParticleT>
 void computePotentialCoefsCyl(
-    const particles::PointMassArray<ParticleT>& points,
+    const particles::ParticleArray<coord::PosCyl>& particles,
     coord::SymmetryType sym,
     const unsigned int mmax,
     const std::vector<double> &gridR,
@@ -327,9 +322,8 @@ void computePotentialCoefsCyl(
 /** Compute the coefficients of azimuthal Fourier expansion of potential
     from an N-body snapshot (same as above, but without derivatives).
 */
-template<typename ParticleT>
 void computePotentialCoefsCyl(
-    const particles::PointMassArray<ParticleT>& points,
+    const particles::ParticleArray<coord::PosCyl>& particles,
     coord::SymmetryType sym,
     const unsigned int mmax,
     const std::vector<double> &gridR,

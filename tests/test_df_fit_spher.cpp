@@ -140,9 +140,9 @@ double dfHernquist(double M, double a, double E)
 }
 
 /// create an N-body representation of Hernquist model
-particles::PointMassArrayCyl createHernquistModel(double M, double a, unsigned int nbody)
+particles::ParticleArrayCyl createHernquistModel(double M, double a, unsigned int nbody)
 {
-    particles::PointMassArrayCyl points;
+    particles::ParticleArrayCyl points;
     for(unsigned int i=0; i<nbody; i++) {
         // 1. choose position
         double f = math::random();   // fraction of enclosed mass chosen at random
@@ -173,7 +173,7 @@ particles::PointMassArrayCyl createHernquistModel(double M, double a, unsigned i
 int main(){
     potential::PtrPotential pot(new potential::Dehnen(1., 1., 1., 1., 1.));
     const actions::ActionFinderAxisymFudge actf(pot);
-    particles::PointMassArrayCyl particles(createHernquistModel(1., 1., 100000));
+    particles::ParticleArrayCyl particles(createHernquistModel(1., 1., 100000));
     ActionArray particleActions(particles.size());
     for(unsigned int i=0; i<particles.size(); i++)
         particleActions[i] = actf.actions(particles.point(i));

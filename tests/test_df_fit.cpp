@@ -86,7 +86,7 @@ private:
 };
 
 int main(){
-    particles::PointMassArrayCar particles = particles::readSnapshot("sampled_model.txt");
+    particles::ParticleArrayCar particles = particles::readSnapshot("sampled_model.txt");
     potential::PtrPotential pot = potential::Multipole::create(
         particles, coord::ST_AXISYMMETRIC, 4 /*lmax*/, 0 /*mmax*/, 20 /*gridSizeR*/);
     const actions::ActionFinderAxisymFudge actf(pot);

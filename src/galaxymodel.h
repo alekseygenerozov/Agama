@@ -119,7 +119,7 @@ void computeProjectedMoments(const GalaxyModel& model, const double R,
     \returns    a new array of particles (position/velocity/mass)
     sampled from the distribution function;
 */
-particles::PointMassArrayCar generateActionSamples(
+particles::ParticleArrayCyl generateActionSamples(
     const GalaxyModel& model, const unsigned int numPoints,
     std::vector<actions::Actions>* actions=0);
 
@@ -133,7 +133,7 @@ particles::PointMassArrayCar generateActionSamples(
     \returns    a new array of particles (position/velocity/mass)
     sampled from the distribution function;
 */
-particles::PointMassArrayCar generatePosVelSamples(
+particles::ParticleArrayCyl generatePosVelSamples(
     const GalaxyModel& model, const unsigned int numPoints);
 
 
@@ -142,7 +142,7 @@ particles::PointMassArrayCar generatePosVelSamples(
     \param[in]  numPoints  is the required number of sampling points;
     \returns    a new array with the sampled coordinates and masses
 */
-particles::PointMassArray<coord::PosCyl> generateDensitySamples(
+particles::ParticleArray<coord::PosCyl> generateDensitySamples(
     const potential::BaseDensity& dens, const unsigned int numPoints);
 
 }  // namespace

@@ -231,6 +231,12 @@ template<typename MatrixType>
 void blas_dgemm(CBLAS_TRANSPOSE TransA, CBLAS_TRANSPOSE TransB,
     double alpha, const MatrixType& A, const MatrixType& B, double beta, MatrixType& C)
 {
+    unsigned int NR1 = TransA==CblasNoTrans ? A.rows() : A.cols();
+    unsigned int NC1 = TransA==CblasNoTrans ? A.cols() : A.rows();
+    unsigned int NR2 = TransB==CblasNoTrans ? B.rows() : B.cols();
+    unsigned int NC2 = TransB==CblasNoTrans ? B.cols() : B.rows();
+    if(NC1 != NR2 || NR1 != C.rows() || NC2 != C.cols())
+        throw std::invalid_argument("blas_dgemm: incompatible matrix dimensions");
     if(TransA == CblasNoTrans) {
         if(TransB == CblasNoTrans) {
             if(beta==0)

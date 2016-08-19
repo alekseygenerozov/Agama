@@ -171,7 +171,7 @@ void BasePotentialSphericalHarmonic::evalSph(const coord::PosSph &pos,
 
 BasisSetExp::BasisSetExp(
     double _Alpha, unsigned int _Ncoefs_radial, unsigned int _Ncoefs_angular, 
-                         const particles::PointMassArray<coord::PosSph> &points, coord::SymmetryType _sym):
+                         const particles::ParticleArray<coord::PosSph> &points, coord::SymmetryType _sym):
     BasePotentialSphericalHarmonic(_Ncoefs_angular), 
     Ncoefs_radial(std::min<unsigned int>(MAX_NCOEFS_RADIAL-1, _Ncoefs_radial)),
     Alpha(_Alpha)
@@ -279,7 +279,7 @@ void BasisSetExp::prepareCoefsAnalytic(const BaseDensity& srcdensity)
         }
 }
 
-void BasisSetExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosSph> &points)
+void BasisSetExp::prepareCoefsDiscrete(const particles::ParticleArray<coord::PosSph> &points)
 {
     SHcoefs.resize(Ncoefs_radial+1);
     for(unsigned int n=0; n<=Ncoefs_radial; n++)
@@ -379,7 +379,7 @@ void BasisSetExp::computeSHCoefs(const double r, double coefsF[], double coefsdF
 
 // init coefs from point mass set
 SplineExp::SplineExp(unsigned int _Ncoefs_radial, unsigned int _Ncoefs_angular, 
-                     const particles::PointMassArray<coord::PosSph> &points, coord::SymmetryType _sym, 
+                     const particles::ParticleArray<coord::PosSph> &points, coord::SymmetryType _sym, 
     double smoothfactor, double Rmin, double Rmax):
     BasePotentialSphericalHarmonic(_Ncoefs_angular),
     Ncoefs_radial(std::max<size_t>(5,_Ncoefs_radial))
@@ -502,12 +502,12 @@ void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin,
 
 /// \cond INTERNAL_DOCS
 inline bool compareParticleSph(
-    const particles::PointMassArray<coord::PosSph>::ElemType& val1, 
-    const particles::PointMassArray<coord::PosSph>::ElemType& val2) {
+    const particles::ParticleArray<coord::PosSph>::ElemType& val1, 
+    const particles::ParticleArray<coord::PosSph>::ElemType& val2) {
     return val1.first.r < val2.first.r;  }
 /// \endcond
 
-void SplineExp::computeCoefsFromPoints(const particles::PointMassArray<coord::PosSph> &srcPoints, 
+void SplineExp::computeCoefsFromPoints(const particles::ParticleArray<coord::PosSph> &srcPoints, 
     std::vector<double>& outputRadii, std::vector< std::vector<double> >& outputCoefs)
 {
     double legendre_array[MAX_NCOEFS_ANGULAR][MAX_NCOEFS_ANGULAR-1];
@@ -520,7 +520,7 @@ void SplineExp::computeCoefsFromPoints(const particles::PointMassArray<coord::Po
     }
 
     // make a copy of input array to allow it to be sorted
-    particles::PointMassArray<coord::PosSph> points(srcPoints);
+    particles::ParticleArray<coord::PosSph> points(srcPoints);
     std::sort(points.data.begin(), points.data.end(), compareParticleSph);
 
     // having sorted particles in radius, may now initialize coefs
@@ -608,7 +608,7 @@ double get_ascale(const std::vector<double>& radii, const std::vector<std::vecto
     return targetRad;
 }
 
-void SplineExp::prepareCoefsDiscrete(const particles::PointMassArray<coord::PosSph> &points, 
+void SplineExp::prepareCoefsDiscrete(const particles::ParticleArray<coord::PosSph> &points, 
     double smoothfactor, double innerBinRadius, double outerBinRadius)
 {
     if(points.size() <= Ncoefs_radial*10)

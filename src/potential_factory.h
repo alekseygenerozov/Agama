@@ -116,15 +116,13 @@ PtrPotential createPotential(
     Coordinates and masses of particles are _not_ transformed: if they are loaded from an external 
     N-body snapshot file, the conversion is applied at that stage, and if they come from 
     other routines in the library, they are already in internal units.
-    \tparam    ParticleT  may be PosT<CoordSys> or PosVel<CoordSys>, with CoordSys = Car, Cyl or Sph.
     \return    a new instance of PtrPotential on success.
     \throws    std::invalid_argument or std::runtime_error or other potential-specific exception
     on failure (e.g., if some of the parameters are invalid or missing).
 */
-template<typename ParticleT>
 PtrPotential createPotential(
     const utils::KeyValueMap& params, 
-    const particles::PointMassArray<ParticleT>& particles,
+    const particles::ParticleArray<coord::PosCyl>& particles,
     const units::ExternalUnits& converter = units::ExternalUnits());
 
 /** Utility function providing a legacy interface compatible with the original GalPot (deprecated).

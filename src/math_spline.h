@@ -654,6 +654,14 @@ private:
 };
 
 
+/** Parameters of penalized log-density fit */
+enum FitOptions {
+    FO_PENALTY_2ND_DERIV = 0,  ///< use integral of squared second derivative in the penalty
+    FO_PENALTY_3RD_DERIV = 1,  ///< use integral of squared third derivative in the penalty
+    FO_INFINITE_LEFT     = 2,  ///< fitted function extends to -infinity to the left of the grid
+    FO_INFINITE_RIGHT    = 4   ///< fitted function extends to +infinity to the right of the grid
+};
+
 /** Penalized log-spline approximation to a probability density distribution.
     Let P(x)>0 be a probability distribution function defined on the entire real axis,
     a semi-infinite interval [xmin,+inf) or (-inf,xmax], or a finite interval [xmin,xmax].
@@ -681,13 +689,16 @@ private:
     should be in increasing order.
     \param[in]  xvalues  are the coordinates x[i] of input samples.
     \param[in]  weights  are the weights w[i] of samples; should be non-negative.
-    \param[in]  leftInfinite - if true, the function ln(P(x)) is assumed to be defined
+    \param[in]  options  is a bit field specifying several parameters for the fitting procedure:
+    the choice between second and third derivative in the penalty term, and
+    the extent of the domain for the estimated density beyond each of the two grid endpoints:
+    if FO_INFINTE_LEFT bit is set, the function ln(P(x)) is assumed to be defined
     for all x<knots[0] and will be linearly extrapolated to the left of the first grid node
     (obviously it will be declining towards x=-infinity); in this case input samples may
     have x[i]<knots[0] and they will be accounted for in the fit.
-    If false, the function P(x) is identically zero for x<knots[0], and any samples that appear
-    to the left of the boundary are ignored in the fit.
-    \param[in]  rightInfinite - the same for the right boundary.
+    If this bit is not set, the function P(x) is identically zero for x<knots[0], and any samples
+    that appear to the left of the boundary are ignored in the fit.
+    The same applies to FO_INFINITE_RIGHT bit and the last grid node.
     \param[in]  smoothing  is the parameter defining the tradeoff between smoothness
     and accuracy of approximation (makes sense only for N>1).
     Best-fit parameters (amplitudes) of a model without smoothing correspond to the absolute
@@ -712,7 +723,7 @@ private:
 template<int N>
 std::vector<double> splineLogDensity(const std::vector<double> &grid,
     const std::vector<double> &xvalues, const std::vector<double> &weights,
-    bool leftInfinite, bool rightInfinite, double smoothing=0);
+    FitOptions options=FitOptions(), double smoothing=0);
 
 ///@}
 /// \name Auxiliary routines for grid generation

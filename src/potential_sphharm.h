@@ -63,7 +63,7 @@ public:
 
     /// init potential from a discrete point mass set
     BasisSetExp(double _Alpha, unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
-        const particles::PointMassArray<coord::PosSph> &points, coord::SymmetryType sym=coord::ST_TRIAXIAL);
+        const particles::ParticleArray<coord::PosSph> &points, coord::SymmetryType sym=coord::ST_TRIAXIAL);
 
     /// init potential from stored coefficients
     BasisSetExp(double _Alpha, const std::vector< std::vector<double> > &coefs);
@@ -95,7 +95,7 @@ private:
 
     /// compute coefficients from a discrete point mass set; 
     /// if Alpha=0 then it is computed automatically from the data
-    void prepareCoefsDiscrete(const particles::PointMassArray<coord::PosSph>& points);
+    void prepareCoefsDiscrete(const particles::ParticleArray<coord::PosSph>& points);
 
     /// compute coefficients from a smooth mass profile; 
     /// if Alpha=0 then it is chosen automatically from density->getGamma()
@@ -131,7 +131,7 @@ public:
         \param[in] Rmax is the radius of the outermost grid node (0 means auto-detect);
     */
     SplineExp(unsigned int numCoefsRadial, unsigned int numCoefsAngular, 
-        const particles::PointMassArray<coord::PosSph> &points, 
+        const particles::ParticleArray<coord::PosSph> &points, 
         coord::SymmetryType sym=coord::ST_TRIAXIAL, double smoothFactor=0, 
         double Rmin=0, double Rmax=0);
 
@@ -186,7 +186,7 @@ private:
         and elements of this array are `outcoefs[coefIndex][particleIndex]`
         this is done to save memory by not allocating arrays for unused coefficients.
     */
-    void computeCoefsFromPoints(const particles::PointMassArray<coord::PosSph>& points, 
+    void computeCoefsFromPoints(const particles::ParticleArray<coord::PosSph>& points, 
         std::vector<double>& outradii, std::vector<std::vector<double> >& outcoefs);
 
     /** create smoothing splines from the coefficients computed at each particle's radius.
@@ -197,7 +197,7 @@ private:
                    if either is 0 then it is assigned automatically 
                    taking into account the range of radii covered by source points.
     */
-    void prepareCoefsDiscrete(const particles::PointMassArray<coord::PosSph>& points, 
+    void prepareCoefsDiscrete(const particles::ParticleArray<coord::PosSph>& points, 
         double smoothfactor, double Rmin, double Rmax);
 
     /** compute expansion coefficients from an analytical mass profile.
