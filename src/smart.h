@@ -81,8 +81,23 @@ this means that a copy of the object is being kept; if it only takes a reference
 to object of some class (e.g. const BasePotential& ), this means that it will only
 be used inside the constructor, but not any longer.
 */
+
 #pragma once
+// We use different definitions for the two smart pointer classes,
+// depending on whether we have C++11 support or not;
+// in the latter case it is replaced with std::tr1::, but if that is not available either,
+// one may substitute it with the boost implementations.
+// Unfortunately a side effect is a pollution of root namespace...
+
+#ifdef HAVE_CXX11
+#include <memory>
+using std::shared_ptr;
+using std::unique_ptr;
+#else
 #include <tr1/memory>
+using std::tr1::shared_ptr;
+#define unique_ptr std::auto_ptr
+#endif
 
 namespace math{
 
@@ -91,11 +106,11 @@ class IFunctionNdim;
 class BaseInterpolator2d;
 
 /// pointer to a function class
-typedef std::tr1::shared_ptr<const IFunction> PtrFunction;
-typedef std::tr1::shared_ptr<const IFunctionNdim> PtrFunctionNdim;
+typedef shared_ptr<const IFunction> PtrFunction;
+typedef shared_ptr<const IFunctionNdim> PtrFunctionNdim;
 
 /// pointer to a generic 2d interpolation class
-typedef std::tr1::shared_ptr<const BaseInterpolator2d> PtrInterpolator2d;
+typedef shared_ptr<const BaseInterpolator2d> PtrInterpolator2d;
 
 }  // namespace math
 
@@ -107,9 +122,9 @@ class BasePotential;
 class OblatePerfectEllipsoid;
 
 /// Shared pointers to density and potential classes
-typedef std::tr1::shared_ptr<const BaseDensity>    PtrDensity;
-typedef std::tr1::shared_ptr<const BasePotential>  PtrPotential;
-typedef std::tr1::shared_ptr<const OblatePerfectEllipsoid> PtrOblatePerfectEllipsoid;
+typedef shared_ptr<const BaseDensity>    PtrDensity;
+typedef shared_ptr<const BasePotential>  PtrPotential;
+typedef shared_ptr<const OblatePerfectEllipsoid> PtrOblatePerfectEllipsoid;
 
 }  // namespace potential
 
@@ -117,7 +132,7 @@ typedef std::tr1::shared_ptr<const OblatePerfectEllipsoid> PtrOblatePerfectEllip
 namespace actions{
 
 class BaseActionFinder;
-typedef std::tr1::shared_ptr<const BaseActionFinder> PtrActionFinder;
+typedef shared_ptr<const BaseActionFinder> PtrActionFinder;
 
 }  // namespace actions
 
@@ -125,7 +140,7 @@ typedef std::tr1::shared_ptr<const BaseActionFinder> PtrActionFinder;
 namespace Torus {
 
 class Torus;
-typedef std::tr1::shared_ptr<Torus> PtrTorus;
+typedef shared_ptr<Torus> PtrTorus;
 
 }  // namespace Torus
 
@@ -135,7 +150,7 @@ namespace df{
 class BaseDistributionFunction;
 class BaseActionSpaceScaling;
 
-typedef std::tr1::shared_ptr<const BaseDistributionFunction> PtrDistributionFunction;
-typedef std::tr1::shared_ptr<const BaseActionSpaceScaling> PtrActionSpaceScaling;
+typedef shared_ptr<const BaseDistributionFunction> PtrDistributionFunction;
+typedef shared_ptr<const BaseActionSpaceScaling> PtrActionSpaceScaling;
 
 }  // namespace df

@@ -42,12 +42,21 @@ inline int abs(int x) { return x<0?-x:x; }
 /** return an integer power of a number */
 double powInt(double x, int n);
 
-    
+
 /** initialize the pseudo-random number generator with the given value,
-    or a completely arbitrary value if seed==0 */
+    or a completely arbitrary value (depending on system time) if seed==0.
+    In a multi-threaded case, each thread is initialized with a different seed.
+    At startup (without any call to randomize()), the random seed always has the same value.
+*/
 void randomize(unsigned int seed=0);
 
-/** return a pseudo-random number in the range [0,1) */
+/** return a pseudo-random number in the range [0,1).
+    In a multi-threaded environment, each thread has access to its own instance of 
+    pseudo-random number generator, which are initialized with different (but fixed) seeds.
+    Therefore, if several threads process the data in an orderly way (using a static schedule),
+    they will receive the same sequence of numbers on each run of the program,
+    unless randomize(0) is called and as long as the number of threads is fixed.
+*/
 double random();
 
 /** return two uncorrelated random numbers from the standard normal distribution */

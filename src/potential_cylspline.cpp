@@ -357,29 +357,38 @@ static void computePotentialCoefsFromParticles(
     }
     int nbody = Rz.size();
     int numPoints = sizeR * sizez;
+    std::string errorMsg;
+    // parallelize the loop over the nodes of 2d grid, not the inner loop over particles
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
     for(int ind=0; ind<numPoints; ind++) {
         unsigned int iR = ind % sizeR;
         unsigned int iz = ind / sizeR;
-        for(int b=0; b<nbody; b++) {
-            for(unsigned int i=0; i<indices.size(); i++) {
-                int m = indices[i];
-                double values[3] = {0,0,0};
-                computePotentialHarmonicAtPoint(m, Rz[b].first, Rz[b].second,
-                    gridR[iR], gridz[iz], harmonics[m+mmax][b], useDerivs, values);
-                if(zsym) {  // add symmetric contribution from -z
-                    computePotentialHarmonicAtPoint(m, Rz[b].first, -Rz[b].second,
+        try{
+            for(int b=0; b<nbody; b++) {
+                for(unsigned int i=0; i<indices.size(); i++) {
+                    int m = indices[i];
+                    double values[3] = {0,0,0};
+                    computePotentialHarmonicAtPoint(m, Rz[b].first, Rz[b].second,
                         gridR[iR], gridz[iz], harmonics[m+mmax][b], useDerivs, values);
+                    if(zsym) {  // add symmetric contribution from -z
+                        computePotentialHarmonicAtPoint(m, Rz[b].first, -Rz[b].second,
+                            gridR[iR], gridz[iz], harmonics[m+mmax][b], useDerivs, values);
+                        for(unsigned int q=0; q<numQuantitiesOutput; q++)
+                            values[q] *= 0.5;  // average with the one from +z
+                    }
                     for(unsigned int q=0; q<numQuantitiesOutput; q++)
-                        values[q] *= 0.5;  // average with the one from +z
+                        output[q]->at(m+mmax)(iR,iz) += values[q];
                 }
-                for(unsigned int q=0; q<numQuantitiesOutput; q++)
-                    output[q]->at(m+mmax)(iR,iz) += values[q];
             }
         }
+        catch(std::exception& e) {
+            errorMsg = e.what();
+        }
     }
+    if(!errorMsg.empty())
+        throw std::runtime_error("Error in computePotentialCoefsFromParticles: "+errorMsg);
 }
 
 }  // internal namespace

@@ -4,15 +4,9 @@
 #include <cmath>
 #include <cassert>
 #include <stdexcept>
-#include <gsl/gsl_sf_legendre.h>
+#include <cstdlib>
 
 namespace math{
-
-//** WILL BE REMOVED **//
-double legendrePoly(const int l, const int m, const double x) {
-    return gsl_sf_legendre_Plm(l, m, x);
-}
-
 
 /** Calculate P_m^m(theta) from the analytic result:
     P_m^m(theta) = (-1)^m (2m-1)!! (sin(theta))^m , m > 0 ;
@@ -359,12 +353,17 @@ void SphHarmTransformForward::transform(const double values[], double coefs[]) c
 }
 
 double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
-    const double tau, const double phi, double* tmptrig)
+    const double tau, const double phi)
 {
+    // here we create a temporary array on the stack, without dynamic memory allocation.
+    // it will be automatically freed upon return from this routine, just as any local stack variable.
+    // An alternative is to use a statically sized array with some maximum size set at compile time...
+    int size = 2*ind.mmax + ind.lmax + 1;
+    double* tmptrig = static_cast<double*>(alloca(size * sizeof(double)));
+    double* tmpleg  = tmptrig + 2*ind.mmax;  // part of the temporary array for the Legendre transform
     const bool useSine = ind.mmin()<0;
     if(ind.mmax>0)
         trigMultiAngle(phi, ind.mmax, useSine, tmptrig);
-    double* tmpleg = &tmptrig[2*ind.mmax];
     double result = 0;
     for(int m=ind.mmin(); m<=ind.mmax; m++) {
         int lmin = ind.lmin(m);

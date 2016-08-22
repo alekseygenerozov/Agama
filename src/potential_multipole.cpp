@@ -137,20 +137,28 @@ static void computeSphHarmCoefs(const BaseDensityOrPotential& src,
     int numSamplesAngles = trans.size();  // size of array of density values at each r
     int numSamplesTotal  = numSamplesAngles * numPointsRadius;
     std::vector<double> values(numSamplesTotal * NQuantities);
+    std::string errorMsg;
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
     for(int n=0; n<numSamplesTotal; n++) {
-        int indR    = n / numSamplesAngles;  // index in radial grid
-        int indA    = n % numSamplesAngles;  // combined index in angular direction (theta,phi)
-        double rad  = radii[indR];
-        double z    = rad * trans.costheta(indA);
-        double R    = sqrt(rad*rad - z*z);
-        double phi  = trans.phi(indA);
-        storeValue(src, coord::PosCyl(R, z, phi),
-            &values[indR * numSamplesAngles + indA], numSamplesTotal);
+        try{
+            int indR    = n / numSamplesAngles;  // index in radial grid
+            int indA    = n % numSamplesAngles;  // combined index in angular direction (theta,phi)
+            double rad  = radii[indR];
+            double z    = rad * trans.costheta(indA);
+            double R    = sqrt(rad*rad - z*z);
+            double phi  = trans.phi(indA);
+            storeValue(src, coord::PosCyl(R, z, phi),
+                &values[indR * numSamplesAngles + indA], numSamplesTotal);
+        }
+        catch(std::exception& e) {
+            errorMsg = e.what();
+        }
     }
-
+    if(!errorMsg.empty())
+        throw std::runtime_error("Error in computeSphHarmCoefs: "+errorMsg);
+    
     // 2nd step: transform these values to spherical-harmonic expansion coefficients at each radius
     for(int q=0; q<NQuantities; q++) {
         coefs[q]->resize(numPointsRadius);
@@ -188,36 +196,41 @@ static void computeSphericalHarmonicsFromParticles(
         for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step)
             coefs[ind.index(l, m)].resize(nbody);
     bool needSine = ind.mmin()<0;
-    bool r0encountered = false;
+    std::string errorMsg;
 
     // compute Y_lm for each particle
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic,1024)
 #endif
     for(int i=0; i<nbody; i++) {
-        // temporary arrays for Legendre and trigonometric functions, separate for each thread
-        double leg[LMAX_SPHHARM+1], trig[2*LMAX_SPHHARM];
-        const coord::PosCyl& pos = particles.point(i);
-        double r   = hypot(pos.R, pos.z);
-        double tau = pos.z / (r + pos.R);
-        const double mass = particles.mass(i);
-        r0encountered |= r==0 && mass!=0;
-        particleRadii[i] = r;
-        math::trigMultiAngle(pos.phi, ind.mmax, needSine, trig);
-        for(int m=0; m<=ind.mmax; m++) {
-            math::sphHarmArray(ind.lmax, m, tau, leg);
-            for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step)
-                coefs[ind.index(l, m)][i] = mass * leg[l-m] * 2*M_SQRTPI *
-                    (m==0 ? 1 : M_SQRT2 * trig[m-1]);
-            if(needSine && m>0)
-                for(int l=ind.lmin(-m); l<=ind.lmax; l+=ind.step)
-                    coefs[ind.index(l, -m)][i] = mass * leg[l-m] * 2*M_SQRTPI *
-                        M_SQRT2 * trig[ind.mmax+m-1];
+        try{
+            // temporary arrays for Legendre and trigonometric functions, separate for each thread
+            double leg[LMAX_SPHHARM+1], trig[2*LMAX_SPHHARM];
+            const coord::PosCyl& pos = particles.point(i);
+            double r   = hypot(pos.R, pos.z);
+            double tau = pos.z / (r + pos.R);
+            const double mass = particles.mass(i);
+            if(r==0 && mass!=0)
+                errorMsg = "no massive particles at r=0 allowed";
+            particleRadii[i] = r;
+            math::trigMultiAngle(pos.phi, ind.mmax, needSine, trig);
+            for(int m=0; m<=ind.mmax; m++) {
+                math::sphHarmArray(ind.lmax, m, tau, leg);
+                for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step)
+                    coefs[ind.index(l, m)][i] = mass * leg[l-m] * 2*M_SQRTPI *
+                        (m==0 ? 1 : M_SQRT2 * trig[m-1]);
+                if(needSine && m>0)
+                    for(int l=ind.lmin(-m); l<=ind.lmax; l+=ind.step)
+                        coefs[ind.index(l, -m)][i] = mass * leg[l-m] * 2*M_SQRTPI *
+                            M_SQRT2 * trig[ind.mmax+m-1];
+            }
+        }
+        catch(std::exception& e) {
+            errorMsg = e.what();
         }
     }
-    if(r0encountered)
-        throw std::runtime_error(
-            "computeSphericalHarmonicsFromParticles: no massive particles at r=0 allowed");
+    if(!errorMsg.empty())
+        throw std::runtime_error("computeSphericalHarmonicsFromParticles: " + errorMsg);
 }
 
 
@@ -619,53 +632,62 @@ void computePotentialCoefsSph(const BaseDensity& dens,
     //   Qint[k][l,m] = \int_{r_{k-1}}^{r_k} \rho_{l,m}(r) (r/r_k)^{l+2} dr,  with r_{-1} = 0;
     //   Qext[k][l,m] = \int_{r_k}^{r_{k+1}} \rho_{l,m}(r) (r/r_k)^{1-l} dr,  with r_{Nr} = \infty.
     // Here \rho_{l,m}(r) are the sph.-harm. coefs for density at each radius.
+    std::string errorMsg;
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
     for(int k=0; k<=gridSizeR; k++) {
-        std::vector<double> densValues(trans.size());
-        std::vector<double> tmpCoefs(ind.size());
-        double rkminus1 = (k>0 ? gridRadii[k-1] : 0);
-        double deltaGridR = k<gridSizeR ?
-            gridRadii[k] - rkminus1 :  // length of k-th radial segment
-            gridRadii.back();          // last grid segment extends to infinity
+        try{
+            // local per-thread temporary arrays
+            std::vector<double> densValues(trans.size());
+            std::vector<double> tmpCoefs(ind.size());
+            double rkminus1 = (k>0 ? gridRadii[k-1] : 0);
+            double deltaGridR = k<gridSizeR ?
+                gridRadii[k] - rkminus1 :  // length of k-th radial segment
+                gridRadii.back();          // last grid segment extends to infinity
 
-        // loop over ORDER_RAD_INT nodes of GL quadrature for each radial grid segment
-        for(unsigned int s=0; s<ORDER_RAD_INT; s++) {
-            double r = k<gridSizeR ?
-                rkminus1 + glx[s] * deltaGridR :  // radius inside ordinary k-th segment
-                // special treatment for the last segment which extends to infinity:
-                // the integration variable is t = r_{Nr-1} / r
-                gridRadii.back() / glx[s];
+            // loop over ORDER_RAD_INT nodes of GL quadrature for each radial grid segment
+            for(unsigned int s=0; s<ORDER_RAD_INT; s++) {
+                double r = k<gridSizeR ?
+                    rkminus1 + glx[s] * deltaGridR :  // radius inside ordinary k-th segment
+                    // special treatment for the last segment which extends to infinity:
+                    // the integration variable is t = r_{Nr-1} / r
+                    gridRadii.back() / glx[s];
 
-            // collect the values of density at all points of angular grid at the given radius
-            for(unsigned int i=0; i<densValues.size(); i++)
-                densValues[i] = dens.density(coord::PosCyl(
-                    r * sqrt(1-pow_2(trans.costheta(i))), r * trans.costheta(i), trans.phi(i)));
+                // collect the values of density at all points of angular grid at the given radius
+                for(unsigned int i=0; i<densValues.size(); i++)
+                    densValues[i] = dens.density(coord::PosCyl(
+                        r * sqrt(1-pow_2(trans.costheta(i))), r * trans.costheta(i), trans.phi(i)));
 
-            // compute density SH coefs
-            trans.transform(&densValues.front(), &tmpCoefs.front());
-            math::eliminateNearZeros(tmpCoefs);
+                // compute density SH coefs
+                trans.transform(&densValues.front(), &tmpCoefs.front());
+                math::eliminateNearZeros(tmpCoefs);
 
-            // accumulate integrals over density times radius in the Qint and Qext arrays
-            for(int m=ind.mmin(); m<=ind.mmax; m++) {
-                for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
-                    unsigned int c = ind.index(l, m);
-                    if(k<gridSizeR)
-                        // accumulate Qint for all segments except the one extending to infinity
-                        Qint[k][c] += tmpCoefs[c] * glw[s] * deltaGridR *
-                            math::powInt(r / gridRadii[k], l+2);
-                    if(k>0)
-                        // accumulate Qext for all segments except the innermost one
-                        // (which starts from zero), with a special treatment for last segment
-                        // that extends to infinity and has a different integration variable
-                        Qext[k-1][c] += glw[s] * tmpCoefs[c] * deltaGridR *
-                            (k==gridSizeR ? 1 / pow_2(glx[s]) : 1) * // jacobian of 1/r transform
-                            math::powInt(r / gridRadii[k-1], 1-l);
+                // accumulate integrals over density times radius in the Qint and Qext arrays
+                for(int m=ind.mmin(); m<=ind.mmax; m++) {
+                    for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
+                        unsigned int c = ind.index(l, m);
+                        if(k<gridSizeR)
+                            // accumulate Qint for all segments except the one extending to infinity
+                            Qint[k][c] += tmpCoefs[c] * glw[s] * deltaGridR *
+                                math::powInt(r / gridRadii[k], l+2);
+                        if(k>0)
+                            // accumulate Qext for all segments except the innermost one
+                            // (which starts from zero), with a special treatment for last segment
+                            // that extends to infinity and has a different integration variable
+                            Qext[k-1][c] += glw[s] * tmpCoefs[c] * deltaGridR *
+                                (k==gridSizeR ? 1 / pow_2(glx[s]) : 1) * // jacobian of 1/r transform
+                                math::powInt(r / gridRadii[k-1], 1-l);
+                    }
                 }
             }
         }
+        catch(std::exception& e) {
+            errorMsg = e.what();
+        }
     }
+    if(!errorMsg.empty())
+        throw std::runtime_error("Error in computePotentialCoefsSph: "+errorMsg);
 
     // Run the summation loop, replacing the intermediate values Qint, Qext
     // with the interior and exterior potential coefficients (stored in the same arrays):
@@ -860,7 +882,6 @@ void DensitySphericalHarmonic::getCoefs(
 double DensitySphericalHarmonic::densityCyl(const coord::PosCyl &pos) const
 {
     double coefs[(LMAX_SPHHARM+1)*(LMAX_SPHHARM+1)];
-    double tmparr[3*(LMAX_SPHHARM+1)];
     double logr = log( pow_2(pos.R) + pow_2(pos.z) ) * 0.5;
     double logrmin = spl[0].xmin(), logrmax = spl[0].xmax();
     double logrspl = fmax(logrmin, fmin(logrmax, logr));   // the argument of spline functions
@@ -881,7 +902,7 @@ double DensitySphericalHarmonic::densityCyl(const coord::PosCyl &pos) const
                 coefs[c] = spl[c](logrspl) * coefs[0];
         }
     double tau = pos.z / (hypot(pos.R, pos.z) + pos.R);
-    return math::sphHarmTransformInverse(ind, coefs, tau, pos.phi, tmparr);
+    return math::sphHarmTransformInverse(ind, coefs, tau, pos.phi);
 }
 
 

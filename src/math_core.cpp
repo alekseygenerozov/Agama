@@ -17,6 +17,19 @@
 #include "cubature.h"
 #endif
 
+#ifdef _OPENMP
+#if defined(__APPLE__) && __GNUC__==4 && __GNUC_MINOR__==2
+// this is apparently a bug in Apple compiler that forces us to disable correct OpenMP support in this context
+// (linker reports undefined symbols _gomp_thread_attr and _gomp_tls_key)
+#warning Use of random() is not thread-safe due to broken OpenMP implementation
+#else
+#define HAVE_VALID_OPENMP
+#endif
+#endif
+#ifdef HAVE_VALID_OPENMP
+#include <omp.h>
+#endif
+
 namespace math{
 
 const int MAXITER = 64;  ///< upper limit on the number of iterations in root-finders, minimizers, etc.
@@ -127,6 +140,37 @@ template unsigned int binSearch(const size_t x, const size_t arr[], unsigned int
 
 /* --------- random numbers -------- */
 class RandGenStorage{
+#ifdef HAVE_VALID_OPENMP
+    // in the case of OpenMP, we have as many independent pseudo-random number generators
+    // as there are threads, and each thread uses its own instance, to avoid race condition
+    // and maintain deterministic output
+    int maxThreads;
+    std::vector<gsl_rng*> randgen;
+public:
+    RandGenStorage() {
+        maxThreads = std::max(1, omp_get_max_threads());
+        randgen.resize(maxThreads);
+        for(int i=0; i<maxThreads; i++) {
+            randgen[i] = gsl_rng_alloc(gsl_rng_default);
+            gsl_rng_set(randgen[i], i);  // assign a different but deterministic seed to each thread
+        }
+    }
+    ~RandGenStorage() {
+        for(int i=0; i<maxThreads; i++)
+            gsl_rng_free(randgen[i]);
+    }
+    void randomize(unsigned int seed) {
+        if(!seed)
+            seed = (unsigned int)time(NULL);
+        for(int i=0; i<maxThreads; i++)
+            gsl_rng_set(randgen[i], seed+i);
+    }
+    inline double random() {
+        int i = std::min(omp_get_thread_num(), maxThreads-1);
+        return gsl_rng_uniform(randgen[i]);
+    }
+#else
+    gsl_rng* randgen;
 public:
     RandGenStorage() {
         randgen = gsl_rng_alloc(gsl_rng_default);
@@ -135,22 +179,28 @@ public:
         gsl_rng_free(randgen);
     }
     void randomize(unsigned int seed) {
-        gsl_rng_set(randgen, seed ? seed : (unsigned int)time( NULL ));
+        gsl_rng_set(randgen, seed ? seed : (unsigned int)time(NULL));
     }
     inline double random() {
         return gsl_rng_uniform(randgen);
     }
-private:
-    gsl_rng* randgen;
+#endif
 };
-static RandGenStorage randgen;  // global random number generator
+
+// global instance of random number generator -- created at program startup and destroyed
+// at program exit. Note that the order of initialization of different modules is undefined,
+// thus no other static variable initializer may use the random() function.
+// Moving the initializer into the first call of random() is not a remedy either,
+// since it may already be called from a parallel section and will not determine
+// the number of threads correctly.
+static RandGenStorage randgen;
 
 void randomize(unsigned int seed)
 {
     randgen.randomize(seed);
 }
 
-// convenience function to generate a random number using global generator
+// convenience function to generate a random number using the global generator
 double random()
 {
     return randgen.random();
@@ -438,6 +488,8 @@ static double findRootHybrid(const IFunction& fnc,
 /** scaling transformation of input function for the case that the interval is (semi-)infinite:
     it replaces the original argument  x  with  y in the range [0:1],  
     and implements the transformation of 1st derivative.
+    TODO: change the transformation to logarithmic in case of infinite intervals,
+    to promote a (nearly) scale-free behaviour.
 */
 class ScaledFunction: public IFunction {
 public:
@@ -727,8 +779,8 @@ double ScaledIntegrandEndpointSing::value(const double y) const
 // wrapper for Cuba library
 struct CubaParams {
     const IFunctionNdim& F;      ///< the original function
-    const double* xlower;        ///< lower limits of integration
-    const double* xupper;        ///< upper limits of integration
+    const double xlower[];        ///< lower limits of integration
+    const double xupper[];        ///< upper limits of integration
     std::vector<double> xvalue;  ///< temporary storage for un-scaling input point 
                                  ///< from [0:1]^N to the original range
     std::string error;           ///< store error message in case of exception

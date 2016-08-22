@@ -240,12 +240,11 @@ bool checkSH(const math::SphHarmIndices& ind)
     for(unsigned int t=0; t<c.size(); t++)
         if((t==t0) ^ (c[t]!=0))  // xor operation
             return false;
-    double tmp[100];
     // array of function values after inverse transform
     std::vector<double> b(tr.size());
     for(unsigned int i=0; i<d.size(); i++) {
         double tau = tr.costheta(i) / (sqrt(1-pow_2(tr.costheta(i))) + 1);
-        b[i] = math::sphHarmTransformInverse(ind, &c.front(), tau, tr.phi(i), tmp);
+        b[i] = math::sphHarmTransformInverse(ind, &c.front(), tau, tr.phi(i));
         if(fabs(d[i]-b[i]) > 1e-14)
             return false;
     }

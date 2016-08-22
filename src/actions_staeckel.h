@@ -79,7 +79,7 @@ ActionAngles actionAnglesAxisymFudge(
     double interfocalDistance, 
     Frequencies* freq=0);
 
-    
+#if 0 /* temporarily disabled */
 /** Compute the total energy and the third integral for an orbit in a Staeckel potential
     from the given values of actions.
     \param[in]  potential  is the arbitrary Staeckel potential, separable in spheroidal coordinates;
@@ -92,6 +92,7 @@ void computeIntegralsStaeckel(
     const potential::OblatePerfectEllipsoid& potential,
     const Actions& acts,
     math::PtrFunction &rad, math::PtrFunction &ver);
+#endif
 
 ///@}
 /// \name  ------- Class interface to action/angle finders  -------

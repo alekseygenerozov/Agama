@@ -650,7 +650,7 @@ ActionAngles actionAnglesAxisymFudge(const potential::BasePotential& potential,
     return computeActionAngles(fnc, lim, freq);
 }
 
-
+#if 0
 /// Inverse transformation: obtain integrals of motion (E,I3,Lz) from actions (Jr,Jz,Jphi)
 namespace {
 
@@ -853,5 +853,5 @@ void computeIntegralsStaeckel(
     rad = createRadialCoordMapping(fnc, lim, acts.Jz+fabs(acts.Jphi));
     ver = createVerticalCoordMapping(fnc, lim);
 }
-
+#endif
 }  // namespace actions

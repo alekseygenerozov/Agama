@@ -154,7 +154,7 @@ static void printoutGenFncCoefs(const GenFncIndices& indices, const double value
 // ----- The class that performs torus fitting ----- //
 
 class Mapping;
-typedef std::tr1::shared_ptr<const Mapping> PtrMapping;
+typedef shared_ptr<const Mapping> PtrMapping;
 
 /** Complete description of mapping {real actions, toy angles} => {real pos/vel},
     as used in the process of torus fitting (using a grid of toy angles).

@@ -11,9 +11,9 @@
 
 namespace actions {
 
-typedef std::tr1::shared_ptr<const BaseCanonicalMap> PtrCanonicalMap;
-typedef std::tr1::shared_ptr<const BaseToyMap<coord::SphMod> > PtrToyMap;
-typedef std::tr1::shared_ptr<const BasePointTransform<coord::SphMod> > PtrPointTransform;
+typedef shared_ptr<const BaseCanonicalMap> PtrCanonicalMap;
+typedef shared_ptr<const BaseToyMap<coord::SphMod> > PtrToyMap;
+typedef shared_ptr<const BasePointTransform<coord::SphMod> > PtrPointTransform;
 
 class ActionMapperNewTorus: public BaseActionMapper{
 public:

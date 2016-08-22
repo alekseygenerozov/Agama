@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cassert>
 #include <stdexcept>
+#include <gsl/gsl_sf_legendre.h>
 
 #ifdef VERBOSE_REPORT
 #include <iostream>
@@ -59,7 +60,7 @@ public:
         const double r = rscale * scaled_r / (1-scaled_r);
         const double R = r * sqrt(1-pow_2(costheta));
         const double z = r * costheta;
-        const double Plm = math::legendrePoly(l, math::abs(m), costheta);
+        const double Plm = gsl_sf_legendre_Plm(l, math::abs(m), costheta);
         double val = computeRho_m(dens, R, z, m) * Plm;
         if((dens.symmetry() & coord::ST_TRIAXIAL) == coord::ST_TRIAXIAL)   // symmetric w.r.t. change of sign in z
             val *= (l%2==0 ? 2 : 0);  // only even-l terms survive

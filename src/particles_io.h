@@ -88,11 +88,7 @@ private:
 #endif
 
 /// smart pointer to snapshot interface
-#ifdef HAVE_CXX11
-typedef std::unique_ptr<BaseIOSnapshot> PtrIOSnapshot;
-#else
-typedef std::auto_ptr<BaseIOSnapshot> PtrIOSnapshot;
-#endif
+typedef unique_ptr<BaseIOSnapshot> PtrIOSnapshot;
 
 /// creates an instance of appropriate snapshot reader, according to the file format 
 /// determined by reading first few bytes, or throw a std::runtime_error if a file doesn't exist

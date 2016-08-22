@@ -9,19 +9,6 @@
 
 namespace math {
 
-// -------- old api -------- //
-
-/** Associated Legendre polynomial (or, rather, function) of the first kind:
-    \f$  P_l^m(x)  \f$.
-    These functions are used in spherical-harmonic expansion as follows: 
-    \f$  Y_l^m = \sqrt{\frac{ (2l+1) (l-m)! }{ 4\pi (l+m)! }}
-         P_l^m(\cos(\theta)) * \{\sin,\cos\}(m\phi)  \f$
-    (this routine returns un-normalized P).
-*/
-double legendrePoly(const int l, const int m, const double x);
-
-//---------- new api -----------//
-
 /** Array of normalized associate Legendre polynomials W and their derivatives for l=m..lmax
     (theta-dependent factors in spherical-harmonic expansion):
     \f$  Y_l^m(\theta, \phi) = W_l^m(\theta) \{\sin,\cos\}(m\phi) ,
@@ -295,10 +282,9 @@ private:
     \param[in]  coefs - the array of coefficients;
     \param[in]  tau   - cos(theta) / (1 + sin(theta)), where theta is the polar angle;
     \param[in]  phi   - the azimuthal angle;
-    \param[in,out] tmp  is a temporary storage with size (at least) ind.lmax+2*ind.mmax+1;
     \returns    the value of function at (theta,phi)
 */
 double sphHarmTransformInverse(const SphHarmIndices& ind, const double coefs[],
-    const double tau, const double phi, double* tmp);
+    const double tau, const double phi);
 
 }  // namespace math

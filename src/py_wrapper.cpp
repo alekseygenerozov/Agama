@@ -197,14 +197,11 @@ static PyObject* getItemFromPyDict(PyObject* dict, const char* itemkey)
 ///@{
 
 /// internal working units (arbitrary!)
-static const units::InternalUnits unit(2.7183*units::Kpc, 3.1416*units::Myr);
+static const units::InternalUnits unit(2.7183 * units::Kpc, 3.1416 * units::Myr);
 
-/// external units that are used in the calling code
-#ifdef HAVE_CXX11
-static std::shared_ptr<const units::ExternalUnits> conv;
-#else
-static std::tr1::shared_ptr<const units::ExternalUnits> conv;
-#endif
+/// external units that are used in the calling code, set by the user,
+/// (or remaining at default values (no conversion) if not set explicitly
+static shared_ptr<const units::ExternalUnits> conv;
 
 /// description of setUnits function
 static const char* docstringSetUnits = 
@@ -3170,7 +3167,7 @@ initagama(void)
     Py_INCREF(&PotentialType);
     PyModule_AddObject(mod, "Potential", (PyObject*)&PotentialType);
     PotentialTypePtr = &PotentialType;
-    
+
     ActionFinderType.tp_new = PyType_GenericNew;
     if(PyType_Ready(&ActionFinderType) < 0) return;
     Py_INCREF(&ActionFinderType);
@@ -3191,12 +3188,12 @@ initagama(void)
     if(PyType_Ready(&ComponentType) < 0) return;
     Py_INCREF(&ComponentType);
     PyModule_AddObject(mod, "Component", (PyObject*)&ComponentType);
-    
+
     SelfConsistentModelType.tp_new = PyType_GenericNew;
     if(PyType_Ready(&SelfConsistentModelType) < 0) return;
     Py_INCREF(&SelfConsistentModelType);
     PyModule_AddObject(mod, "SelfConsistentModel", (PyObject*)&SelfConsistentModelType);
-    
+
     SplineApproxType.tp_new = PyType_GenericNew;
     if(PyType_Ready(&SplineApproxType) < 0) return;
     Py_INCREF(&SplineApproxType);

@@ -253,11 +253,7 @@ private:
 
 
 /// smart pointer to the model component
-#ifdef HAVE_CXX11
-typedef std::shared_ptr<BaseComponent> PtrComponent;
-#else
-typedef std::tr1::shared_ptr<BaseComponent> PtrComponent;
-#endif
+typedef shared_ptr<BaseComponent> PtrComponent;
 
 
 /** The main object that puts together all ingredients of a self-consistent model:
