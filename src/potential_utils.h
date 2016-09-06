@@ -134,14 +134,6 @@ private:
     math::QuinticSpline Phi;    ///< interpolated potential as a function of radius
     math::QuinticSpline RofPhi; ///< inverse function (radius as a function of potential)
     math::CubicSpline   freqNu; ///< ratio of squared epicyclic frequencies nu to Omega
-
-    /// scaling transformations for energy or potential: the input energy ranges from Phi0 to 0,
-    /// the output scaled variable - from -inf to +inf.
-    double scaledE(const double E) const;
-    /// inverse scaling transformation for energy or potential
-    double unscaledE(const double scaledE) const;
-    /// derivative of scaling transformation: dE/d{scaledE}
-    double scaledEder(const double E) const;
 };
 
 /** Two-dimensional interpolator for peri/apocenter radii as functions of energy and angular momentum.
@@ -151,7 +143,7 @@ private:
     for almost all orbits; however, if the density profile is not decaying fast enough at infinity
     (i.e. r^-3 or shallower), the accuracy is rapidly deteriorating for very loosely bound orbits.
 */
-class Interpolator2d: public Interpolator{
+class Interpolator2d {
 public:
     /** Create internal interpolation tables for the given potential,
         which itself is not used afterwards */
@@ -179,6 +171,9 @@ public:
         \param[out] R2rel same for the apocenter radius (lies in the range 1 <= R2rel < infinity).
     */
     void findScaledOrbitExtent(double E, double Lrel, double &R1rel, double &R2rel) const;
+
+    /// 1d interpolator for potential and other quantities in the equatorial plane
+    const Interpolator pot;
 
 private:
     math::QuinticSpline2d intR1, intR2; ///< 2d interpolators for scaled peri/apocenter radii

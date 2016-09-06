@@ -137,23 +137,6 @@ public:
     }
 };
 
-/// helper class providing a IFunction interface to a potential
-class PotWrapper: public math::IFunction {
-    const potential::BasePotential& potential;
-public:
-    PotWrapper(const potential::BasePotential &p) : potential(p) {};
-    virtual void evalDeriv(const double R, double *val, double *der, double *der2) const {
-        coord::GradCyl grad;
-        coord::HessCyl hess;
-        potential.eval(coord::PosCyl(R,0,0), val, der? &grad : NULL, der2? &hess : NULL);
-        if(der)
-            *der = grad.dR;
-        if(der2)
-            *der2 = hess.dR2;
-    }
-    virtual unsigned int numDerivs() const { return 2; }
-};
-    
 /// helper class to find the energy corresponding to the given radial action
 class HamiltonianFinderFnc: public math::IFunctionNoDeriv {
     /// the instance of potential
@@ -175,7 +158,7 @@ public:
             return Jr+1e-10;  // at r==infinity should return some positive value
         double R1, R2;
         findPlanarOrbitExtent(potential, E, L, R1, R2);
-        return integr<MODE_JR>(PotWrapper(potential), E, L, R1, R2) / M_PI - Jr;
+        return integr<MODE_JR>(potential::PotentialWrapper(potential), E, L, R1, R2) / M_PI - Jr;
     }
 };
 
@@ -220,13 +203,13 @@ public:
     \param[out] R1, R2  are the peri/apocenter radii;
     \return  the values of actions (or NAN in Jr if the energy is positive).
 */
-static Actions computeActions(const coord::PosVelCyl& point, const potential::BasePotential& potential,
+static Actions computeActions(const coord::PosVelCyl& point, const potential::BasePotential& pot,
     double &E, double &L, double &R1, double &R2)
 {
-    if(!isSpherical(potential))
+    if(!isSpherical(pot))
         throw std::invalid_argument("actionsSpherical can only deal with spherical potentials");
     Actions act;
-    E = totalEnergy(potential, point);
+    E = totalEnergy(pot, point);
     L = Ltotal(point);
     act.Jphi = Lz(point);
     // avoid roundoff errors if Jz is close to 0 or exactly 0
@@ -234,8 +217,8 @@ static Actions computeActions(const coord::PosVelCyl& point, const potential::Ba
     if(E>=0) {
         act.Jr = NAN;
     } else {
-        findPlanarOrbitExtent(potential, E, L, R1, R2);
-        act.Jr = integr<MODE_JR>(PotWrapper(potential), E, L, R1, R2) / M_PI;
+        findPlanarOrbitExtent(pot, E, L, R1, R2);
+        act.Jr = integr<MODE_JR>(potential::PotentialWrapper(pot), E, L, R1, R2) / M_PI;
     }
     return act;
 }
@@ -331,14 +314,14 @@ static coord::PosVelSphMod mapPointFromActionAngles(const ActionAngles &aa,
 */
 static coord::PosVelSphMod derivPointFromActions(
     const ActionAngles &aa, const coord::PosVelSphMod &p0, double EPS,
-    const ActionFinderSpherical& af, const potential::Interpolator2d &potential,
+    const ActionFinderSpherical& af, const potential::Interpolator2d &interp,
     const double E, const double R1, const double R2)
 {
     double Omegar, Omegaz, L = aa.Jz + fabs(aa.Jphi);
     af.Jr(E, L, &Omegar, &Omegaz);
     double Ra,Rb;
-    potential.findPlanarOrbitExtent(E,L,Ra,Rb);
-    coord::PosVelSphMod p = mapPointFromActionAngles(aa, potential, E, L, R1, R2, Omegar, Omegaz);
+    interp.findPlanarOrbitExtent(E, L, Ra, Rb);
+    coord::PosVelSphMod p = mapPointFromActionAngles(aa, interp.pot, E, L, R1, R2, Omegar, Omegaz);
     p.r   = (p.r   - p0.r   )/EPS;
     p.pr  = (p.pr  - p0.pr  )/EPS;
     p.tau = (p.tau - p0.tau )/EPS;
@@ -354,7 +337,7 @@ static math::CubicSpline2d makeActionInterpolator(const potential::Interpolator2
 {
     // for computing the asymptotic values at E=Phi(0), we assume a power-law behavior of potential:
     // Phi = Phi0 + coef * r^s
-    double Phi0, slope = interp.innerSlope(&Phi0);
+    double Phi0, slope = interp.pot.innerSlope(&Phi0);
     const unsigned int sizeE = 50;
     const unsigned int sizeL = 40;
     
@@ -375,14 +358,14 @@ static math::CubicSpline2d makeActionInterpolator(const potential::Interpolator2
     // the boundary values will be treated separately
     for(unsigned int iE=1; iE<sizeE-1; iE++) {
         double E = gridE[iE];
-        double dLcdE, Lc = interp.L_circ(E, &dLcdE);
+        double dLcdE, Lc = interp.pot.L_circ(E, &dLcdE);
         for(unsigned int iL=0; iL<sizeL-1; iL++) {
             double L = gridL[iL] * Lc;
             double R1, R2;
             interp.findPlanarOrbitExtent(E, L, R1, R2);
-            double Jr    = integr<MODE_JR>    (interp, E, L, R1, R2) / M_PI;
-            double dJrdE = integr<MODE_OMEGAR>(interp, E, L, R1, R2) / M_PI;
-            double dJrdL =-integr<MODE_OMEGAZ>(interp, E, L, R1, R2) / M_PI;
+            double Jr    = integr<MODE_JR>    (interp.pot, E, L, R1, R2) / M_PI;
+            double dJrdE = integr<MODE_OMEGAR>(interp.pot, E, L, R1, R2) / M_PI;
+            double dJrdL =-integr<MODE_OMEGAZ>(interp.pot, E, L, R1, R2) / M_PI;
             gridJr  (iE, iL) = Jr / (Lc - L);
             gridJrdE(iE, iL) = (dJrdE + (gridL[iL] * dJrdL - Jr / Lc) * dLcdE) / (Lc - L);
             gridJrdL(iE, iL) = (dJrdL + gridJr(iE, iL)) / (1 - gridL[iL]);
@@ -390,7 +373,7 @@ static math::CubicSpline2d makeActionInterpolator(const potential::Interpolator2
         // limiting values for a nearly circular orbit
         // Jr = Omega/(2 kappa) * Lcirc * ecc,  where ecc = sqrt(1 - (L/Lcirc)^2).
         double kappa, nu, Omega;
-        interp.epicycleFreqs(interp.R_circ(E), kappa, nu, Omega);
+        interp.pot.epicycleFreqs(interp.pot.R_circ(E), kappa, nu, Omega);
         gridJr(iE, sizeL-1) = Omega / kappa;
     }
     
@@ -480,26 +463,25 @@ double computeHamiltonianSpherical(const potential::BasePotential& potential, co
 }    
 
 coord::PosVelCyl mapSpherical(
-    const potential::BasePotential &potential,
+    const potential::BasePotential &pot,
     const ActionAngles &aa, Frequencies* freqout)
 {
-    if(!isSpherical(potential))
+    if(!isSpherical(pot))
         throw std::invalid_argument("mapSpherical: potential must be spherically symmetric");
     if(aa.Jr<0 || aa.Jz<0)
         throw std::invalid_argument("mapSpherical: input actions are negative");
-    double E = computeHamiltonianSpherical(potential, aa);
+    double E = computeHamiltonianSpherical(pot, aa);
     double L = aa.Jz + fabs(aa.Jphi);  // total angular momentum
     double R1, R2;
-    findPlanarOrbitExtent(potential, E, L, R1, R2);
-    PotWrapper potwrap(potential);
+    findPlanarOrbitExtent(pot, E, L, R1, R2);
     Frequencies freq;
-    freq.Omegar = M_PI / integr<MODE_OMEGAR>(potwrap, E, L, R1, R2);
-    freq.Omegaz = freq.Omegar * integr<MODE_OMEGAZ>(potwrap, E, L, R1, R2) / M_PI;
+    freq.Omegar = M_PI / integr<MODE_OMEGAR>(potential::PotentialWrapper(pot), E, L, R1, R2);
+    freq.Omegaz = freq.Omegar * integr<MODE_OMEGAZ>(potential::PotentialWrapper(pot), E, L, R1, R2) / M_PI;
     freq.Omegaphi = freq.Omegaz * math::sign(aa.Jphi);
     if(freqout)  // freak out only if requested
         *freqout = freq;
     return toPosVelCyl(mapPointFromActionAngles(
-        aa, potwrap, E, L, R1, R2, freq.Omegar, freq.Omegaz));
+        aa, potential::PotentialWrapper(pot), E, L, R1, R2, freq.Omegar, freq.Omegaz));
 }
 
 
@@ -511,21 +493,21 @@ Actions actionsSpherical(
 }
 
 ActionAngles actionAnglesSpherical(
-    const potential::BasePotential& potential, const coord::PosVelCyl& point, Frequencies* freqout)
+    const potential::BasePotential& pot, const coord::PosVelCyl& point, Frequencies* freqout)
 {
     double E, L, R1, R2;
-    Actions acts = computeActions(point, potential, E, L, R1, R2);
+    Actions acts = computeActions(point, pot, E, L, R1, R2);
     if(!math::isFinite(acts.Jr))  // E>=0
         return ActionAngles(acts, Angles(NAN, NAN, NAN));
-    PotWrapper potwrap(potential);
     Frequencies freq;
-    freq.Omegar = M_PI / integr<MODE_OMEGAR>(potwrap, E, L, R1, R2);
-    freq.Omegaz = freq.Omegar * integr<MODE_OMEGAZ>(potwrap, E, L, R1, R2) / M_PI;
+    freq.Omegar = M_PI / integr<MODE_OMEGAR>(potential::PotentialWrapper(pot), E, L, R1, R2);
+    freq.Omegaz = freq.Omegar * integr<MODE_OMEGAZ>(potential::PotentialWrapper(pot), E, L, R1, R2) / M_PI;
     freq.Omegaphi = freq.Omegaz * math::sign(point.vphi);
     if(freqout)  // freak out only if requested
         *freqout = freq;
     // may wish to add a special case of Jr==0 (output the epicyclic frequencies, but no angles?)
-    Angles angs  = computeAngles(point, potwrap, E, L, R1, R2, freq.Omegar, freq.Omegaz);
+    Angles angs  = computeAngles(point, potential::PotentialWrapper(pot),
+        E, L, R1, R2, freq.Omegar, freq.Omegaz);
     return ActionAngles(acts, angs);
 }
 
@@ -537,7 +519,7 @@ double ActionFinderSpherical::Jr(double E, double L, double *Omegar, double *Ome
 {
     bool needDeriv = Omegar!=NULL || Omegaz!=NULL;
     double val, derE, derZ, dLcdE;
-    double Lc = interp.L_circ(E, needDeriv? &dLcdE : NULL);
+    double Lc = interp.pot.L_circ(E, needDeriv? &dLcdE : NULL);
     double Z  = Lc>0 ? fmin(fabs(L/Lc), 1) : 0;
     intJr.evalDeriv(E, Z, &val, needDeriv? &derE : NULL, needDeriv? &derZ : NULL);
     if(needDeriv) {
@@ -554,7 +536,7 @@ double ActionFinderSpherical::Jr(double E, double L, double *Omegar, double *Ome
 Actions ActionFinderSpherical::actions(const coord::PosVelCyl& point) const
 {
     Actions acts;
-    double E  = interp.value(sqrt(pow_2(point.R) + pow_2(point.z))) + 
+    double E  = interp.pot.value(sqrt(pow_2(point.R) + pow_2(point.z))) + 
         0.5 * (pow_2(point.vR) + pow_2(point.vz) + pow_2(point.vphi));
     double L  = Ltotal(point);
     acts.Jphi = Lz(point);
@@ -567,7 +549,7 @@ ActionAngles ActionFinderSpherical::actionAngles(
     const coord::PosVelCyl& point, Frequencies* freq) const
 {
     Actions acts;
-    double E  = interp.value(sqrt(pow_2(point.R) + pow_2(point.z))) + 
+    double E  = interp.pot.value(sqrt(pow_2(point.R) + pow_2(point.z))) + 
         0.5 * (pow_2(point.vR) + pow_2(point.vz) + pow_2(point.vphi));
     double L  = Ltotal(point);
     double Omegar, Omegaz;
@@ -578,7 +560,7 @@ ActionAngles ActionFinderSpherical::actionAngles(
         *freq = Frequencies(Omegar, Omegaz, Omegaz * math::sign(acts.Jphi));
     double R1, R2;
     interp.findPlanarOrbitExtent(E, L, R1, R2);
-    Angles angs = computeAngles(point, interp, E, L, R1, R2, Omegar, Omegaz);
+    Angles angs = computeAngles(point, interp.pot, E, L, R1, R2, Omegar, Omegaz);
     return ActionAngles(acts, angs);
 }
 
@@ -593,9 +575,9 @@ coord::PosVelSphMod ActionFinderSpherical::map(
         throw std::invalid_argument("mapSpherical: input actions are negative");
     double L = aa.Jz + fabs(aa.Jphi);  // total angular momentum
     // radius of a circular orbit with this angular momentum
-    double rcirc = interp.R_from_Lz(L);
+    double rcirc = interp.pot.R_from_Lz(L);
     // initial guess (more precisely, lower bound) for Hamiltonian
-    double Ecirc = interp.value(rcirc) + (L>0 ? 0.5 * pow_2(L/rcirc) : 0);
+    double Ecirc = interp.pot(rcirc) + (L>0 ? 0.5 * pow_2(L/rcirc) : 0);
     // find E such that Jr(E, L) equals the target value
     HamiltonianFinderFncInt fnc(*this, aa.Jr, L, Ecirc, 0);
     double E = math::findRoot(fnc, Ecirc, 0, ACCURACY_JR);
@@ -610,13 +592,13 @@ coord::PosVelSphMod ActionFinderSpherical::map(
     interp.findPlanarOrbitExtent(E, L, R1, R2);
     // map the point from action/angles and frequencies
     coord::PosVelSphMod p0 = mapPointFromActionAngles(
-        aa, interp, E, L, R1, R2, Omegar, Omegaz);
+        aa, interp.pot, E, L, R1, R2, Omegar, Omegaz);
     if(derivAct) {
         // use the fact that dE/dJr = Omega_r, dE/dJz = Omega_z, etc, and find dR{1,2}/dJ{r,z}
         double dPhidR;
-        interp.evalDeriv(R1, NULL, &dPhidR);
+        interp.pot.evalDeriv(R1, NULL, &dPhidR);
         double factR1 = pow_2(L) / pow_3(R1) - dPhidR;
-        interp.evalDeriv(R2, NULL, &dPhidR);
+        interp.pot.evalDeriv(R2, NULL, &dPhidR);
         double factR2 = pow_2(L) / pow_3(R2) - dPhidR;
         double dR1dJr = -Omegar / factR1;
         double dR2dJr = -Omegar / factR2;

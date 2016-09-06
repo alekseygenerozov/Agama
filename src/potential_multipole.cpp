@@ -950,8 +950,6 @@ private:
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
 };
 
-//------ the wrapper class for multipole potential ------//
-
 template<class BaseDensityOrPotential>
 static PtrPotential createMultipole(
     const BaseDensityOrPotential& src,
@@ -979,6 +977,8 @@ static PtrPotential createMultipole(
     }
     return PtrPotential(new Multipole(gridRadii, Phi, dPhi));
 }
+
+//------ the driver class for multipole potential ------//
 
 PtrPotential Multipole::create(
     const BaseDensity& src, int lmax, int mmax,

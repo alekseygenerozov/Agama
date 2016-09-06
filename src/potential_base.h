@@ -145,8 +145,8 @@ public:
         return evalSph(pos, potential, deriv, deriv2); }
 
     /** Shorthand for evaluating the value of potential at a given point in any coordinate system */
-    template<typename coordT>
-    inline double value(const coordT& point) const {
+    template<typename coordSysT>
+    inline double value(const coord::PosT<coordSysT>& point) const {
         double val;
         eval(point, &val);
         return val;
@@ -278,7 +278,10 @@ class BasePotentialSph: public BasePotential, coord::IScalarFunction<coord::Sph>
     the `math::IFunction::evalDeriv` interface, that computes
     the potential and up to two its derivatives as functions of spherical radius.
     Conversion into other coordinate systems is implemented in this class. */
-class BasePotentialSphericallySymmetric: public BasePotential, math::IFunction{
+class BasePotentialSphericallySymmetric: public BasePotential, public math::IFunction{
+public:
+    using math::IFunction::value;
+    using BasePotential::value;
 
     virtual coord::SymmetryType symmetry() const { return coord::ST_SPHERICAL; }
 
@@ -307,16 +310,48 @@ class BasePotentialSphericallySymmetric: public BasePotential, math::IFunction{
     virtual unsigned int numDerivs() const { return 2; }
 };
 
-/** A wrapper class that converts an arbitrary function of radius into a full-fledged
-    spherically-symmetric potential */
-class SphericalWrapper: public BasePotentialSphericallySymmetric{
-public:
-    SphericalWrapper(const math::IFunction &f) : fnc(f) {}
-private:
+///@}
+/// \name   Wrapper classes used to construct temporary objects
+///@{
+
+/** A wrapper class providing a BasePotential interface for an arbitrary function of radius
+    which computes a spherically-symmetric potential and its derivatives;
+    should only be used to construct temporary objects passed as arguments to some routines.
+*/
+class FunctionWrapper: public BasePotentialSphericallySymmetric{
     const math::IFunction &fnc;  ///< function representing the radial dependence of potential
-    virtual const char* name() const { return "SphericalWrapper"; }
+    virtual const char* name() const { return "FunctionWrapper"; }
     virtual void evalDeriv(double r, double* val, double* deriv, double* deriv2) const {
         fnc.evalDeriv(r, val, deriv, deriv2); }
+public:
+    explicit FunctionWrapper(const math::IFunction &f) : fnc(f) {}
+};
+
+/** A wrapper class providing a IFunction interface to a potential */
+class PotentialWrapper: public math::IFunction {
+    const BasePotential& potential;  ///< potential that is evaluated along x-axis
+    virtual void evalDeriv(const double R, double *val, double *der, double *der2) const {
+        coord::GradCyl grad;
+        coord::HessCyl hess;
+        potential.eval(coord::PosCyl(R,0,0), val, der? &grad : 0, der2? &hess : 0);
+        if(der)
+            *der = grad.dR;
+        if(der2)
+            *der2 = hess.dR2;
+    }
+    virtual unsigned int numDerivs() const { return 2; }
+public:
+    explicit PotentialWrapper(const BasePotential &p) : potential(p) {};
+};
+
+/** A wrapper class providing a IFunction interface to a spherically-symmetric density */
+class DensityWrapper: public math::IFunctionNoDeriv {
+    const BaseDensity& density;  ///< density that is evaluated along x-axis
+    virtual double value(const double r) const {
+        return density.density(coord::PosCyl(r, 0, 0));
+    }
+public:
+    explicit DensityWrapper(const BaseDensity &d) : density(d) {};
 };
 
 ///@}

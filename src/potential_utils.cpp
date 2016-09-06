@@ -131,16 +131,32 @@ public:
 };
 
 /// root polishing routine to improve the accuracy of peri/apocenter radii determination
-static inline double refineRoot(const Interpolator2d& interp, double R, double E, double L)
+static inline double refineRoot(const math::IFunction& pot, double R, double E, double L)
 {
     double val, der, der2;
-    interp.evalDeriv(R, &val, &der, &der2);
+    pot.evalDeriv(R, &val, &der, &der2);
     // F = E - Phi(r) - L^2/(2r^2), refine the root of F=0 using Halley's method with two derivatives
     double F  = E - val - 0.5*pow_2(L/R);
     double Fp = pow_2(L/R)/R - der;
     double Fpp= -3*pow_2(L/(R*R)) - der2;
     double dR = -F / (Fp - 0.5 * F * Fpp / Fp);
     return fabs(dR) < R ? R+dR : R;  // precaution to avoid unpredictably large corrections
+}
+
+/// scaling transformations for energy or potential: the input energy ranges from Phi0 to 0,
+/// the output scaled variable - from -inf to +inf.
+static inline double scaledE(const double E, const double Phi0) {
+    return log(1/Phi0 - 1/E);
+}
+
+/// inverse scaling transformation for energy or potential
+static inline double unscaledE(const double scaledE, const double Phi0) {
+    return 1 / (1/Phi0 - exp(scaledE));
+}
+
+/// derivative of scaling transformation: dE/d{scaledE}
+static inline double scaledEder(const double E, const double Phi0) {
+    return E * (E/Phi0 - 1);
 }
 
 }  // internal namespace
@@ -222,7 +238,7 @@ double innerSlope(const BasePotential& potential, double* Phi0, double* coef)
 
 double outerSlope(const BasePotential& potential, double* M, double* coef)
 {
-    // TODO here and in the previous routine:
+    // TODO here and in the previous routine:  make the choice of r scale-invariant;
     // add checks for roundoff errors and possibly iterate with adjusted value of r
     double r = 1e+5;
     double val;
@@ -290,8 +306,9 @@ Interpolator::Interpolator(const BasePotential& potential)
     if(Phi0!=Phi0)   // well-behaved potential must not be NAN at 0, but is allowed to be -INFINITY
         throw std::runtime_error("Interpolator: potential cannot be computed at r=0");
 
-    const double dlogR = .05;  // grid spacing in log radius
+    const double dlogR = .0625;  // grid spacing in log radius
     const double EPS   = 1e-6; // required tolerance on the 2nd deriv to declare the asymptotic limit
+    // TODO: make the choice of initial radius more scale-invariant!
     const double logRinit = 0; // initial value of log radius (rather arbitrary but doesn't matter)
     const int NUM_ARRAYS = 8;  // 1d arrays of various quantities:
     std::vector<double> grids[NUM_ARRAYS];
@@ -317,24 +334,25 @@ Interpolator::Interpolator(const BasePotential& potential)
         // epicyclic frequencies
         double kappa = sqrt(hess.dR2 + 3*grad.dR/R);
         double Omega = sqrt(grad.dR/R);
-        double nu2Om = hess.dz2 / grad.dR * R;  // ratio of nu^2/Omega^2 - allowed to be negative
+        double nu2Om = hess.dz2 / grad.dR * R;   // ratio of nu^2/Omega^2 - allowed to be negative
         double Lcirc = Omega * R*R;
-        gridPhi.push_back(scaledE(Phival)); // log-scaled potential at the radius
-        gridR.  push_back(logR);            // log-scaled radius
-        gridE.  push_back(scaledE(Ecirc));  // log-scaled energy of a circular orbit at the radius
-        gridL.  push_back(log(Lcirc));      // log-scaled ang.mom. of a circular orbit
-        gridNu. push_back(nu2Om);           // ratio of nu^2/Omega^2 
+        gridPhi.push_back(scaledE(Phival, Phi0));// log-scaled potential at the radius
+        gridR.  push_back(logR);                 // log-scaled radius
+        gridE.  push_back(scaledE(Ecirc, Phi0)); // log-scaled energy of a circular orbit at the radius
+        gridL.  push_back(log(Lcirc));           // log-scaled ang.mom. of a circular orbit
+        gridNu. push_back(nu2Om);                // ratio of nu^2/Omega^2 
         // also compute the scaled derivatives for the quintic splines
         double dRdL = 2*Omega / (pow_2(kappa) * R);
         double dLdE = 1/Omega;
         gridRder.push_back(dRdL * Lcirc / R);  // extra factors are from conversion to log-derivatives
-        gridLder.push_back(dLdE * scaledEder(Ecirc) / Lcirc);
-        gridPhider.push_back(grad.dR * R / scaledEder(Phival));
+        gridLder.push_back(dLdE * scaledEder(Ecirc, Phi0) / Lcirc);
+        gridPhider.push_back(grad.dR * R / scaledEder(Phival, Phi0));
         if(!(grad.dR>=0 && Ecirc<0))  // guard against weird values of circular velocity, incl. NaN
             throw std::runtime_error("Interpolator: cannot determine circular velocity at r="+
                 utils::convertToString(R));
         // check if we have reached an asymptotic regime,
         // by examining the curvature (2nd derivative) of relation between scaled Rcirc, Lcirc and E.
+        double dlR = dlogR;
         unsigned int np = gridR.size();
         if(np>=3 && fabs(logR - logRinit)>=2) {
             double der2R = math::deriv2(gridE[np-3], gridE[np-2], gridE[np-1],
@@ -349,12 +367,19 @@ Interpolator::Interpolator(const BasePotential& potential)
                 }
                 logR = logRinit;  // restart from the middle
                 ++stage;          // switch direction in scanning, or finish
+            } else {
+                // if we are close to the asymptotic regime but not yet there, we may afford to increase
+                // the spacing between grid nodes without deteriorating the accuracy of interpolation
+                if(fabs(der2R) < EPS*10)
+                    dlR = dlogR*4;
+                else if(fabs(der2R) < EPS*100)
+                    dlR = dlogR*2;
             }
         }
         if(stage==0)
-            logR -= dlogR;
+            logR -= dlR;
         else
-            logR += dlogR;
+            logR += dlR;
     }
 
     // init various 1d splines
@@ -366,18 +391,6 @@ Interpolator::Interpolator(const BasePotential& potential)
     for(unsigned int i=0; i<gridR.size(); i++)
         gridPhider[i] = 1/gridPhider[i];
     RofPhi = math::QuinticSpline(gridPhi, gridR, gridPhider);
-}
-
-double Interpolator::scaledE(const double E) const {
-    return log(1/Phi0 - 1/E);
-}
-
-double Interpolator::unscaledE(const double scaledE) const {
-    return 1 / (1/Phi0 - exp(scaledE));
-}
-
-double Interpolator::scaledEder(const double E) const {
-    return E * (E/Phi0 - 1);
 }
 
 void Interpolator::evalDeriv(const double R, double* val, double* deriv, double* deriv2) const
@@ -399,8 +412,8 @@ void Interpolator::evalDeriv(const double R, double* val, double* deriv, double*
     }
     double Phival, dscaledPhidlogR;
     Phi.evalDeriv(logR, &Phival, deriv2!=0||deriv!=0? &dscaledPhidlogR : NULL, deriv2);
-    Phival = unscaledE(Phival);
-    double dPhidscaledPhi = scaledEder(Phival);
+    Phival = unscaledE(Phival, Phi0);
+    double dPhidscaledPhi = scaledEder(Phival, Phi0);
     if(val)
         *val    = Phival;
     if(deriv)
@@ -414,7 +427,7 @@ double Interpolator::innerSlope(double* Phi0_, double* coef) const
 {
     double val, der, logr = Phi.xvalues().front();
     Phi.evalDeriv(logr, &val, &der);
-    double Phival = unscaledE(val);
+    double Phival = unscaledE(val, Phi0);
     if(math::isFinite(Phi0)) {
         double slope = der * Phival / Phi0;
         if(Phi0_)
@@ -434,10 +447,10 @@ double Interpolator::innerSlope(double* Phi0_, double* coef) const
 double Interpolator::R_max(const double E, double* deriv) const
 {
     double val;
-    RofPhi.evalDeriv(scaledE(E), &val, deriv);
+    RofPhi.evalDeriv(scaledE(E, Phi0), &val, deriv);
     val = exp(val);
     if(deriv)
-        *deriv =  *deriv * val / scaledEder(E);
+        *deriv *= val / scaledEder(E, Phi0);
     return val;
 }
 
@@ -446,10 +459,10 @@ double Interpolator::L_circ(const double E, double* der) const
     if(E<Phi0 || E>=0)
         throw std::invalid_argument("Interpolator: energy outside the allowed range");
     double splVal, splDer;
-    LofE.evalDeriv(scaledE(E), &splVal, der!=NULL ? &splDer : NULL);
+    LofE.evalDeriv(scaledE(E, Phi0), &splVal, der!=NULL ? &splDer : NULL);
     double Lcirc = exp(splVal);
     if(der)
-        *der = splDer / scaledEder(E) * Lcirc;
+        *der = splDer / scaledEder(E, Phi0) * Lcirc;
     return Lcirc;
 }
 
@@ -469,11 +482,11 @@ double Interpolator::R_circ(const double E, double* der) const
     if(E<Phi0 || E>=0)
         throw std::invalid_argument("Interpolator: energy outside the allowed range");
     double logL, logLder, logR, logRder;
-    LofE.evalDeriv(scaledE(E), &logL, der!=NULL ? &logLder : NULL);
+    LofE.evalDeriv(scaledE(E, Phi0), &logL, der!=NULL ? &logLder : NULL);
     RofL.evalDeriv(logL,    &logR, der!=NULL ? &logRder : NULL);
     double Rcirc = exp(logR);
     if(der)
-        *der = logLder * logRder / scaledEder(E) * Rcirc;
+        *der = logLder * logRder / scaledEder(E, Phi0) * Rcirc;
     return Rcirc;
 }
 
@@ -490,11 +503,11 @@ void Interpolator::epicycleFreqs(double R, double& kappa, double& nu, double& Om
 // --------- 2d interpolation of peri/apocenter radii in equatorial plane --------- //
 
 Interpolator2d::Interpolator2d(const BasePotential& potential) :
-    Interpolator(potential)
+    pot(potential)
 {
     // for computing the asymptotic values at E=Phi(0), we assume a power-law behavior of potential:
     // Phi = Phi0 + coef * r^s;  potential must be finite at r=0 for this implementation to work
-    double Phi0, slope = innerSlope(&Phi0);
+    double Phi0, slope = pot.innerSlope(&Phi0);
     if(!math::isFinite(Phi0) || slope<=0)
         throw std::runtime_error("Interpolator2d: can only deal with potentials that are finite at r->0");
     const unsigned int sizeE = 50;
@@ -634,12 +647,12 @@ void Interpolator2d::findScaledOrbitExtent(double E, double Lrel,
 void Interpolator2d::findPlanarOrbitExtent(double E, double L,
     double &R1, double &R2) const
 {
-    double Lc   = L_circ(E);
-    double Rc   = R_from_Lz(Lc);
+    double Lc   = pot.L_circ(E);
+    double Rc   = pot.R_from_Lz(Lc);
     double Lrel = Lc>0 ? fmin(fabs(L/Lc), 1) : 0;
     findScaledOrbitExtent(E, Lrel, R1, R2);
-    R1 = fmin(refineRoot(*this, R1*Rc, E, L), Rc);  // one iteration of root polishing
-    R2 = fmax(refineRoot(*this, R2*Rc, E, L), Rc);
+    R1 = fmin(refineRoot(pot, R1*Rc, E, L), Rc);  // one iteration of root polishing
+    R2 = fmax(refineRoot(pot, R2*Rc, E, L), Rc);
 }
 
 }  // namespace potential

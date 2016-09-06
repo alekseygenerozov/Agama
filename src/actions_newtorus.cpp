@@ -375,8 +375,8 @@ PtrMapping Mapping::expandMapping(const std::vector<double> &params) const
     for(int ir=0; ir<=maxmr+2; ir++)
         for(int iz=-maxmz-2; iz<=maxmz+2; iz+=2) {
             if(indPairs.find(std::make_pair(ir, iz)) != indPairs.end() &&
-               (iz<=0 && indPairs.find(std::make_pair(ir, iz-2)) == indPairs.end() ||
-                iz>=0 && indPairs.find(std::make_pair(ir, iz+2)) == indPairs.end() ||
+               ((iz<=0 && indPairs.find(std::make_pair(ir, iz-2)) == indPairs.end()) ||
+                (iz>=0 && indPairs.find(std::make_pair(ir, iz+2)) == indPairs.end()) ||
                 indPairs.find(std::make_pair(ir+1, iz)) == indPairs.end()) )
                 maxval = fmax(fabs(indPairs[std::make_pair(ir, iz)]), maxval);
         }

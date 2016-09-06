@@ -55,7 +55,7 @@ bool testActionSpaceScaling(const df::BaseActionSpaceScaling& s)
             return false;
         actions::Actions J1 = s.toActions(w);
         if( J1.Jr!=J1.Jr || J1.Jz!=J1.Jz || J1.Jphi!=J1.Jphi ||
-            math::isFinite(J1.Jr+J1.Jz+fabs(J1.Jphi)) && (math::fcmp(J.Jr, J1.Jr, 1e-10)!=0 ||
+            (math::isFinite(J1.Jr+J1.Jz+fabs(J1.Jphi)) && (math::fcmp(J.Jr, J1.Jr, 1e-10)!=0) ||
             math::fcmp(J.Jz, J1.Jz, 1e-10)!=0 || math::fcmp(J.Jphi, J1.Jphi, 1e-10)!=0) )
             return false;
     }

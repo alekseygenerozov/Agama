@@ -24,7 +24,7 @@ inline bool isFinite(double x) {
 #endif
 }
 
-/** test if a number is not too big or too small (admittedly a subjective definition...) */
+/** test if a number is not too big or too small (admittedly a subjective definition... TODO-eliminate!) */
 inline bool withinReasonableRange(double x) { 
     return x<UNREASONABLY_LARGE_VALUE && x>1/UNREASONABLY_LARGE_VALUE; }
 
@@ -139,7 +139,33 @@ private:
     double avg, ssq;
     unsigned int num;
 };
-    
+
+/** A product of two functions, to be used as a temporary object passed to
+    integration or root-finding routines */
+class FncProduct: public IFunction {
+    const IFunction &f1, &f2; ///< references to two functions
+public:
+    FncProduct(const IFunction& fnc1, const IFunction& fnc2) :
+        f1(fnc1), f2(fnc2) {}
+
+    virtual unsigned int numDerivs() const {
+        return f1.numDerivs() < f2.numDerivs() ? f1.numDerivs() : f2.numDerivs();
+    }
+
+    virtual void evalDeriv(const double x, double *val, double *der, double *der2) const {
+        double v1, v2, d1, d2, dd1, dd2;
+        bool needDer = der!=0 || der2!=0, needDer2 = der2!=0;
+        f1.evalDeriv(x, &v1, needDer ? &d1 : 0, needDer2 ? &dd1 : 0);
+        f2.evalDeriv(x, &v2, needDer ? &d2 : 0, needDer2 ? &dd2 : 0);
+        if(val)
+            *val = v1 * v2;
+        if(der)
+            *der = v1 * d2 + v2 * d1;
+        if(der2)
+            *der2 = v1 * dd2 + 2 * d1 * d2 + v2 * dd1;
+    }
+};
+
 ///@}
 /// \name  ----- root-finding and minimization routines -----
 ///@{

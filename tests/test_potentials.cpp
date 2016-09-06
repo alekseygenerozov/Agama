@@ -47,13 +47,13 @@ bool testPotential(const potential::BasePotential& potential)
             double E   = Phi + 0.5*pow_2(v_circ(potential, r));
             double Lc  = v_circ(potential, r) * r;
             double RcR = R_circ(potential, E);
-            double RcI = interp.R_circ(E);
+            double RcI = interp.pot.R_circ(E);
             double LcR = L_circ(potential, E);
-            double LcI = interp.L_circ(E);
+            double LcI = interp.pot.L_circ(E);
             double Rm  = R_max(potential, E);
             double PhiI, dPhiI, d2PhiI, dRofPhi;
-            interp.evalDeriv(r, &PhiI, &dPhiI, &d2PhiI);
-            double RofPhi = interp.R_max(PhiI, &dRofPhi);
+            interp.pot.evalDeriv(r, &PhiI, &dPhiI, &d2PhiI);
+            double RofPhi = interp.pot.R_max(PhiI, &dRofPhi);
             strm << E << ' ' << r << ' ' << RcR << ' ' << RcI << ' ' <<
                 Lc << ' ' << LcR << ' ' << LcI << '\t' <<
                 Phi << ' ' << grad.dR << ' ' << hess.dR2 << ' ' <<
@@ -166,8 +166,8 @@ const double posvel_sph[numtestpoints][6] = {   // order: R, theta, phi
 
 int main() {
     std::vector<potential::PtrPotential> pots;
-    pots.push_back(potential::PtrPotential(new potential::Isochrone(1.,1.)));
     pots.push_back(potential::PtrPotential(new potential::Plummer(10.,5.)));
+    pots.push_back(potential::PtrPotential(new potential::Isochrone(1.,1.)));
     pots.push_back(potential::PtrPotential(new potential::NFW(10.,10.)));
     pots.push_back(potential::PtrPotential(new potential::MiyamotoNagai(5.,2.,0.2)));
     pots.push_back(potential::PtrPotential(new potential::Logarithmic(1.,0.01,.8,.5)));

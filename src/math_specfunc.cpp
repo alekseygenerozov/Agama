@@ -272,24 +272,24 @@ double digamma(const int x) {
     return gsl_sf_psi_int(x);
 }
 
-double ellintK(const double k) {
-    return gsl_sf_ellint_Kcomp(k, GSL_PREC_SINGLE);
+double ellintK(const double k, bool accurate) {
+    return gsl_sf_ellint_Kcomp(k, accurate ? GSL_PREC_DOUBLE : GSL_PREC_SINGLE);
 }
 
-double ellintE(const double k) {
-    return gsl_sf_ellint_Ecomp(k, GSL_PREC_SINGLE);
+double ellintE(const double k, bool accurate) {
+    return gsl_sf_ellint_Ecomp(k, accurate ? GSL_PREC_DOUBLE : GSL_PREC_SINGLE);
 }
 
-double ellintF(const double phi, const double k) {
-    return gsl_sf_ellint_F(phi, k, GSL_PREC_SINGLE);
+double ellintF(const double phi, const double k, bool accurate) {
+    return gsl_sf_ellint_F(phi, k, accurate ? GSL_PREC_DOUBLE : GSL_PREC_SINGLE);
 }
 
-double ellintE(const double phi, const double k) {
-    return gsl_sf_ellint_E(phi, k, GSL_PREC_SINGLE);
+double ellintE(const double phi, const double k, bool accurate) {
+    return gsl_sf_ellint_E(phi, k, accurate ? GSL_PREC_DOUBLE : GSL_PREC_SINGLE);
 }
 
-double ellintP(const double phi, const double k, const double n) {
-    return gsl_sf_ellint_P(phi, k, n, GSL_PREC_SINGLE);
+double ellintP(const double phi, const double k, const double n, bool accurate) {
+    return gsl_sf_ellint_P(phi, k, n, accurate ? GSL_PREC_DOUBLE : GSL_PREC_SINGLE);
 }
 
 double besselJ(const int n, const double x) {

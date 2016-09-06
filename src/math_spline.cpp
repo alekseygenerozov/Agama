@@ -257,10 +257,10 @@ LinearInterpolator::LinearInterpolator(const std::vector<double>& xv, const std:
 
 void LinearInterpolator::evalDeriv(const double x, double* value, double* deriv, double* deriv2) const
 {
-    if(value) {
-        int i = x<=xval.front() ? 0 : x>=xval.back() ? xval.size()-2 : binSearch(x, &xval[0], xval.size());
+    int i = x<=xval.front() ? 0 : x>=xval.back() ? xval.size()-2 : binSearch(x, &xval[0], xval.size());
+    //TODO: extrapolate linearly, not as a constant, and provide the derivative as well
+    if(value)
         *value = linearInterp(x, xval[i], xval[i+1], fval[i], fval[i+1]);
-    }
     if(deriv)
         *deriv = 0;
     if(deriv2)
@@ -387,8 +387,8 @@ void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* 
         double dx  =  xval[1]-xval[0];
         double der = (fval[1]-fval[0]) / dx - dx * (1./6 * fder2[1] + 1./3 * fder2[0]);
         if(val)
-            *val   = fval[0] +
-            (der==0 ? 0 : der*(x-xval[0]));  // if der==0, correct result even for infinite x
+            // if der==0, correct result even for infinite x
+            *val   = fval[0] + (der==0 ? 0 : der * (x-xval[0]));
         if(deriv)
             *deriv = der;
         if(deriv2)
@@ -400,7 +400,7 @@ void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* 
         double dx  =  xval[size-1]-xval[size-2];
         double der = (fval[size-1]-fval[size-2]) / dx + dx * (1./6 * fder2[size-2] + 1./3 * fder2[size-1]);
         if(val)
-            *val   = fval[size-1] + (der==0 ? 0 : der*(x-xval[size-1]));
+            *val   = fval[size-1] + (der==0 ? 0 : der * (x-xval[size-1]));
         if(deriv)
             *deriv = der;
         if(deriv2)
@@ -640,7 +640,7 @@ void QuinticSpline::evalDeriv(const double x, double* val, double* deriv, double
         throw std::range_error("Empty spline");
     if(x < xval.front()) {
         if(val)
-            *val   = fval[0] + fder[0]*(x-xval[0]);
+            *val   = fval[0] + (fder[0]==0 ? 0 : fder[0] * (x-xval[0]));
         if(deriv)
             *deriv = fder[0];
         if(deriv2)
@@ -650,7 +650,7 @@ void QuinticSpline::evalDeriv(const double x, double* val, double* deriv, double
     if(x > xval.back()) {
         const unsigned int size = xval.size();
         if(val)
-            *val   = fval[size-1] + fder[size-1]*(x-xval[size-1]);
+            *val   = fval[size-1] + (fder[size-1]==0 ? 0 : fder[size-1] * (x-xval[size-1]));
         if(deriv)
             *deriv = fder[size-1];
         if(deriv2)
@@ -1121,8 +1121,7 @@ void BsplineInterpolator3d<N>::eval(const double point[3], double values[]) cons
     unsigned int leftInd[3];
     double weights[(N+1)*(N+1)*(N+1)];
     nonzeroComponents(point, leftInd, weights);
-    for(unsigned int i=0; i<numComp; i++)
-        values[i] = 0;
+    std::fill(values, values+numComp, 0);
     for(int i=0; i<=N; i++)
         for(int j=0; j<=N; j++)
             for(int k=0; k<=N; k++)
@@ -2009,15 +2008,11 @@ double SplineLogDensityFitter<N>::logG(
     // where  Q = \sum_k  A_k B_k(x),  and d ranges from 0 to 2
     double integral[3] = {0};
     // accumulator for d G_0 / d A_k
-    if(deriv) {
-        for(unsigned int k=0; k<numAmpl; k++)
-            deriv[k] = 0;
-    }
+    if(deriv)
+        std::fill(deriv, deriv+numAmpl, 0);
     // accumulator for d^2 G_0 / d A_k d A_l
-    if(deriv2) {
-        for(unsigned int kl=0; kl<pow_2(numAmpl); kl++)
-            deriv2[kl] = 0;
-    }
+    if(deriv2)
+        std::fill(deriv2, deriv2+pow_2(numAmpl), 0);
     // determine the constant offset needed to keep the magnitude in a reasonable range
     double offset = 0;
     for(unsigned int k=0; k<numAmpl; k++)
