@@ -2,6 +2,7 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
+#include <fstream>
 #include <cmath>
 #include <cstring>
 #include <cstdio>
@@ -9,143 +10,123 @@
 
 namespace utils {
 
-#if 0
 /* -------- error reporting routines ------- */
 
-/// remove common prefix if it is the namespace "smile::", and remove function signature from GCC __PRETTY_FUNCTION__
-std::string undecorateFunction(std::string origin)
+namespace{  // internal
+
+/// remove function signature from GCC __PRETTY_FUNCTION__
+static std::string undecorateFunction(std::string origin)
 {
 #ifdef __GNUC__
     // parse the full function signature returned by __PRETTY_FUNCTION__
     std::string::size_type ind=origin.find('(');
-    if(ind!=std::string::npos) origin.erase(ind);
+    if(ind!=std::string::npos)
+        origin.erase(ind);
     ind=origin.rfind(' ');
-    if(ind!=std::string::npos) origin.erase(0, ind+1);
+    if(ind!=std::string::npos)
+        origin.erase(0, ind+1);
 #endif
-    if(origin.substr(0, 7)=="smile::") origin.erase(0, 7);
-    std::string::size_type indc=origin.find(':');
-    if(indc!=std::string::npos && indc+1==origin.size()/2 && origin[indc+1]==':') {
-        if(origin.substr(0, indc)==origin.substr(indc+2)) origin.replace(indc+2, std::string::npos, "Ctor");
-        if(origin[indc+2]=='~' && origin.substr(0, indc)==origin.substr(indc+3)) origin.replace(indc+2, std::string::npos, "Dtor");
-    }
     return origin;
 }
 
-/// default routine that dumps text messages to stderr
-void my_stderr_show_message(const std::string &origin, const std::string &message)
+static char verbosityText(VerbosityLevel level)
 {
-    std::cerr << ((origin.empty() ? "" : "{"+undecorateFunction(origin)+"} ") + message+"\n"); 
+    switch(level) {
+        case VL_MESSAGE: return '.';
+        case VL_WARNING: return '!';
+        case VL_DEBUG:   return '-';
+        case VL_VERBOSE: return '=';
+        default: return '?';
+    }
 }
 
-/// global variable to the routine that displays errors (if it is NULL then nothing is done)
-show_message_type* my_error_ptr   = &my_stderr_show_message;
-
-/// global variable to the routine that shows information messages 
-/// (emitted by various time-consuming routines to display progress), if NULL then no messaging is done
-show_message_type* my_message_ptr = &my_stderr_show_message;
-
-#endif
-
-#if 0
-// old version, slow
+/// file to store the messages sent to msg() routine;
+/// if not open, they are printed to stderr
+static std::ofstream logfile;
     
-/** The StringVariant class is a simple string-based variant implementation that allows
- the user to easily convert between simple numeric/string types.
- */
-class StringVariant
+/// read the environment variables controlling the verbosity level and log file redirection
+static VerbosityLevel initVerbosityLevel()
 {
-private:
-    std::string data;
-public:
-    StringVariant() : data() {}
-    StringVariant(const std::string &src) : data(src) {};
-    template<typename ValueType> StringVariant(ValueType val) {
-        std::ostringstream stream;
-        stream << val;
-        data.assign(stream.str());
-    };
-    template<typename ValueType> StringVariant(ValueType val, unsigned int width) {
-        std::ostringstream stream;
-        stream << std::setprecision(width) << val;
-        data.assign(stream.str());
-    };
-    template<typename ValueType> StringVariant& operator=(const ValueType val) {
-        std::ostringstream stream;
-        stream << val;
-        data.assign(stream.str());
-        return *this;
-    };
-    template<typename NumberType> NumberType toNumber() const {
-        NumberType result = 0;
-        std::istringstream stream(data);
-        if(stream >> result)
-            return result;
-        else if(data == "yes" || data == "true")
-            return 1;
-        return 0;
-    };
-    bool toBool() const { return(data == "yes" || data == "Yes" || data == "true" || data == "True" || data == "t" || data == "1"); }
-    double toDouble() const { return toNumber<double>(); }
-    float toFloat() const { return toNumber<float>(); }
-    int toInt() const { return toNumber<int>(); }
-    std::string toString() const { return data; }
-};
+    const char* env = std::getenv("LOGFILE");
+    if(env) {
+        logfile.open(env);
+    }
+    env = std::getenv("LOGLEVEL");
+    if(env && env[0] >= '0' && env[0] <= '3')
+        return static_cast<VerbosityLevel>(env[0]-'0');
+    return VL_MESSAGE;  // default
+}
 
-int convertToInt(const char* val) {
-    return StringVariant(val).toNumber<int>();
+/// default routine that dumps text messages to stderr
+static void defaultmsg(VerbosityLevel level, const char* origin, const std::string &message)
+{
+    if(level > verbosityLevel)
+        return;
+    std::string msg = verbosityText(level) + 
+        (origin==NULL || *origin=='\0' ? "" : "{"+undecorateFunction(origin)+"} ") + message + '\n';
+    if(logfile.is_open())
+        logfile << msg << std::flush;
+    else
+        std::cerr << msg << std::flush;
 }
-float convertToFloat(const char* val) {
-    return StringVariant(val).toNumber<float>();
-}
-double convertToDouble(const char* val) {
-    return StringVariant(val).toNumber<double>();
-}
-template<typename ValueType> std::string convertToString(ValueType val) { 
-    return StringVariant(val).toString();
-}
-template<typename ValueType> std::string convertToString(ValueType val, unsigned int width) { 
-    return StringVariant(val,width).toString(); }
+    
+}  // namespace
 
-#else
-// old-fashioned way, faster
+/// global pointer to the routine that displays or logs information messages
+MsgType* msg = &defaultmsg;
 
-int convertToInt(const char* val) {
+/// global variable controlling the verbosity of printout
+VerbosityLevel verbosityLevel = initVerbosityLevel();
+
+/* ----------- string/number conversion and parsing routines ----------------- */
+
+int toInt(const char* val) {
     return strtol(val, NULL, 10);
 }
-float convertToFloat(const char* val) {
+
+float toFloat(const char* val) {
     return strtof(val, NULL);
 }
-double convertToDouble(const char* val) {
+
+double toDouble(const char* val) {
     return strtod(val, NULL);
 }
-template<typename ValueType> std::string convertToString(ValueType val, unsigned int width) {
+
+std::string toString(double val, unsigned int width) {
     char buf[100];
     int len=snprintf(buf, 100, "%.*g", width, val);
     int offset=0;
     while(offset<len && buf[offset]==' ') offset++;
     return std::string(buf+offset);
 }
-template<> std::string convertToString(int val, unsigned int width) {
+
+std::string toString(float val, unsigned int width) {
     char buf[100];
-    int len=snprintf(buf, 100, "%*i", width, val);
+    int len=snprintf(buf, 100, "%.*g", width, val);
     int offset=0;
     while(offset<len && buf[offset]==' ') offset++;
     return std::string(buf+offset);
 }
-template<> std::string convertToString(unsigned int val, unsigned int width) {
+
+std::string toString(int val) {
     char buf[100];
-    int len=snprintf(buf, 100, "%*u", width, val);
-    int offset=0;
-    while(offset<len && buf[offset]==' ') offset++;
-    return std::string(buf+offset);
+    snprintf(buf, 100, "%i", val);
+    return std::string(buf);
 }
-#endif
 
-template std::string convertToString(int, unsigned int);
-template std::string convertToString(float, unsigned int);
-template std::string convertToString(double, unsigned int);
+std::string toString(unsigned int val) {
+    char buf[100];
+    snprintf(buf, 100, "%u", val);
+    return std::string(buf);
+}
 
-bool convertToBool(const char* val) {
+std::string toString(const void* val) {
+    char buf[100];
+    snprintf(buf, 100, "%p", val);
+    return std::string(buf);
+}
+
+bool toBool(const char* val) {
     return 
         strncmp(val, "yes", 3)==0 ||
         strncmp(val, "Yes", 3)==0 ||
@@ -155,9 +136,8 @@ bool convertToBool(const char* val) {
         strncmp(val, "1", 1)==0;
 }
 
-/* ----------- string/number conversion and parsing routines ----------------- */
 //  Pretty-print - convert float (and integer) numbers to string of fixed width.
-//  Uses some sophisticated techniques to fit the number into a string of exactly the given length.
+//  Employ sophisticated techniques to fit the number into a string of exactly the given length.
 std::string pp(double num, unsigned int width)
 {
     std::string result;
@@ -230,19 +210,18 @@ std::string pp(double num, unsigned int width)
     return result;
 }
 
-void splitString(const std::string& src, const std::string& delim, std::vector<std::string>& result)
+std::vector<std::string> splitString(const std::string& src, const std::string& delim)
 {
-    result.clear();
+    std::vector<std::string> result;
     std::string str(src);
     std::string::size_type indx=str.find_first_not_of(delim);
     if(indx==std::string::npos) {
         result.push_back("");   // ensure that result contains at least one element
-        return;
+        return result;
     }
     if(indx>0)  // remove unnecessary delimiters at the beginning
         str=str.erase(0, indx);
-    while(!str.empty())
-    {
+    while(!str.empty()) {
         indx=str.find_first_of(delim);
         if(indx==std::string::npos)
             indx=str.size();
@@ -250,9 +229,10 @@ void splitString(const std::string& src, const std::string& delim, std::vector<s
         str=str.erase(0, indx);
         indx=str.find_first_not_of(delim);
         if(indx==std::string::npos)
-            return;
+            break;
         str=str.erase(0, indx);
     }
+    return result;
 }
 
 bool endsWithStr(const std::string& str, const std::string& end)

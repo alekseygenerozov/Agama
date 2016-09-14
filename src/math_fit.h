@@ -22,7 +22,7 @@ namespace math{
     \param[out] rms  optionally stores the rms scatter (if not NULL).
 */
 void linearFit(const std::vector<double>& x, const std::vector<double>& y, 
-    const std::vector<double>* w, double& slope, double& intercept, double* rms=0);
+    const std::vector<double>* w, double& slope, double& intercept, double* rms=NULL);
 
 /** perform a linear least-square fit without constant term (i.e., c * x = y).
     \param[in]  x  is the array of independent variables;
@@ -33,7 +33,7 @@ void linearFit(const std::vector<double>& x, const std::vector<double>& y,
     \return  the best-fit slope of linear regression. 
 */
 double linearFitZero(const std::vector<double>& x, const std::vector<double>& y, 
-    const std::vector<double>* w, double* rms=0);
+    const std::vector<double>* w, double* rms=NULL);
 
 /** perform a multi-parameter linear least-square fit, i.e., solve the system of equations
     `X c = y`  in the least-square sense (using singular-value decomposition).
@@ -45,7 +45,7 @@ double linearFitZero(const std::vector<double>& x, const std::vector<double>& y,
     \param[out] rms  optionally stores the rms scatter (if not NULL).
 */
 void linearMultiFit(const Matrix<double>& coefs, const std::vector<double>& rhs, 
-    const std::vector<double>* w, std::vector<double>& result, double* rms=0);
+    const std::vector<double>* w, std::vector<double>& result, double* rms=NULL);
 
 ///@}
 /// \name ------ nonlinear regression ------

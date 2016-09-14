@@ -20,7 +20,7 @@ double erfinv(const double x);
 double hypergeom2F1(const double a, const double b, const double c, const double x);
 
 /** Associate Legendre function of the second kind, together with its derivative if necessary */
-double legendreQ(const double m, const double x, double* deriv=0);
+double legendreQ(const double m, const double x, double* deriv=NULL);
 
 /** Factorial of an integer number */
 double factorial(const unsigned int n);
@@ -79,5 +79,9 @@ double besselK(const int n, const double x);
     for -exp(-1)<=x<0 there are two branches, W_0>=-1, and W_{-1}<=-1;
     the second one is selected by setting the second argument to true. */
 double lambertW(const double x, bool Wminus1branch=false);
+
+/// solve the Kepler equation:  phase = eta - ecc * sin(eta)  for eta (eccentric anomaly);
+/// store eta, its sin and cos in output arguments
+void solveKepler(double ecc, double phase, double &eta, double &sineta, double &coseta);
 
 }  // namespace

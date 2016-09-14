@@ -93,7 +93,7 @@ int main(){
     ActionArray particleActions(particles.size());
     for(unsigned int i=0; i<particles.size(); i++) {
         particleActions[i] = actf.actions(toPosVelCyl(particles.point(i)));
-        if(!math::isFinite(particleActions[i].Jr+particleActions[i].Jz)) {
+        if(!isFinite(particleActions[i].Jr+particleActions[i].Jz)) {
             std::cout << particleActions[i] <<" for "<< particles.point(i) <<"\n";
             particleActions[i] = particleActions[i>0?i-1:0];  // put something reasonable (unless i==0)
         }

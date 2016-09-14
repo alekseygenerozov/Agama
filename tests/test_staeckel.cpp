@@ -21,6 +21,7 @@
 #include "orbit.h"
 #include "math_core.h"
 #include "debug_utils.h"
+#include "utils.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -29,7 +30,7 @@
 const double integr_eps=1e-8;        // integration accuracy parameter
 const double eps=1e-7;               // accuracy of comparison
 const double axis_a=1.6, axis_c=1.0; // axes of perfect ellipsoid
-const bool output=false;             // whether to create text files with orbits
+const bool output=utils::verbosityLevel >= utils::VL_VERBOSE;  // whether to create text files with orbits
 
 template<typename coordSysT>
 bool test_oblate_staeckel(const potential::OblatePerfectEllipsoid& potential,
@@ -140,5 +141,7 @@ int main() {
     allok &= test_three_cs(pot, ifi, coord::PosVelCar(1, 0. , 0. , 0. ,.296, 0.    ), "almost circular in-plane orbit (Jz=0,Jr~0)");
     if(allok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

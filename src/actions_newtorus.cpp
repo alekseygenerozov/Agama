@@ -26,7 +26,7 @@ namespace {  // internal routines
 */
 class PointTransformFit: public BasePointTransform<coord::SphMod> {
 public:
-    PointTransformFit(const potential::OblatePerfectEllipsoid &poten, const Actions &acts) :
+    PointTransformFit(const potential::OblatePerfectEllipsoid &poten, const Actions &/*acts*/) :
         cs(0*sqrt(poten.coordsys().delta))
     {
         //computeIntegralsStaeckel(poten, acts, rhomap, taumap);
@@ -103,9 +103,9 @@ static std::vector<Angles> makeGridAngles(const GenFncIndices& indices)
 {
     int maxmr=4, maxmz=4, maxmphi=0;
     for(unsigned int i=0; i<indices.size(); i++) {
-        maxmr   = std::max<int>(maxmr,   abs(indices[i].mr));
-        maxmz   = std::max<int>(maxmz,   abs(indices[i].mz));
-        maxmphi = std::max<int>(maxmphi, abs(indices[i].mphi));
+        maxmr   = std::max<int>(maxmr,   math::abs(indices[i].mr));
+        maxmz   = std::max<int>(maxmz,   math::abs(indices[i].mz));
+        maxmphi = std::max<int>(maxmphi, math::abs(indices[i].mphi));
     }
     return makeGridAngles(6*(maxmr/4+1), 6*(maxmz/4+1), maxmphi>0 ? 6*(maxmphi/4+1) : 1);
 }
@@ -360,8 +360,8 @@ PtrMapping Mapping::expandMapping(const std::vector<double> &params) const
     int maxmr=0, maxmz=0;
     for(unsigned int i=0; i<indices.size(); i++) {
         indPairs[std::make_pair(indices[i].mr, indices[i].mz)] = params[i];
-        maxmr = std::max<int>(maxmr, abs(indices[i].mr));
-        maxmz = std::max<int>(maxmz, abs(indices[i].mz));
+        maxmr = std::max<int>(maxmr, math::abs(indices[i].mr));
+        maxmz = std::max<int>(maxmz, math::abs(indices[i].mz));
     }
     GenFncIndices newIndices = indices;
     /*if(maxmz==0) {  // dealing with the case Jz==0 -- add only two elements in m_r
@@ -644,7 +644,7 @@ ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& poten
         (acts.Jr==0 || acts.Jz==0 ? pow_2(acts.Jr + acts.Jz) : acts.Jr * acts.Jz);
     std::cout << "; dispJ/J=" << toler*(sqrt(dispH/dispHmax));
     
-    if(!math::isFinite(dispH + dispHmax))
+    if(!isFinite(dispH + dispHmax))
         throw std::runtime_error("Error in Torus: first fit attempt failed");
 
     converged = dispH <= dispHmax;
@@ -676,7 +676,7 @@ ActionMapperNewTorus::ActionMapperNewTorus(const potential::BasePotential& poten
         mapping = mapping->expandMapping(params);
 
         // if not converged yet, take appropriate measures        
-        if(!math::isFinite(dispH) || numIter == 0 || dispH > dispHprev*0.9)
+        if(!isFinite(dispH) || numIter == 0 || dispH > dispHprev*0.9)
         {   // the process does not seem to converge: start afresh
             params.assign(params.size(), 0);
             dispHprev = INFINITY;

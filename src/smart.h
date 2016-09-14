@@ -89,11 +89,14 @@ be used inside the constructor, but not any longer.
 // one may substitute it with the boost implementations.
 // Unfortunately a side effect is a pollution of root namespace...
 
-#ifdef HAVE_CXX11
+#if __cplusplus >= 201103L
+// have a C++11 compatible compiler
 #include <memory>
 using std::shared_ptr;
 using std::unique_ptr;
 #else
+// have an old-style compiler, hopefully with std::tr1::shared_ptr available
+// (otherwise will have to replace it with boost::shared_ptr)
 #include <tr1/memory>
 using std::tr1::shared_ptr;
 #define unique_ptr std::auto_ptr

@@ -23,7 +23,10 @@ C  User-defined density and potential functions
 C  It is necessary to declare them as functions, not variables
       external user_density, user_potential
 C  Local variables
-      double precision xyz(3), pot, force(3), deriv(6)
+      double precision xyz(3), pot0, pot1, pot2, den0, den1, den2,
+     &    force0(3), force1(3), force2(3), deriv(6)
+      logical success
+      success = .true.
 
 C  Example 1:  constructing a potential from parameters provided in a single string;
 C  the first parameter is always the placeholder for the pointer to C++ object,
@@ -41,21 +44,29 @@ c     &    'type=Multipole symmetry=Axisymmetric',
      &    user_density)
 
 C  Compute potential and density at some location
-      xyz(1)=0.9d0
-      xyz(2)=0.6d0
-      xyz(3)=0.3d0
+      xyz(1)= 0.9d0
+      xyz(2)= 0.6d0
+      xyz(3)= 0.3d0
+      pot1  = agama_potential(c_obj1, xyz)
+      den1  = agama_density  (c_obj1, xyz)
+      pot2  = agama_potential(c_obj2, xyz)
+      den2  = agama_density  (c_obj2, xyz)
+      den0  = user_density(xyz)
       print*, 'Position(x,y,z)=', xyz
+      print*, 'Multipole potential=', pot1
+      print*, 'Multipole   density=', den1
+      print*, 'CylSpline potential=', pot2
+      print*, 'CylSpline   density=', den2
+      print*, 'original    density=', den0
 
-      print*, 'Multipole potential=', agama_potential(c_obj1, xyz)
-      print*, 'Multipole   density=', agama_density  (c_obj1, xyz)
-      print*, 'CylSpline potential=', agama_potential(c_obj2, xyz)
-      print*, 'CylSpline   density=', agama_density  (c_obj2, xyz)
-      print*, 'original    density=', user_density(xyz)
+C  Check the accuracy
+      if(abs(den1-den0) + abs(den2-den0) > den0 * 1.d-3)
+     &    success = .false.
 
 C  Compute force and force derivatives (potential is also returned)
-      pot = agama_potforce(c_obj1, xyz, force)
-      print*, 'Force=', force
-      pot = agama_potforcederiv(c_obj2, xyz, force, deriv)
+      pot1 = agama_potforce(c_obj1, xyz, force1)
+      print*, 'Force=', force1
+      pot2 = agama_potforcederiv(c_obj2, xyz, force2, deriv)
       print*, 'Force derivs: dFx/dx=', deriv(1), 'dFy/dy=', deriv(2),
      &    'dFz/dz=', deriv(3), 'dFx/dy=', deriv(4),
      &    'dFx/dz=', deriv(5), 'dFy/dz=', deriv(6)
@@ -69,17 +80,33 @@ C  (useful if this is an expensive operation)
       call agama_initfrompot(c_obj4,
      &    'type=CylSpline, symmetry=Triaxial, rmin=0.01, rmax=100',
      &     user_potential)
-      pot=agama_potforce(c_obj3, xyz, force)
-      print*, 'Multipole potential=', pot, 'force=', force
-      pot=agama_potforce(c_obj4, xyz, force)
-      print*, 'CylSpline potential=', pot, 'force=', force
-      pot=user_potential(xyz, force)
-      print*, 'Original  potential=', pot, 'force=', force
+      pot1 = agama_potforce(c_obj3, xyz, force1)
+      print*, 'Multipole potential=', pot1, 'force=', force1
+      pot2 = agama_potforce(c_obj4, xyz, force2)
+      print*, 'CylSpline potential=', pot2, 'force=', force2
+      pot0 = user_potential(xyz, force0)
+      print*, 'Original  potential=', pot0, 'force=', force0
+
+C  check the accuracy
+      if(abs(pot1-pot0) + abs(pot2-pot0) > abs(pot0)      * 1.d-4
+     &    .or.  abs(force1(1)-force0(1)) > abs(force0(1)) * 1.d-3
+     &    .or.  abs(force2(1)-force0(1)) > abs(force0(1)) * 1.d-3
+     &    .or.  abs(force1(2)-force0(2)) > abs(force0(2)) * 1.d-3
+     &    .or.  abs(force2(2)-force0(2)) > abs(force0(2)) * 1.d-3
+     &    .or.  abs(force1(3)-force0(3)) > abs(force0(3)) * 1.d-3
+     &    .or.  abs(force2(3)-force0(3)) > abs(force0(3)) * 1.d-3)
+     &    success = .false.
 
 C  Example 4:  constructing a potential from parameters stored in an INI file
-      call agama_initfromfile(c_obj4, '../data/BT08.ini')
-      print*, 'Potential=', agama_potential(c_obj4, xyz)
-      print*, 'Density=', agama_density(c_obj4, xyz)
+      call agama_initfromfile(c_obj5, '../data/BT08.ini')
+      print*, 'Potential=', agama_potential(c_obj5, xyz)
+      print*, 'Density=', agama_density(c_obj5, xyz)
+
+      if(success) then
+          print*, 'ALL TESTS PASSED'
+      else
+          print*, 'SOME TESTS FAILED'
+      endif
       end program example
 
 

@@ -1433,7 +1433,7 @@ int AllFit(	            // return:	error flag (see below)
     }
   } else if(!Om(0) || !Om(1) || !Om(2))                 // if no estimates
     Om = Phi->KapNuOm(Phi->RfromLc(WDabs(J(2))));         // and doing angle fit
-    if(!math::isFinite(Om(0)+Om(1)+Om(2)))
+    if(!isFinite(Om(0)+Om(1)+Om(2)))
         cerr << "**BAD** ";
   if(err>=2) cerr << "Omega estimate: "<< Om(0)<<','<<Om(1)<<','<<Om(2) << "\n";
   fac  = 1. / ( hypot(Om(0),Om(1))*Jabs );

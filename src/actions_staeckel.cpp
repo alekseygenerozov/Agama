@@ -1,6 +1,7 @@
 #include "actions_staeckel.h"
 #include "math_core.h"
 #include "math_fit.h"
+#include "utils.h"
 #include <stdexcept>
 #include <cassert>
 #include <cmath>
@@ -288,7 +289,7 @@ public:
             result /= pow_2(tauminusdelta);
         if(c==cminus1)
             result /= tau;
-        if(!math::isFinite(result))
+        if(!isFinite(result))
             result=0;  // ad hoc fix to avoid problems at the boundaries of integration interval
         return result;
     }
@@ -332,7 +333,7 @@ public:
         assert(tau>=0);
         if(der2)
             *der2 = NAN;
-        if(!math::isFinite(tau)) {
+        if(!isFinite(tau)) {
             if(val)
                 *val = fnc.E; // the asymptotic value
             if(der)
@@ -380,11 +381,11 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
             lim.lambda_min = delta;
     }
 
-    if(!math::isFinite(lim.nu_max)) 
+    if(!isFinite(lim.nu_max)) 
     {   // find range for J_nu = J_z if it has not been determined at the previous stage
         if(fnc_zero>0)
             lim.nu_max = math::findRoot(fnc, fabs(fnc.point.nu), nu_upper, ACCURACY_RANGE);
-        if(!math::isFinite(lim.nu_max))
+        if(!isFinite(lim.nu_max))
             // means that the value f(nu) was just very slightly negative, or that f(0)<=0
             lim.nu_max = fabs(fnc.point.nu);  // i.e. this is a clear upper boundary of the range of allowed nu
     }
@@ -421,11 +422,11 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
         case that f(lambda)>0 and f''>0, so that the parabola is curved upward and never crosses zero; 
         thus we test an inverse condition which is valid for NaN.
     */
-    if(math::isFinite(lambda_pos) && !(pn_lambda.dxBetweenRoots() < fnc.point.lambda * ACCURACY_RANGE)) {
-        if(!math::isFinite(lim.lambda_min)) {  // not yet determined 
+    if(isFinite(lambda_pos) && !(pn_lambda.dxBetweenRoots() < fnc.point.lambda * ACCURACY_RANGE)) {
+        if(!isFinite(lim.lambda_min)) {  // not yet determined 
             lim.lambda_min = math::findRoot(fnc, lambda_lower, lambda_pos, ACCURACY_RANGE);
         }
-        if(!math::isFinite(lim.lambda_max)) {
+        if(!isFinite(lim.lambda_max)) {
             lim.lambda_max = math::findRoot(AxisymScaledForRootfinder(fnc), 
                 lambda_pos, INFINITY, ACCURACY_RANGE);
         }
@@ -434,12 +435,11 @@ AxisymIntLimits findIntegrationLimitsAxisym(const AxisymFunctionBase& fnc)
     }
 
     // sanity check
-    /*if(!math::isFinite(lim.lambda_min+lim.lambda_max+lim.nu_max+lim.nu_min)
+    if(!isFinite(lim.lambda_min+lim.lambda_max+lim.nu_max+lim.nu_min)
         || fabs(fnc.point.nu) > lim.nu_max
-        || fnc.point.lambda < lim.lambda_min
-        || fnc.point.lambda > lim.lambda_max)
-        throw std::invalid_argument("findIntegrationLimitsAxisym failed");
-    */
+        || fnc.point.lambda   < lim.lambda_min
+        || fnc.point.lambda   > lim.lambda_max)
+        utils::msg(utils::VL_WARNING, "findIntegrationLimitsAxisym", "failed");
 
     // ignore extremely small intervals
     if(!(lim.nu_max >= delta * MINIMUM_RANGE))
@@ -608,7 +608,7 @@ Actions actionsAxisymStaeckel(const potential::OblatePerfectEllipsoid& potential
     const coord::PosVelCyl& point)
 {
     const AxisymFunctionStaeckel fnc = findIntegralsOfMotionOblatePerfectEllipsoid(potential, point);
-    if(!math::isFinite(fnc.E+fnc.I3+fnc.Lz) || fnc.E>=0)
+    if(!isFinite(fnc.E+fnc.I3+fnc.Lz) || fnc.E>=0)
         return Actions(NAN, NAN, fnc.Lz);
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
     return computeActions(fnc, lim);
@@ -618,7 +618,7 @@ ActionAngles actionAnglesAxisymStaeckel(const potential::OblatePerfectEllipsoid&
     const coord::PosVelCyl& point, Frequencies* freq)
 {
     const AxisymFunctionStaeckel fnc = findIntegralsOfMotionOblatePerfectEllipsoid(potential, point);
-    if(!math::isFinite(fnc.E+fnc.I3+fnc.Lz) || fnc.E>=0)
+    if(!isFinite(fnc.E+fnc.I3+fnc.Lz) || fnc.E>=0)
         return ActionAngles(Actions(NAN, NAN, fnc.Lz), Angles(NAN, NAN, NAN));
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
     return computeActionAngles(fnc, lim, freq);
@@ -631,7 +631,7 @@ Actions actionsAxisymFudge(const potential::BasePotential& potential,
         throw std::invalid_argument("Fudge approximation only works for axisymmetric potentials");
     const coord::ProlSph coordsys(pow_2(interfocalDistance));
     const AxisymFunctionFudge fnc = findIntegralsOfMotionAxisymFudge(potential, point, coordsys);
-    if(!math::isFinite(fnc.E+fnc.Ilambda+fnc.Inu+fnc.Lz) || fnc.E>=0)
+    if(!isFinite(fnc.E+fnc.Ilambda+fnc.Inu+fnc.Lz) || fnc.E>=0)
         return Actions(NAN, NAN, fnc.Lz);
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
     return computeActions(fnc, lim);
@@ -644,7 +644,7 @@ ActionAngles actionAnglesAxisymFudge(const potential::BasePotential& potential,
         throw std::invalid_argument("Fudge approximation only works for axisymmetric potentials");
     const coord::ProlSph coordsys(pow_2(interfocalDistance));
     const AxisymFunctionFudge fnc = findIntegralsOfMotionAxisymFudge(potential, point, coordsys);
-    if(!math::isFinite(fnc.E+fnc.Ilambda+fnc.Inu+fnc.Lz) || fnc.E>=0)
+    if(!isFinite(fnc.E+fnc.Ilambda+fnc.Inu+fnc.Lz) || fnc.E>=0)
         return ActionAngles(Actions(NAN, NAN, fnc.Lz), Angles(NAN, NAN, NAN));
     const AxisymIntLimits lim = findIntegrationLimitsAxisym(fnc);
     return computeActionAngles(fnc, lim, freq);

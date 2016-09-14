@@ -21,7 +21,7 @@ bool testPotential(const potential::BasePotential& potential)
     std::cout << potential.name();
     double val0 = potential.value(coord::PosCar(0,0,0));
     std::cout << " at origin is "<<val0;
-    ok &= math::isFinite(val0);
+    ok &= isFinite(val0);
     double mtot = potential.totalMass();
     double minf = potential.enclosedMass(INFINITY);
     std::cout << "; total mass is "<<mtot<<
@@ -189,5 +189,7 @@ int main() {
     }
     if(allok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

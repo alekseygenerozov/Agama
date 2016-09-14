@@ -26,7 +26,7 @@ public:
         coord::GradCyl grad;
         poten.eval(coord::PosCyl(R,0,0), &Phi, &grad);
         if(val) {
-            if(R==INFINITY && !math::isFinite(Phi))
+            if(R==INFINITY && !isFinite(Phi))
                 Phi=0;
             *val = Phi-E;
         }
@@ -50,7 +50,7 @@ public:
         coord::HessCyl hess;
         poten.eval(coord::PosCyl(R,0,0), &Phi, &grad, &hess);
         if(val) {
-            if(R==INFINITY && !math::isFinite(Phi))
+            if(R==INFINITY && !isFinite(Phi))
                 *val = -1-fabs(E);  // safely negative value
             else
                 *val = 2*(E-Phi) - (R>0 && R!=INFINITY ? R*grad.dR : 0);
@@ -76,16 +76,17 @@ public:
     virtual void evalDeriv(const double R, double* val=0, double* deriv=0, double* deriv2=0) const {
         coord::GradCyl grad;
         coord::HessCyl hess;
-        if(R < math::UNREASONABLY_LARGE_VALUE) {
+        static const double UNREASONABLY_LARGE_VALUE = 1e10;  // TODO: this is unsatisfactory
+        if(R < UNREASONABLY_LARGE_VALUE) {
             poten.eval(coord::PosCyl(R,0,0), NULL, &grad, &hess);
             if(val)
                 *val = ( Lz2 - (R>0 ? pow_3(R)*grad.dR : 0) ) / (R+1);
             if(deriv)
                 *deriv = -(Lz2 + pow_2(R)*( (3+2*R)*grad.dR + R*(R+1)*hess.dR2) ) / pow_2(R+1);
         } else {   // at large R, Phi(R) ~ -M/R, we may use this asymptotic approximation even at infinity
-            poten.eval(coord::PosCyl(math::UNREASONABLY_LARGE_VALUE,0,0), NULL, &grad);
+            poten.eval(coord::PosCyl(UNREASONABLY_LARGE_VALUE,0,0), NULL, &grad);
             if(val)
-                *val = Lz2/(R+1) - pow_2(math::UNREASONABLY_LARGE_VALUE) * grad.dR / (1+1/R);
+                *val = Lz2/(R+1) - pow_2(UNREASONABLY_LARGE_VALUE) * grad.dR / (1+1/R);
             if(deriv)
                 *deriv = NAN;
         } 
@@ -265,7 +266,7 @@ void findPlanarOrbitExtent(const BasePotential& potential, double E, double L, d
         slope==0 ?  exp((E-Phi0) / coef - 0.5)  :  pow((E-Phi0) / (coef * (1+0.5*slope)), 1/slope);
     double Lcirc2 = !asympt ?  2 * (E - potential.value(coord::PosCyl(Rcirc,0,0))) * pow_2(Rcirc) :
         slope==0 ?  coef * pow_2(Rcirc)  :  (E-Phi0) / (1/slope+0.5) * pow_2(Rcirc);
-    if(!math::isFinite(Lcirc2))
+    if(!isFinite(Lcirc2))
         throw std::invalid_argument("Error in findPlanarOrbitExtent: cannot determine Rcirc(E)");
     double Lrel2  = L*L / Lcirc2;
     if(Lrel2>=1) {
@@ -285,7 +286,7 @@ void findPlanarOrbitExtent(const BasePotential& potential, double E, double L, d
         R2 = math::findRoot(fnc, Rcirc, 3*Rcirc, ACCURACY);
         // for a reasonable potential, 2*Rcirc is actually an upper limit,
         // but in case of trouble, repeat with a safely larger value 
-        if(!math::isFinite(R2))
+        if(!isFinite(R2))
             R2 = math::findRoot(fnc, Rcirc, (1+1e-8)*R_max(potential, E), ACCURACY);
     }
 }
@@ -349,7 +350,7 @@ Interpolator::Interpolator(const BasePotential& potential)
         gridPhider.push_back(grad.dR * R / scaledEder(Phival, Phi0));
         if(!(grad.dR>=0 && Ecirc<0))  // guard against weird values of circular velocity, incl. NaN
             throw std::runtime_error("Interpolator: cannot determine circular velocity at r="+
-                utils::convertToString(R));
+                utils::toString(R));
         // check if we have reached an asymptotic regime,
         // by examining the curvature (2nd derivative) of relation between scaled Rcirc, Lcirc and E.
         double dlR = dlogR;
@@ -428,7 +429,7 @@ double Interpolator::innerSlope(double* Phi0_, double* coef) const
     double val, der, logr = Phi.xvalues().front();
     Phi.evalDeriv(logr, &val, &der);
     double Phival = unscaledE(val, Phi0);
-    if(math::isFinite(Phi0)) {
+    if(isFinite(Phi0)) {
         double slope = der * Phival / Phi0;
         if(Phi0_)
             *Phi0_ = Phi0;
@@ -508,7 +509,7 @@ Interpolator2d::Interpolator2d(const BasePotential& potential) :
     // for computing the asymptotic values at E=Phi(0), we assume a power-law behavior of potential:
     // Phi = Phi0 + coef * r^s;  potential must be finite at r=0 for this implementation to work
     double Phi0, slope = pot.innerSlope(&Phi0);
-    if(!math::isFinite(Phi0) || slope<=0)
+    if(!isFinite(Phi0) || slope<=0)
         throw std::runtime_error("Interpolator2d: can only deal with potentials that are finite at r->0");
     const unsigned int sizeE = 50;
     const unsigned int sizeL = 40;

@@ -18,19 +18,19 @@ ParticleArrayCar IOSnapshotText::readSnapshot() const
     std::vector<std::string> fields;
     while(std::getline(strm, buffer) && !strm.eof())
     {
-        utils::splitString(buffer, "%# \t", fields);
+        fields = utils::splitString(buffer, "%# \t");
         size_t numFields = fields.size();
         if(numFields>=7 && 
             ((fields[0][0]>='0' && fields[0][0]<='9') || fields[0][0]=='-' || fields[0][0]=='+'))
         {
             points.add(coord::PosVelCar(
-                utils::convertToDouble(fields[0]) * conv.lengthUnit, 
-                utils::convertToDouble(fields[1]) * conv.lengthUnit, 
-                utils::convertToDouble(fields[2]) * conv.lengthUnit, 
-                utils::convertToDouble(fields[3]) * conv.velocityUnit, 
-                utils::convertToDouble(fields[4]) * conv.velocityUnit, 
-                utils::convertToDouble(fields[5]) * conv.velocityUnit),
-                utils::convertToDouble(fields[6]) * conv.massUnit);
+                utils::toDouble(fields[0]) * conv.lengthUnit, 
+                utils::toDouble(fields[1]) * conv.lengthUnit, 
+                utils::toDouble(fields[2]) * conv.lengthUnit, 
+                utils::toDouble(fields[3]) * conv.velocityUnit, 
+                utils::toDouble(fields[4]) * conv.velocityUnit, 
+                utils::toDouble(fields[5]) * conv.velocityUnit),
+                utils::toDouble(fields[6]) * conv.massUnit);
         }
     }
     return points;
@@ -45,14 +45,14 @@ void IOSnapshotText::writeSnapshot(const ParticleArrayCar& points) const
     for(size_t indx=0; indx<points.size(); indx++)
     {
         const coord::PosVelCar& pt = points.point(indx);
-        strm << 
-            pt.x  / conv.lengthUnit << "\t" <<
-            pt.y  / conv.lengthUnit << "\t" <<
-            pt.z  / conv.lengthUnit << "\t" <<
-            pt.vx / conv.velocityUnit << "\t" <<
-            pt.vy / conv.velocityUnit << "\t" <<
-            pt.vz / conv.velocityUnit << "\t" <<
-            points.mass(indx) / conv.massUnit << std::endl;
+        strm <<
+            utils::toString(pt.x  / conv.lengthUnit  ) + '\t' +
+            utils::toString(pt.y  / conv.lengthUnit  ) + '\t' +
+            utils::toString(pt.z  / conv.lengthUnit  ) + '\t' +
+            utils::toString(pt.vx / conv.velocityUnit) + '\t' +
+            utils::toString(pt.vy / conv.velocityUnit) + '\t' +
+            utils::toString(pt.vz / conv.velocityUnit) + '\t' +
+            utils::toString(points.mass(indx) / conv.massUnit) + '\n';
     }
     if(!strm.good())
         throw std::runtime_error("IOSnapshotText: cannot read from file "+fileName);
@@ -66,10 +66,8 @@ static ParticleArrayCar readSnapshotUNSIO(const std::string& fileName,
 { 
     uns::CunsIn input(fileName, "all", "all");
     if(input.isValid() && input.snapshot->nextFrame("xvm")) {
-#ifdef DEBUGPRINT
-        my_message(FUNCNAME, 
+        utils::msg(utils::VL_DEBUG, FUNCNAME,
             "input snapshot file "+fileName+" of type "+input.snapshot->getInterfaceType());
-#endif
         float *pos=NULL, *vel=NULL, *mass=NULL;
         int nbodyp, nbodyv, nbodym;
         input.snapshot->getData("pos", &nbodyp, &pos);
@@ -212,15 +210,15 @@ public:
         snap.put(0);
     }
     /// store history line in header
-    void writeHistory(const std::string &new_h) {
-        if (new_h.size() > 0)
-            putString("History",new_h.c_str());
+    void writeHistory(const std::string &text) {
+        if(!text.empty())
+            putString("History", text.c_str());
     }
     /// write phase space (positions and velocities); NumT may be float or double
     template<typename NumT> 
     void writePhase(const ParticleArrayCar& points, double time, const units::ExternalUnits& conv) 
     {
-        int nbody    = static_cast<int>(points.size());
+        int nbody   = static_cast<int>(points.size());
         NumT* phase = new NumT[nbody * 6];
         NumT* mass  = new NumT[nbody];
         for(int i = 0 ; i < nbody ; i++) {
@@ -317,7 +315,7 @@ PtrIOSnapshot createIOSnapshotWrite(const std::string &fileName,
         throw std::runtime_error("Snapshot file name or format is empty");
     if(tolower(fileFormat[0])=='t')
         return PtrIOSnapshot(new IOSnapshotText(
-            time==0 ? fileName : (fileName + utils::convertToString(time)), unitConverter) );
+            time==0 ? fileName : (fileName + utils::toString(time)), unitConverter) );
     else 
     if(tolower(fileFormat[0])=='n')
         return PtrIOSnapshot(new IOSnapshotNemo(fileName, unitConverter, header, time, append));
@@ -325,7 +323,7 @@ PtrIOSnapshot createIOSnapshotWrite(const std::string &fileName,
     else 
     if(tolower(fileFormat[0])=='g')
         return PtrIOSnapshot(new IOSnapshotGadget(
-            time==0 ? fileName : (fileName + utils::convertToString(time)), unitConverter) );
+            time==0 ? fileName : (fileName + utils::toString(time)), unitConverter) );
 #endif
     else
         throw std::runtime_error("Snapshot file format not recognized");   // error - format name not found

@@ -2,13 +2,12 @@
 #include "math_core.h"
 #include "math_fit.h"
 #include "math_ode.h"
+#include "utils.h"
 #include <cassert>
 #include <stdexcept>
 #include <cmath>
-
-#ifdef VERBOSE_REPORT
-#include <iostream>
-#endif
+// debugging
+#include <fstream>
 
 namespace actions{
 
@@ -104,7 +103,7 @@ public:
         dydt[2] = -grad.dR + (Lz2>0 ? Lz2/pow_3(y[0]) : 0);
         dydt[3] = -grad.dz;
     }
-    
+
     /** return the size of ODE system: R, z, vR, vz */
     virtual unsigned int size() const { return 4;}
 private:
@@ -118,12 +117,14 @@ public:
     FindCrossingPointZequal0(const math::BaseOdeSolver& _solver) :
         solver(_solver) {};
     /** used in root-finder to locate the root z(t)=0 */
-    virtual void evalDeriv(const double time, 
-        double* val=0, double* der=0, double* /*der2*/=0) const {
+    virtual void evalDeriv(const double time, double* val, double* der, double*) const
+    {
+        double vars[4];
+        solver.getSol(time, vars);
         if(val)
-            *val = solver.value(time, 1);  // z
+            *val = vars[1];  // z
         if(der)
-            *der = solver.value(time, 3);  // vz
+            *der = vars[3];  // vz
     }
     virtual unsigned int numDerivs() const { return 1; }
 private:
@@ -148,7 +149,7 @@ static double findCrossingPointR(
     vars[1] = 0;
     vars[2] = 0;
     vars[3] = vz;
-    math::OdeSolverDOP853 solver(odeSystem, 0, ACCURACY_INTEGR);
+    math::OdeSolverDOP853 solver(odeSystem, ACCURACY_INTEGR);
     solver.init(vars);
     bool finished = false;
     unsigned int numStepsODE = 0;
@@ -161,7 +162,7 @@ static double findCrossingPointR(
     if(Jz!=NULL)
         *Jz = 0;
     while(!finished) {
-        if(solver.step() <= 0 || numStepsODE >= MAX_NUM_STEPS_ODE)  // signal of error
+        if(solver.doStep() <= 0 || numStepsODE >= MAX_NUM_STEPS_ODE)  // signal of error
             finished = true;
         else {
             numStepsODE++;
@@ -170,30 +171,36 @@ static double findCrossingPointR(
             if(timeStepTraj!=INFINITY && traj!=NULL)
             {   // store trajectory
                 while(timeTraj <= timeCurr && traj->size() < NUM_STEPS_TRAJ) {
-                    traj->push_back(coord::PosCyl(  // store R and z at equal intervals of time
-                        fabs(solver.value(timeTraj, 0)), solver.value(timeTraj, 1), 0)); 
+                    // store R and z at equal intervals of time
+                    double vtraj[4];
+                    solver.getSol(timeTraj, vtraj);
+                    traj->push_back(coord::PosCyl(vtraj[0], vtraj[1], 0));
                     timeTraj += timeStepTraj;
                 }
             }
-            if(solver.value(timeCurr, 1) < 0) {  // z<0 - we're done
+            double vcurr[4];
+            solver.getSol(timeCurr, vcurr);
+            if(vcurr[1] < 0) {  // z<0 - we're done
                 finished = true;
                 timeCurr = math::findRoot(FindCrossingPointZequal0(solver),
                     timePrev, timeCurr, ACCURACY_RTHIN);
             }
             if(Jz!=NULL)
             {   // compute vertical action  (very crude approximation! one integration point per timestep)
-                *Jz +=
-                 (  solver.value((timePrev+timeCurr)/2, 2) *   // vR at the mid-timestep
-                   (solver.value(timeCurr, 0) - solver.value(timePrev, 0))  // delta R over timestep
-                  + solver.value((timePrev+timeCurr)/2, 3) *   // vz at the mid-timestep
-                   (solver.value(timeCurr, 1) - solver.value(timePrev, 1))  // delta z over timestep
-                  ) / M_PI;
+                double vprev[4], vmid[4];
+                solver.getSol(timePrev, vprev);
+                solver.getSol((timePrev+timeCurr)/2, vmid);
+                *Jz += 1 / M_PI * (
+                    vmid[2] * (vcurr[0]-vprev[0]) +  // vR at the mid-timestep * delta R over timestep
+                    vmid[3] * (vcurr[1]-vprev[1]) ); // vz at the mid-timestep * delta z over timestep
             }
         }
     }
     if(timeCross!=NULL)
         *timeCross = timeCurr;
-    return fabs(solver.value(timeCurr, 0));   // value of R at the moment of crossing x-y plane
+    double vroot[4];
+    solver.getSol(timeCurr, vroot);    
+    return fabs(vroot[0]);   // value of R at the moment of crossing x-y plane
 }
 
 /// function to be used in root-finder for locating the thin orbit in R-z plane
@@ -238,10 +245,10 @@ double estimateInterfocalDistanceShellOrbit(
     double Rthin = math::findRoot(fnc, Rmin, Rmax, ACCURACY_RTHIN);
     if(R!=NULL)
         *R=Rthin;
-    if(!math::isFinite(Rthin) || traj.size()==0) {
-#ifdef VERBOSE_REPORT
-        std::cout << "Could not find a thin orbit for E="<<E<<", Lz="<<Lz<<" - returning "<<Rmin<<"\n";
-#endif
+    if(!isFinite(Rthin) || traj.size()==0) {
+        utils::msg(utils::VL_WARNING, FUNCNAME,
+            "Could not find a thin orbit for E="+utils::toString(E)+", Lz="+utils::toString(Lz)+
+            " - returning "+utils::toString(Rmin));
         return Rmin;  // anything
     }
     // now find the best-fit value of delta for this orbit
@@ -264,7 +271,7 @@ InterfocalDistanceFinder::InterfocalDistanceFinder(
     // find out characteristic energy values
     double Ein  = potential.value(coord::PosCar(0, 0, 0));
     double Eout = 0;  // default assumption for Phi(r=infinity)
-    if(!math::isFinite(Ein) || Ein>=Eout)
+    if(!isFinite(Ein) || Ein>=Eout)
         throw std::runtime_error("InterfocalDistanceFinder: weird behaviour of potential");
 
     // create a grid in energy
@@ -280,16 +287,32 @@ InterfocalDistanceFinder::InterfocalDistanceFinder(
         gridLzrel[i] = (i+0.01) / (gridSizeLzrel-0.98);
 
     // fill a 2d grid in (E, Lz/Lcirc(E) )
-    math::Matrix<double> grid2dD(gridE.size(), gridLzrel.size());  // 2d grid for interfocal distance
-    math::Matrix<double> grid2dR(gridE.size(), gridLzrel.size());  // 2d grid for Rthin
-    for(unsigned int iE=0; iE<gridE.size(); iE++) {
+    math::Matrix<double> grid2dD(gridSizeE, gridSizeLzrel);  // 2d grid for interfocal distance
+    math::Matrix<double> grid2dR(gridSizeE, gridSizeLzrel);  // 2d grid for Rthin
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for(int iE=0; iE<(int)gridSizeE; iE++) {
         double Rc = R_circ(potential, gridE[iE]);
         double Lc = Rc * v_circ(potential, Rc);  // almost the same as interpLcirc(gridE[iE]);
-        for(unsigned int iL=0; iL<gridLzrel.size(); iL++) {
+        for(unsigned int iL=0; iL<gridSizeLzrel; iL++) {
             double Lz = gridLzrel[iL] * Lc;
             double Rthin;
             grid2dD(iE, iL) = estimateInterfocalDistanceShellOrbit(potential, gridE[iE], Lz, &Rthin);
             grid2dR(iE, iL) = Rthin / Rc;
+        }
+    }
+
+    // debugging output
+    if(utils::verbosityLevel >= utils::VL_VERBOSE) {
+        std::ofstream strm("ifd");
+        for(unsigned int iE=0; iE<gridE.size(); iE++) {
+            double Rc = R_circ(potential, gridE[iE]);
+            for(unsigned int iL=0; iL<gridLzrel.size(); iL++) {
+                strm << Rc << '\t' << gridLzrel[iL] << '\t' <<
+                grid2dD(iE, iL) << '\t' << grid2dR(iE, iL) << '\n';
+            }
+            strm << '\n';
         }
     }
 

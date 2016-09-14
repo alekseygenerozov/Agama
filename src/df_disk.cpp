@@ -67,7 +67,7 @@ double PseudoIsothermal::value(const actions::Actions &J) const
         exp_JrJz /= sumnorm;
     }
     double result = exp_JrJz * exp_Jphi * Sigma * Omega * nu / (4*M_PI*M_PI * kappa);
-    return math::isFinite(result) ? result : 0;
+    return isFinite(result) ? result : 0;
 }
 
 

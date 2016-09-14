@@ -11,9 +11,6 @@
 #include <cassert>
 #include <stdexcept>
 
-#ifdef VERBOSE_REPORT
-#include <iostream>
-#endif
 namespace potential {
 
 // internal definitions
@@ -88,7 +85,7 @@ static void computeFourierCoefs(const BaseDensityOrPotential &src,
     for(int q=0; q<NQuantities; q++) {
         coefs[q]->resize(mmax*2+1);
         for(unsigned int i=0; i<numHarmonicsComputed; i++)
-            coefs[q]->at(indices[i]+mmax).resize(sizeR, sizez);
+            coefs[q]->at(indices[i]+mmax)=math::Matrix<double>(sizeR, sizez);
     }
     std::string errorMsg;
 
@@ -185,7 +182,7 @@ public:
         // unscale input coordinates
         const double s = pos[0];
         const double r = exp( 1/(1-s) - 1/s );
-        if(!math::withinReasonableRange(r))
+        if(r<1e-100 || r>1e100)
             return;  // scaled coords point at 0 or infinity
         const double th= pos[1] * M_PI/2;
         const double R = r*cos(th);
@@ -241,8 +238,7 @@ static void computePotentialCoefsFromDensity(const BaseDensity &src,
     for(unsigned int q=0; q<numQuantitiesOutput; q++) {
         output[q]->resize(2*mmax+1);
         for(unsigned int i=0; i<indices.size(); i++) {  // only allocate those coefs that will be used
-            output[q]->at(indices[i]+mmax).resize(sizeR, sizez);
-            output[q]->at(indices[i]+mmax).fill(0);
+            output[q]->at(indices[i]+mmax)=math::Matrix<double>(sizeR, sizez, 0);
         }
     }
 
@@ -351,8 +347,7 @@ static void computePotentialCoefsFromParticles(
     for(unsigned int q=0; q<numQuantitiesOutput; q++) {
         output[q]->resize(2*mmax+1);
         for(unsigned int i=0; i<indices.size(); i++) {
-            output[q]->at(indices[i]+mmax).resize(sizeR, sizez);
-            output[q]->at(indices[i]+mmax).fill(0);
+            output[q]->at(indices[i]+mmax)=math::Matrix<double>(sizeR, sizez, 0);
         }
     }
     int nbody = Rz.size();
@@ -406,7 +401,7 @@ void computeDensityCoefsCyl(const BaseDensity& src,
     computeFourierCoefs<BaseDensity, 1>(src, mmax, gridR, gridz, &coefs);
     // the value at R=0,z=0 might be undefined, in which case we take it from nearby points
     for(unsigned int iz=0; iz<gridz.size(); iz++)
-        if(gridz[iz] == 0 && !math::isFinite(output[mmax](0, iz))) {
+        if(gridz[iz] == 0 && !isFinite(output[mmax](0, iz))) {
             double d1 = output[mmax](0, iz+1);  // value at R=0,z>0
             double d2 = output[mmax](1, iz);    // value at R>0,z=0
             for(unsigned int mm=0; mm<output.size(); mm++)
@@ -644,7 +639,7 @@ void DensityAzimuthalHarmonic::getCoefs(
         gridz = spl[mmax].yvalues();
     for(unsigned int mm=0; mm<=2*mmax; mm++)
         if(!spl[mm].isEmpty()) {
-            coefs[mm].resize(sizeR, sizez);
+            coefs[mm]=math::Matrix<double>(sizeR, sizez);
             for(unsigned int iR=0; iR<sizeR; iR++)
                 for(unsigned int iz=0; iz<sizez; iz++)
                     coefs[mm](iR, iz) = spl[mm].value(gridR[iR], gridz[iz]);
@@ -750,7 +745,7 @@ static PtrPotential determineAsympt(
             }
         }
     // safeguarding against possible problems
-    if(!math::isFinite(W[0])) {
+    if(!isFinite(W[0])) {
         // something went wrong - at least return a correct value for the l=0 term
         math::Averager avg;
         for(unsigned int p=0; p<npoints; p++)
@@ -770,7 +765,7 @@ static void chooseGridRadii(const BaseDensity& src,
     // if the grid min/max radii is not provided, try to determine automatically
     if(Rmax==0 || Rmin==0) {
         double rhalf = getRadiusByMass(src, 0.5 * src.totalMass());
-        if(!math::isFinite(rhalf))
+        if(!isFinite(rhalf))
             throw std::invalid_argument("CylSpline: failed to automatically determine grid extent");
         double spacing = 1 + sqrt(10./sqrt(gridSizeR*gridSizez));  // ratio between consecutive grid nodes
         if(Rmax==0)
@@ -782,9 +777,9 @@ static void chooseGridRadii(const BaseDensity& src,
         zmax=Rmax;
     if(zmin==0)
         zmin=Rmin;
-#ifdef VERBOSE_REPORT
-    std::cout << "CylSpline: Grid in R=["<<Rmin<<":"<<Rmax<<"], z=["<<zmin<<":"<<zmax<<"]\n";
-#endif
+    utils::msg(utils::VL_DEBUG, "CylSpline",
+        "Grid in R=["+utils::toString(Rmin)+":"+utils::toString(Rmax)+
+             "], z=["+utils::toString(zmin)+":"+utils::toString(zmax)+"]");
 }
 
 static void chooseGridRadii(const particles::ParticleArray<coord::PosCyl>& points,
@@ -814,9 +809,9 @@ static void chooseGridRadii(const particles::ParticleArray<coord::PosCyl>& point
         zmax=Rmax;
     if(zmin==0)
         zmin=Rmin;
-#ifdef VERBOSE_REPORT
-    std::cout << "CylSpline: Grid in R=["<<Rmin<<":"<<Rmax<<"], z=["<<zmin<<":"<<zmax<<"]\n";
-#endif
+    utils::msg(utils::VL_DEBUG, "CylSpline",
+        "Grid in R=["+utils::toString(Rmin)+":"+utils::toString(Rmax)+
+             "], z=["+utils::toString(zmin)+":"+utils::toString(zmax)+"]");
 }
 
 } // internal namespace
@@ -1129,9 +1124,9 @@ void CylSpline::getCoefs(
     for(unsigned int mm=0; mm<=2*mmax; mm++) {
         if(!spl[mm])
             continue;
-        Phi   [mm].resize(sizeR, sizez);
-        dPhidR[mm].resize(sizeR, sizez);
-        dPhidz[mm].resize(sizeR, sizez);
+        Phi   [mm]=math::Matrix<double>(sizeR, sizez);
+        dPhidR[mm]=math::Matrix<double>(sizeR, sizez);
+        dPhidz[mm]=math::Matrix<double>(sizeR, sizez);
         for(unsigned int iR=0; iR<sizeR; iR++)
             for(unsigned int iz=0; iz<sizez; iz++) {
                 double Rscaled = scaledR[iR];     // coordinates in the internal scaled coords array

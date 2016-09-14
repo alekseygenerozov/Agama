@@ -24,6 +24,7 @@ See the FORTRAN example for more details.
 #include <cstring>
 #include "potential_factory.h"
 #include "utils_config.h"
+#include "utils.h"
 
 namespace{
 
@@ -46,7 +47,12 @@ typedef double(*potentialfnc)(double* X, double* FORCE);
 class DensityWrapper: public potential::BaseDensity{
 public:
     DensityWrapper(densityfnc _dens, coord::SymmetryType _sym) :
-        dens(_dens), sym(_sym) {}
+        dens(_dens), sym(_sym)
+    {
+        utils::msg(utils::VL_DEBUG, "FortranWrapper",
+            "Created a C++ wrapper for a Fortran density routine at "+
+            utils::toString((void*)dens));
+    }
 private:
     densityfnc dens;
     coord::SymmetryType sym;
@@ -66,7 +72,12 @@ private:
 class PotentialWrapper: public potential::BasePotentialCar {
 public:
     PotentialWrapper(potentialfnc _pot, coord::SymmetryType _sym) :
-        pot(_pot), sym(_sym) {}
+        pot(_pot), sym(_sym)
+    {
+        utils::msg(utils::VL_DEBUG, "FortranWrapper",
+            "Created a C++ wrapper for a Fortran potential routine at "+
+            utils::toString((void*)pot));
+    }
 private:
     potentialfnc pot;
     coord::SymmetryType sym;

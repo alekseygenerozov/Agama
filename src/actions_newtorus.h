@@ -25,7 +25,7 @@ public:
         Note that for this class, the values of actions are set at the constructor;
         an attempt to call this function with different set of actions will result in 
         a `std::invalid_argument` exception. */
-    virtual coord::PosVelCyl map(const ActionAngles& actAng, Frequencies* freq=0) const;
+    virtual coord::PosVelCyl map(const ActionAngles& actAng, Frequencies* freq=NULL) const;
 private:
     const Actions acts;     ///< the values of actions for this torus
     Frequencies freqs;      ///< frequencies (dH/dJ evaluated at these actions)

@@ -44,7 +44,7 @@ void epicycleFreqs(const BasePotential& potential, const double R,
     \param[out] Phi0,coef  if not NULL, will contain the extrapolation coefficients;
     \returns the slope `s` of potential extrapolation law.
 */
-double innerSlope(const BasePotential& potential, double* Phi0=0, double* coef=0);
+double innerSlope(const BasePotential& potential, double* Phi0=NULL, double* coef=NULL);
 
 /** Determine the behavior of potential at infinity.
     The potential is approximated as the Newtonian fall-off plus a power-law with slope s<0:
@@ -55,7 +55,7 @@ double innerSlope(const BasePotential& potential, double* Phi0=0, double* coef=0
     \param[out] M,coef  if not NULL, will contain the extrapolation coefficients;
     \returns the slope `s` of potential extrapolation law.
 */
-double outerSlope(const BasePotential& potential, double* M=0, double* coef=0);
+double outerSlope(const BasePotential& potential, double* M=NULL, double* coef=NULL);
 
 /** Find the minimum and maximum radii of an orbit in the equatorial plane
     with given energy and angular momentum (which are the roots of equation
@@ -87,22 +87,22 @@ public:
     explicit Interpolator(const BasePotential& potential);
 
     /// compute the potential and its derivatives at the given cylindrical radius
-    virtual void evalDeriv(const double R, double* value=0, double* deriv=0, double* deriv2=0) const;
+    virtual void evalDeriv(const double R, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
 
     /// provide up to 2 derivatives of potential
     virtual unsigned int numDerivs() const { return 2; }
 
     /// return L_circ(E) and optionally its first derivative
-    double L_circ(const double E, double* deriv=0) const;
+    double L_circ(const double E, double* deriv=NULL) const;
 
     /// return R_circ(E) and optionally its first derivative
-    double R_circ(const double E, double* deriv=0) const;
+    double R_circ(const double E, double* deriv=NULL) const;
 
     /// return radius of a circular orbit with the given angular momentum, optionally with derivative
-    double R_from_Lz(const double Lz, double* deriv=0) const;
+    double R_from_Lz(const double Lz, double* deriv=NULL) const;
 
     /// return the radius corresponding to the given potential, optionally with derivative
-    double R_max(const double Phi, double* deriv=0) const;
+    double R_max(const double Phi, double* deriv=NULL) const;
 
     /** return interpolated values of epicyclic frequencies at the given radius
         \param[in]  R     is the cylindrical radius 
@@ -115,12 +115,12 @@ public:
     /** return the slope of potential near r=0 (same as the standalone function `innerSlope`).
         \param[out] Phi0,coef  if not NULL, will contain the extrapolation coefficients;
     */
-    double innerSlope(double* Phi0=0, double* coef=0) const;
+    double innerSlope(double* Phi0=NULL, double* coef=NULL) const;
     
     /** return the slope of potential near r=0 (same as the standalone function `outerSlope`).
         \param[out] M,coef  if not NULL, will contain the extrapolation coefficients;
     */
-    double outerSlope(double* M=0, double* coef=0) const {
+    double outerSlope(double* M=NULL, double* coef=NULL) const {
         if(M)    *M = Mtot;
         if(coef) *coef = coefOut;
         return slopeOut;

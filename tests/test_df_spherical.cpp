@@ -267,5 +267,7 @@ int main()
     ok &= test<RmaxHernquist, PhasevolHernquist, DFHernquist>(poth);
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

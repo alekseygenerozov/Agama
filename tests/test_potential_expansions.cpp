@@ -18,7 +18,7 @@
 #include <ctime>
 
 using potential::PtrPotential;
-const bool output = true;
+const bool output = utils::verbosityLevel >= utils::VL_VERBOSE;
 
 /// write potential coefs into file, load them back and create a new potential from these coefs
 PtrPotential writeRead(const potential::BasePotential& pot)
@@ -85,7 +85,7 @@ bool testAverageError(const potential::BasePotential& p1, const potential::BaseP
 {
     double gamma = getInnerDensitySlope(p2);
     std::string fileName = std::string("testerr_") + p1.name() + "_" + p2.name() + 
-        "_gamma" + utils::convertToString(gamma);
+        "_gamma" + utils::toString(gamma);
     std::ofstream strm;
     if(output)
         strm.open(fileName.c_str());
@@ -140,7 +140,7 @@ bool testAverageError(const potential::BaseDensity& p1, const potential::BaseDen
 {
     double gamma = getInnerDensitySlope(p2);
     std::string fileName = std::string("testerr_") + p1.name() + "_" + p2.name() + 
-        "_gamma" + utils::convertToString(gamma);
+        "_gamma" + utils::toString(gamma);
     std::ofstream strm;
     if(output)
         strm.open(fileName.c_str());
@@ -256,7 +256,7 @@ int main() {
     for(unsigned int m=0; m<=12; m++) {
     double dd=math::powInt(0.5,14);
     double sum=0, sumd, max=0, maxd=0;
-    std::ofstream ff(("appr"+utils::convertToString(m)).c_str());
+    std::ofstream ff(("appr"+utils::toString(m)).c_str());
     ff << std::setprecision(15);
     for(double x=dd; x<1; x+=dd) {
         double der1, der2, val2;
@@ -396,6 +396,7 @@ int main() {
     std::cout << (std::clock()-clock)*1.0/CLOCKS_PER_SEC << " seconds to create CylSpline\n";
     PtrPotential test2d = potential::CylSpline::create(  // directly from potential
         test2_Dehnen0Tri, 6, 20, 0., 0., 20, 0., 0.);
+std::cout << "created test2d\n";
     PtrPotential test2c_clone = writeRead(*test2c);
 //    ok &= testAverageError( test2b, test2_Dehnen0Tri, 0.5);
     ok &= testAverageError( test2s, test2_Dehnen0Tri, 0.02);
@@ -439,6 +440,8 @@ int main() {
     ok &= testAverageError(*test6m, test6_Dehnen05Tri, 1.0);
     ok &= testAverageError(*test6c, test6_Dehnen05Tri, 1.5);
     if(ok)
-        std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n\n";
+        std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

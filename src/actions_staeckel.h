@@ -46,7 +46,7 @@ Actions actionsAxisymStaeckel(
 ActionAngles actionAnglesAxisymStaeckel(
     const potential::OblatePerfectEllipsoid& potential, 
     const coord::PosVelCyl& point,
-    Frequencies* freq=0);
+    Frequencies* freq=NULL);
 
 /** Find approximate actions in a given axisymmetric potential, using the Staeckel Fudge method.
     \param[in]  potential is the arbitrary axisymmetric potential;
@@ -77,7 +77,7 @@ ActionAngles actionAnglesAxisymFudge(
     const potential::BasePotential& potential, 
     const coord::PosVelCyl& point, 
     double interfocalDistance, 
-    Frequencies* freq=0);
+    Frequencies* freq=NULL);
 
 #if 0 /* temporarily disabled */
 /** Compute the total energy and the third integral for an orbit in a Staeckel potential
@@ -107,7 +107,7 @@ public:
     virtual Actions actions(const coord::PosVelCyl& point) const {
         return actionsAxisymStaeckel(*pot, point); }
 
-    virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const {
+    virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=NULL) const {
         return actionAnglesAxisymStaeckel(*pot, point, freq); }
 
 private:
@@ -129,7 +129,7 @@ public:
         return actionsAxisymFudge(*pot, point, 
             finder.value(totalEnergy(*pot, point), point.R*point.vphi)); }
 
-    virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const {
+    virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=NULL) const {
         return actionAnglesAxisymFudge(*pot, point,
             finder.value(totalEnergy(*pot, point), point.R*point.vphi), freq); }
 

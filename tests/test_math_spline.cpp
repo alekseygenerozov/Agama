@@ -6,6 +6,7 @@
 #include "math_sphharm.h"
 #include "math_sample.h"
 #include "math_specfunc.h"
+#include "utils.h"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -18,7 +19,7 @@
 #include "torus/WD_Pspline.h"
 #endif
 
-const bool OUTPUT = true;
+const bool OUTPUT = utils::verbosityLevel >= utils::VL_VERBOSE;
 
 // provides the integral of sin(x)*x^n
 class testfnc: public math::IFunctionIntegral {
@@ -735,6 +736,6 @@ int main()
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
     else
-        std::cout << "\033[1;31mFAILED\033[0m\n";
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

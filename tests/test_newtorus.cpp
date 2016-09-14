@@ -74,7 +74,7 @@ bool test_torus(const potential::BasePotential& pot, const coord::PosVelCyl& poi
         // compute a/a from p/v using exact expressions for Staeckel potential
         actions::Frequencies frS;
         aaStk[i] = actions::actionAnglesAxisymFudge(pot, trajTorus[i], CS_DELTA, &frS);
-        if(!math::isFinite(aaStk[i].thetar) && math::isFinite(aaStk[i].Jr))
+        if(!isFinite(aaStk[i].thetar) && isFinite(aaStk[i].Jr))
             continue;  // subtle error in action/angle finder, not relevant to Torus
         // collect statistics
         statH.add(totalEnergy(pot, trajTorus[i]));
@@ -192,10 +192,12 @@ int main()
         point.vR = v*sintheta*cos(phi);
         point.vz = v*sintheta*sin(phi);
         point.vphi = v*costheta;
-        allok &= test_torus(potential, point, ("torus"+utils::convertToString(p)+".dat").c_str());
+        allok &= test_torus(potential, point, ("torus"+utils::toString(p)+".dat").c_str());
     }
     strm.close();
     if(allok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

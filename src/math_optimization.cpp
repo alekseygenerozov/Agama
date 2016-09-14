@@ -1,14 +1,21 @@
+#ifndef HAVE_PYTHON
+#undef HAVE_CVXOPT
+#endif
+
 #ifdef HAVE_CVXOPT
 #include <cvxopt.h>  // C interface to LP/QP solver written in Python
 #endif
+
 #ifdef HAVE_GLPK
 #include <glpk.h>    // GNU linear programming kit - optimization problem solver
 #include <csetjmp>
 #endif
+
 #include "math_optimization.h"
+#include "math_base.h"
 #include <stdexcept>
 #include <cassert>
-#include "math_core.h"
+#include <cmath>
 
 namespace math{
 
@@ -27,8 +34,8 @@ std::vector<double> linearOptimizationSolve(const IMatrix<NumT>& A,
     const std::vector<NumT>& rhs,  const std::vector<NumT>& L,
     const std::vector<NumT>& xmin, const std::vector<NumT>& xmax)
 {
-    unsigned int numVariables   = A.numCols();
-    unsigned int numConstraints = A.numRows();
+    unsigned int numVariables   = A.cols();
+    unsigned int numConstraints = A.rows();
     if( rhs.size()!=numConstraints ||
         (!L.empty()    && L.size()!=numVariables) ||
         (!xmin.empty() && xmin.size()!=numVariables) ||
@@ -135,7 +142,7 @@ std::vector<double> linearOptimizationSolve(const IMatrix<NumT>& A,
 template<typename NumT>
 PyObject* initPyMatrix(const IMatrix<NumT>& M)
 {
-    unsigned int nrows = M.numRows(), ncols = M.numCols(), ntotal = M.size();
+    unsigned int nrows = M.rows(), ncols = M.cols(), ntotal = M.size();
     if(ntotal == nrows*ncols)
     {   // dense matrices are initialized item-by-item
         PyObject *pyMatrix = (PyObject*)Matrix_New(nrows, ncols, DOUBLE);
@@ -177,14 +184,14 @@ std::vector<double> quadraticOptimizationSolve(
     const std::vector<NumT>& L, const IMatrix<NumT>& Q,
     const std::vector<NumT>& xmin, const std::vector<NumT>& xmax)
 {
-    unsigned int numVariables   = A.numCols();
-    unsigned int numConstraints = A.numRows();
+    unsigned int numVariables   = A.cols();
+    unsigned int numConstraints = A.rows();
     bool doQP = Q.size()!=0;
     if( rhs.size()!=numConstraints ||
         (!L.empty()    && L.size()!=numVariables) ||
         (!xmin.empty() && xmin.size()!=numVariables) ||
         (!xmax.empty() && xmax.size()!=numVariables) ||
-        (doQP && (Q.numRows()!=numVariables || Q.numCols()!=numVariables)) )
+        (doQP && (Q.rows()!=numVariables || Q.cols()!=numVariables)) )
         throw std::invalid_argument("quadraticOptimizationSolve: invalid size of input arrays");
 
     Py_Initialize();
@@ -304,7 +311,7 @@ std::vector<double> quadraticOptimizationSolve(
     if(Q.size()==0)  // linear problems will be redirected to the appropriate solver
         return linearOptimizationSolve(A, rhs, L, xmin, xmax);
     else
-        throw std::runtime_error("quadraticOptimizationSolve not implemented")
+        throw std::runtime_error("quadraticOptimizationSolve not implemented");
 #else
     throw std::runtime_error("quadraticOptimizationSolve not implemented");
 #endif
@@ -320,7 +327,7 @@ class AugmentedMatrix: public IMatrix<NumT> {
     const unsigned int Mcols, Mrows, Nadd;
 public:
     AugmentedMatrix(const IMatrix<NumT>& src, unsigned int _Nadd):
-        M(src), Mcols(M.numCols()), Mrows(M.numRows()), Nadd(_Nadd) {};
+        M(src), Mcols(M.cols()), Mrows(M.rows()), Nadd(_Nadd) {};
     virtual unsigned int size()    const { return numRows() * numCols(); }
     virtual unsigned int numRows() const { return Mrows; }
     virtual unsigned int numCols() const { return Mcols + 2*Nadd; }
@@ -348,7 +355,7 @@ class AugmentedQuadMatrix: public IMatrix<NumT> {
     const unsigned int Qsize, Qrows, Nadd;
 public:
     AugmentedQuadMatrix(const IMatrix<NumT>& src, const std::vector<NumT>& _pen):
-        Q(src), pen(_pen), Qsize(Q.size()), Qrows(Q.numRows()), Nadd(pen.size()) {};
+        Q(src), pen(_pen), Qsize(Q.size()), Qrows(Q.rows()), Nadd(pen.size()) {};
     virtual unsigned int size()    const { return Qsize + 2*Nadd; }
     virtual unsigned int numRows() const { return Qrows + 2*Nadd; }
     virtual unsigned int numCols() const { return Qrows + 2*Nadd; }
@@ -376,8 +383,8 @@ std::vector<double> linearOptimizationSolveApprox(
 {
     if(allZeros(consPenaltyLin))
         return linearOptimizationSolve(A, rhs, L, xmin, xmax);
-    unsigned int numVariables   = A.numCols();
-    unsigned int numConstraints = A.numRows();
+    unsigned int numVariables   = A.cols();
+    unsigned int numConstraints = A.rows();
     if( rhs.size()!=numConstraints || consPenaltyLin.size()!=numConstraints ||
         (!L.empty() && L.size()!=numVariables) )
         throw std::invalid_argument("linearOptimizationSolveApprox: invalid size of input arrays");
@@ -408,8 +415,8 @@ std::vector<double> quadraticOptimizationSolveApprox(
 {
     if(allZeros(consPenaltyLin) && allZeros(consPenaltyQuad))
         return quadraticOptimizationSolve(A, rhs, L, Q, xmin, xmax);
-    unsigned int numVariables   = A.numCols();
-    unsigned int numConstraints = A.numRows();
+    unsigned int numVariables   = A.cols();
+    unsigned int numConstraints = A.rows();
     if( rhs.size()!=numConstraints ||
         (!consPenaltyLin.empty()  && consPenaltyLin. size()!=numConstraints) ||
         (!consPenaltyQuad.empty() && consPenaltyQuad.size()!=numConstraints) ||

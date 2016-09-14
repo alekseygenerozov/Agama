@@ -128,7 +128,7 @@ public:
     virtual unsigned int numDerivs() const { return 1; }
     double findRoot() const {
         double rscaled = math::findRoot(*this, 0, 1, ACCURACY_JR);
-        if(!math::isFinite(rscaled)) {
+        if(!isFinite(rscaled)) {
             // can happen close to apocenter, because the phase found by numerical integration
             // may not exactly correspond to the (inverse) frequency computed by another method
             rscaled = 1;
@@ -455,7 +455,7 @@ double computeHamiltonianSpherical(const potential::BasePotential& potential, co
     double Ecirc = potential.value(coord::PosCyl(rcirc, 0, 0)) + (L>0 ? 0.5 * pow_2(L/rcirc) : 0);
     // upper bound for Hamiltonian
     double Einf  = potential.value(coord::PosCyl(INFINITY, 0, 0));
-    if(!math::isFinite(Einf) && Einf != INFINITY)  // some potentials may return NAN for r=infinity
+    if(!isFinite(Einf) && Einf != INFINITY)  // some potentials may return NAN for r=infinity
         Einf = 0;  // assume the default value for potential at infinity
     // find E such that Jr(E, L) equals the target value
     HamiltonianFinderFnc fnc(potential, acts.Jr, L, Ecirc, Einf);
@@ -497,7 +497,7 @@ ActionAngles actionAnglesSpherical(
 {
     double E, L, R1, R2;
     Actions acts = computeActions(point, pot, E, L, R1, R2);
-    if(!math::isFinite(acts.Jr))  // E>=0
+    if(!isFinite(acts.Jr))  // E>=0
         return ActionAngles(acts, Angles(NAN, NAN, NAN));
     Frequencies freq;
     freq.Omegar = M_PI / integr<MODE_OMEGAR>(potential::PotentialWrapper(pot), E, L, R1, R2);

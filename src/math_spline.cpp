@@ -1,15 +1,12 @@
 #include "math_spline.h"
 #include "math_core.h"
 #include "math_fit.h"
+#include "utils.h"
 #include <cmath>
 #include <algorithm>
 #include <cassert>
 #include <stdexcept>
 
-#undef VERBOSE_REPORT
-#ifdef VERBOSE_REPORT
-#include <iostream>
-#endif
 namespace math {
 
 // ------- Some machinery for B-splines ------- //
@@ -167,8 +164,7 @@ static Matrix<double> computeOverlapMatrix(const std::vector<double> &knots)
 
     // evaluate overlap integrals and store them in the symmetric matrix M_pq, which is a banded matrix
     // with nonzero values only within N+1 cells from the diagonal
-    Matrix<double> mat(numBasisFnc, numBasisFnc);
-    mat.fill(0);
+    Matrix<double> mat(numBasisFnc, numBasisFnc, 0);
     for(int p=0; p<numBasisFnc; p++) {
         int kmin = std::max<int>(p-N, 0);   // index of leftmost knot of the integration sub-intervals
         int kmax = std::min<int>(p+1, numKnots-1);     // same for the rightmost
@@ -317,16 +313,15 @@ CubicSpline::CubicSpline(const std::vector<double>& _xval,
 
     if(numPoints == 2) {
         fder2.assign(2, 0.);
-    } else
-    if(numPoints == 3) {
+    } else if(numPoints == 3) {
         fder2.assign(3, 0.);
         fder2[1] = rhs[0] / diag[0];
     } else {
-        linearSystemSolveTridiagSymm(diag, offdiag, rhs, fder2);
+        fder2 = solveTridiag(diag, offdiag, offdiag, rhs);
         fder2.insert(fder2.begin(), 0.);  // for natural cubic spline,
-        fder2.push_back(0.);             // 2nd derivatives are zero at endpoints;
+        fder2.push_back(0.);              // 2nd derivatives are zero at endpoints;
     }
-    if(isFinite(der1))              // but for a clamped spline they are not.
+    if(isFinite(der1))                    // but for a clamped spline they are not.
         fder2[0] = ( 3 * (fval[1]-fval[0]) / (xval[1]-xval[0]) 
             -3 * der1 - 0.5 * fder2[1] * (xval[1]-xval[0]) ) / (xval[1]-xval[0]);
     if(isFinite(der2))
@@ -749,13 +744,13 @@ void LinearInterpolator2d::evalDeriv(const double x, const double y,
 CubicSpline2d::CubicSpline2d(const std::vector<double>& xgrid, const std::vector<double>& ygrid,
     const Matrix<double>& fvalues,
     double deriv_xmin, double deriv_xmax, double deriv_ymin, double deriv_ymax) :
-    BaseInterpolator2d(xgrid, ygrid, fvalues)
+    BaseInterpolator2d(xgrid, ygrid, fvalues),
+    fx(xgrid.size(), ygrid.size()),
+    fy(xgrid.size(), ygrid.size()),
+    fxy(xgrid.size(), ygrid.size())
 {
-    const unsigned int xsize = xval.size();
-    const unsigned int ysize = yval.size();
-    fx.resize (xsize, ysize);
-    fy.resize (xsize, ysize);
-    fxy.resize(xsize, ysize);
+    const unsigned int xsize = xgrid.size();
+    const unsigned int ysize = ygrid.size();
     std::vector<double> tmpvalues(ysize);
     for(unsigned int i=0; i<xsize; i++) {
         for(unsigned int j=0; j<ysize; j++)
@@ -962,15 +957,15 @@ void CubicSpline2d::evalDeriv(const double x, const double y,
 
 QuinticSpline2d::QuinticSpline2d(const std::vector<double>& xgrid, const std::vector<double>& ygrid,
     const Matrix<double>& fvalues, const Matrix<double>& dfdx, const Matrix<double>& dfdy) :
-    BaseInterpolator2d(xgrid, ygrid, fvalues), fx(dfdx), fy(dfdy)
+    BaseInterpolator2d(xgrid, ygrid, fvalues), fx(dfdx), fy(dfdy),
+    fxxx(xgrid.size(), ygrid.size()),
+    fyyy(xgrid.size(), ygrid.size()),
+    fxyy(xgrid.size(), ygrid.size()),
+    fxxxyy(xgrid.size(), ygrid.size())
 {
-    const unsigned int xsize = xval.size();
-    const unsigned int ysize = yval.size();
+    const unsigned int xsize = xgrid.size();
+    const unsigned int ysize = ygrid.size();
     // 1. for each y do 1d quintic spline for z in x, and record d^3z/dx^3
-    fxxx.resize(xsize, ysize);
-    fyyy.resize(xsize, ysize);
-    fxyy.resize(xsize, ysize);
-    fxxxyy.resize(xsize, ysize);
     std::vector<double> t(xsize), t1(xsize);
     for(unsigned int j=0; j<ysize; j++) {
         for(unsigned int i=0; i<xsize; i++) {
@@ -1253,7 +1248,7 @@ std::vector<double> createInterpolator3dArray(const IFunctionNdim& F,
     // collect the values of all basis functions at each grid node in each dimension
     for(int d=0; d<3; d++) {
         unsigned int Ngrid = nodes[d]->size();
-        weights[d].resize(Ngrid+N-1, N+1);
+        weights[d]=math::Matrix<double>(Ngrid+N-1, N+1);
         leftInd[d].resize(Ngrid+N-1);
         const double* arr = &(nodes[d]->front());
         for(unsigned int n=0; n<Ngrid; n++)
@@ -1911,10 +1906,11 @@ double SplineLogDensityFitter<N>::logLrms(const std::vector<double>& ampl) const
     double GdG0[2];
     logG(&ampl[0], NULL, NULL, GdG0);
     double rms = sumWeights * sqrt((GdG0[1] - pow_2(GdG0[0])) / numData);
-#ifdef VERBOSE_REPORT
-    double avg = sumWeights * (GdG0[0] + log(sumWeights) - logG(&ampl[0]));
-    std::cout << "Expected log L = " << avg << " +- " << rms << "\n";
-#endif
+    if(utils::verbosityLevel >= utils::VL_VERBOSE) {
+        double avg = sumWeights * (GdG0[0] + log(sumWeights) - logG(&ampl[0]));
+        utils::msg(utils::VL_VERBOSE, "splineLogDensity",
+            "Expected log L="+utils::toString(avg)+" +- "+utils::toString(rms));
+    }
     return rms;
 }
 
@@ -1957,9 +1953,8 @@ double SplineLogDensityFitter<N>::logLcv(const std::vector<double>& ampl) const
         val += fmin(add, 0);  // (this shouldn't occur under normal circumstances)
     }
     catch(std::exception&) {  // may happen if the fit did not converge, i.e. gradient != 0
-#ifdef VERBOSE_REPORT
-        std::cout << "Hessian is not positive-definite!\n";
-#endif
+        utils::msg(utils::VL_WARNING, "splineLogDensity",
+            "Hessian is not positive-definite");
         val -= 1e10;   // this will never be a good fit
     }
     return val;
@@ -2145,11 +2140,12 @@ private:
         double logL   = fitter.logL(result);
         double logLcv = fitter.logLcv(result);
         bool converged= numIter>0;  // check for convergence (numIter positive)
-#ifdef VERBOSE_REPORT
-        std::cout << "lambda= " << params.lambda << "  #iter= " << numIter <<
-        "  logL= " << logL << "  CV= " << logLcv << 
-        (!converged ? " did not converge\n" : params.best < logLcv ? " improved\n" : "\n");
-#endif
+        if(utils::verbosityLevel >= utils::VL_VERBOSE) {
+            utils::msg(utils::VL_VERBOSE, "splineLogDensity",
+                "lambda="+utils::toString(params.lambda)+", #iter="+utils::toString(numIter)+
+                ", logL= "+utils::toString(logL)+", CV="+utils::toString(logLcv)+
+                (!converged ? " did not converge" : params.best < logLcv ? " improved" : ""));
+        }
         if(useCV) {  // we are searching for the highest cross-validation score
             if( params.best < logLcv && converged)
             {   // update the best-fit params and the starting point for fitting
@@ -2183,22 +2179,31 @@ std::vector<double> splineLogDensity(const std::vector<double> &grid,
         int numIter = findRootNdimDeriv(fitter, &params.ampl[0], 1e-8*params.gradNorm, 100, &result[0]);
         if(numIter>0)  // check for convergence
             params.ampl = result;
-#ifdef VERBOSE_REPORT
-        std::cout << "#iter= " << numIter << "  logL= " << fitter.logL(result) <<
-        "  CV= " << fitter.logLcv(result) << (numIter<=0 ? " did not converge\n" : "\n");
-#endif
+        utils::msg(utils::VL_VERBOSE, "splineLogDensity", 
+            "#iter="+utils::toString(numIter)+", logL="+utils::toString(fitter.logL(result))+
+            ", CV="+utils::toString(fitter.logLcv(result))+(numIter<=0 ? " did not converge" : ""));
     } else {
-        // find the value of lambda and corresponding amplitudes that maximize the cross-validation score
+        // find the value of lambda and corresponding amplitudes that maximize the cross-validation score.
+        // normally lambda is a small number ( << 1), but it ranges from 0 to infinity,
+        // so the root-finder uses a scaling transformation, such that scaledLambda=1
+        // corresponds to lambda=0 and scaledLambda=0 -- to lambda=infinity.
+        // we don't use the entire interval from 0 to infinity, though, to avoid singularities:
+        const double MINSCALEDLAMBDA = 0.12422966;  // corresponds to lambda = 1000, rather arbitrary
+        const double MAXSCALEDLAMBDA = 0.971884607; // corresponds to lambda = 1e-15
+        // since the minimizer first computes the function at the left endpoint of the interval
+        // and then at the right endpoint, this leads to first performing an oversmoothed fit
+        // (large lambda), which should yield a reasonable 'gaussian' first approximation,
+        // then a fit with almost no smoothing, which starts with an already more reasonable
+        // initial guess and thus has a better chance to converge.
         const SplineLogDensityLambdaFinder<N> finder(fitter, params);
-        // search for scaled lambda, such that 1 corresponds to lambda=0 and 0 -- to lambda=infinity
-        findMin(finder, 0.1, 1.0, NAN, 1e-4);
+        findMin(finder, MINSCALEDLAMBDA, MAXSCALEDLAMBDA, NAN, 1e-4);
         if(smoothing>0) {
             // target value of log-likelihood is allowed to be worse than
             // the best value for the case of no smoothing by an amount
             // that is proportional to the expected rms variation of logL
             params.best = smoothing * fitter.logLrms(params.ampl);
             params.targetLogL = fitter.logL(params.ampl) - params.best;
-            findRoot(finder, 0.1, 1.0, 1e-4);
+            findRoot(finder, MINSCALEDLAMBDA, MAXSCALEDLAMBDA, 1e-4);
         }
     }
     return fitter.getNormalizedAmplitudes(params.ampl);

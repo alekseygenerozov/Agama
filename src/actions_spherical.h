@@ -33,7 +33,7 @@ Actions actionsSpherical(
 ActionAngles actionAnglesSpherical(
     const potential::BasePotential& potential,
     const coord::PosVelCyl& point,
-    Frequencies* freq=0);
+    Frequencies* freq=NULL);
 
 
 /** Compute the total energy for an orbit in a spherical potential from the given values of actions.
@@ -54,7 +54,7 @@ double computeHamiltonianSpherical(const potential::BasePotential& potential, co
 */
 coord::PosVelCyl mapSpherical(
     const potential::BasePotential &potential,
-    const ActionAngles &actAng, Frequencies* freq=0);
+    const ActionAngles &actAng, Frequencies* freq=NULL);
 
 
 /** Class for performing transformations between action/angle and coordinate/momentum for
@@ -65,17 +65,17 @@ public:
     explicit ActionFinderSpherical(const potential::BasePotential& potential);
 
     virtual Actions actions(const coord::PosVelCyl& point) const;
-    virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const;
+    virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=NULL) const;
     virtual coord::PosVelSphMod map(
         const ActionAngles& actAng,
-        Frequencies* freq=0,
-        DerivAct<coord::SphMod>* derivAct=0,
-        DerivAng<coord::SphMod>* derivAng=0,
-        coord::PosVelSphMod* derivParam=0) const;
+        Frequencies* freq=NULL,
+        DerivAct<coord::SphMod>* derivAct=NULL,
+        DerivAng<coord::SphMod>* derivAng=NULL,
+        coord::PosVelSphMod* derivParam=NULL) const;
 
     /** return the interpolated value of radial action as a function of energy and angular momentum;
         also return the frequencies in Omegar and Omegaz if these arguments are not NULL */
-    double Jr(double E, double L, double *Omegar=0, double *Omegaz=0) const;
+    double Jr(double E, double L, double *Omegar=NULL, double *Omegaz=NULL) const;
 private:
     const potential::Interpolator2d interp;  ///< interpolator for potential and peri/apocenter radii
     const math::CubicSpline2d intJr;         ///< interpolator for the scaled value of radial action

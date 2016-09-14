@@ -1,41 +1,11 @@
 #include "actions_isochrone.h"
 #include "math_core.h"
+#include "math_specfunc.h"
 #include <stdexcept>
 #include <cmath>
 
 namespace actions{
 
-/// solve  phase = eta - ecc * sin(eta)  for eta (eccentric anomaly)
-/// store eta, its sin and cos in output arguments
-static void solveKepler(double ecc, double phase, double &eta, double &sineta, double &coseta)
-{
-    phase = math::wrapAngle(phase);
-    if(phase==0 || phase==M_PI) {
-        eta    = phase;
-        sineta = 0;
-        coseta = phase==0 ? 1 : -1;
-        return;
-    }
-    if(ecc>0.95 && (phase<0.3 || phase>6.0)) {
-        if(phase>M_PI) phase -= 2*M_PI;
-        eta = phase + pow_2(ecc) * (cbrt(6*phase) - phase);
-    } else
-        eta = phase + ecc * sin(phase) / sqrt(1 - ecc * (2*cos(phase) - ecc));
-    double deltaeta = 0;
-    int niter = 0;
-    do {  // Halley's method
-        sineta    = sin(eta);
-        coseta    = cos(eta);
-        double f  = eta - ecc * sineta - phase;
-        double df = 1.  - ecc * coseta;
-        deltaeta  = -f/df;
-        // refinement using second derivative (thanks to A.Gurkan)
-        deltaeta  = -f / (df + 0.5 * deltaeta * ecc * sineta);
-        eta      += deltaeta;
-        niter++;
-    } while(fabs(deltaeta) > 1e-15 && niter<42);
-}
-    
 Actions actionsIsochrone(
     const double M, const double b,
     const coord::PosVelCyl& point)
@@ -118,10 +88,10 @@ coord::PosVelSphMod ToyMapIsochrone::map(
     double ecc  = fmin(sqrt(aa.Jr * (aa.Jr+L) * (aa.Jr+L1) * (aa.Jr+L+L1)) / pow_2(J0), 1.);
     double fac1 = (1 + ecc - j0invsq) * J0 / L;   // sqrt( (1-x1) / (1-x2) )
     double fac2 = (1 + ecc + j0invsq) * J0 / L1;  // sqrt( (1+x2) / (1+x1) )
-    
+
     // quantities below depend on angles
     double eta, sineta, coseta;     // will be computed by the following routine:
-    solveKepler(ecc, aa.thetar, eta, sineta, coseta); // thetar = eta - ecc * sin(eta)
+    math::solveKepler(ecc, aa.thetar, eta, sineta, coseta); // thetar = eta - ecc * sin(eta)
     double ra = 1 - ecc * coseta;   // Kepler problem:  r / a = 1 - e cos(eta)
     double tanhalfeta = coseta==-1 ? INFINITY : sineta / (1 + coseta);
     double thetar   = aa.thetar - (eta>M_PI ? 2*M_PI : 0);

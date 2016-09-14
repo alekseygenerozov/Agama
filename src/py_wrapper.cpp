@@ -20,6 +20,7 @@
     Type `help(agama)` in Python to get a list of exported routines and classes,
     and `help(agama.whatever)` to get the usage syntax for each of them.
 */
+#ifdef HAVE_PYTHON
 #include <Python.h>
 #include <structmember.h>
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
@@ -46,9 +47,6 @@
 #include "utils.h"
 #include "utils_config.h"
 
-/// turn on to display some debugging messages
-//#define DEBUGPRINT
-
 namespace{  // private namespace
 
 /// \name  ----- Helper class to manage the OpenMP behaviour -----
@@ -67,16 +65,14 @@ public:
     OmpDisabler()
     {
         origMaxThreads = omp_get_max_threads();
-#ifdef DEBUGPRINT
-        printf("OpenMP is now disabled (original max # of threads was %d)\n", origMaxThreads);
-#endif
+        utils::msg(utils::VL_DEBUG, "Agama", "OpenMP is now disabled "
+            "(original max # of threads was "+utils::toString(origMaxThreads)+")");
         omp_set_num_threads(1);
     }
     ~OmpDisabler()
     {
-#ifdef DEBUGPRINT
-        printf("OpenMP is now enabled (max # of threads is %d)\n", origMaxThreads);
-#endif
+        utils::msg(utils::VL_DEBUG, "Agama", "OpenMP is now enabled "
+            "(max # of threads is "+utils::toString(origMaxThreads)+")");
         omp_set_num_threads(origMaxThreads);
     }
 #endif
@@ -718,12 +714,11 @@ typedef struct {
 
 static void Density_dealloc(DensityObject* self)
 {
-#ifdef DEBUGPRINT
     if(self->dens)
-        printf("Deleted %s density at %p\n", self->dens->name(), self->dens.get());
+        utils::msg(utils::VL_VERBOSE, "Agama", "Deleted "+std::string(self->dens->name())+
+        " density at "+utils::toString(self->dens.get()));
     else
-        printf("Deleted an empty density\n");
-#endif
+        utils::msg(utils::VL_VERBOSE, "Agama", "Deleted an empty density");
     self->dens.reset();
     self->ob_type->tp_free(self);
 }
@@ -808,9 +803,8 @@ static int Density_init(DensityObject* self, PyObject* args, PyObject* namedArgs
                 "Invalid parameters passed to the constructor, type help(Density) for details");
         }
         assert(self->dens);
-#ifdef DEBUGPRINT
-        printf("Created %s density at %p\n", self->dens->name(), self->dens.get());
-#endif
+        utils::msg(utils::VL_VERBOSE, "Agama", "Created "+std::string(self->dens->name())+
+            " density at "+utils::toString(self->dens.get()));
         return 0;
     }
     catch(std::exception& e) {
@@ -951,9 +945,8 @@ static PyObject* createDensityObject(const potential::PtrDensity& dens)
     new (&(dens_obj->dens)) potential::PtrDensity;
     // now we may safely assign a new value to the smart pointer
     dens_obj->dens = dens;
-#ifdef DEBUGPRINT
-    printf("Created a Python wrapper for %s density at %p\n", dens->name(), dens.get());
-#endif
+    utils::msg(utils::VL_VERBOSE, "Agama", "Created a Python wrapper for "+
+        std::string(dens->name())+" density at "+utils::toString(dens.get()));
     return (PyObject*)dens_obj;
 }
 
@@ -969,15 +962,13 @@ public:
     {
         Py_INCREF(fnc);
         fncname = toString(fnc);
-#ifdef DEBUGPRINT
-        printf("Created a C++ density wrapper for Python function %s\n", fncname.c_str());
-#endif
+        utils::msg(utils::VL_VERBOSE, "Agama",
+            "Created a C++ density wrapper for Python function "+fncname);
     }
     ~DensityWrapper()
     {
-#ifdef DEBUGPRINT
-        printf("Deleted a C++ density wrapper for Python function %s\n", fncname.c_str());
-#endif
+        utils::msg(utils::VL_VERBOSE, "Agama",
+            "Deleted a C++ density wrapper for Python function "+fncname);
         Py_DECREF(fnc);
     }
     virtual coord::SymmetryType symmetry() const { return sym; }
@@ -1012,12 +1003,11 @@ typedef struct {
 
 static void Potential_dealloc(PotentialObject* self)
 {
-#ifdef DEBUGPRINT
     if(self->pot)
-        printf("Deleted %s potential at %p\n", self->pot->name(), self->pot.get());
+        utils::msg(utils::VL_VERBOSE, "Agama", "Deleted "+std::string(self->pot->name())+
+        " potential at "+utils::toString(self->pot.get()));
     else
-        printf("Deleted an empty potential\n");
-#endif
+        utils::msg(utils::VL_VERBOSE, "Agama", "Deleted an empty potential");
     self->pot.reset();
     self->ob_type->tp_free(self);
 }
@@ -1226,20 +1216,16 @@ static int Potential_init(PotentialObject* self, PyObject* args, PyObject* named
         else if(namedArgs!=NULL && PyDict_Check(namedArgs) && PyDict_Size(namedArgs)>0)
             self->pot = Potential_initFromDict(namedArgs);
         else {
-#ifdef DEBUGPRINT
-            printf("Received %d positional arguments", (int)PyTuple_Size(args));
-            if(namedArgs==NULL)
-                printf(" and no named arguments\n");
-            else
-                printf(" and %d named arguments\n", (int)PyDict_Size(namedArgs));
-#endif
+            utils::msg(utils::VL_WARNING, "Agama",
+                "Received "+utils::toString((int)PyTuple_Size(args))+" positional arguments "+
+                (namedArgs==NULL ? "and no named arguments" :
+                "and "+utils::toString((int)PyDict_Size(namedArgs))+" named arguments"));
             throw std::invalid_argument(
                 "Invalid parameters passed to the constructor, type help(Potential) for details");
         }
         assert(self->pot);
-#ifdef DEBUGPRINT
-        printf("Created %s potential at %p\n", self->pot->name(), self->pot.get());
-#endif
+        utils::msg(utils::VL_VERBOSE, "Agama", "Created "+std::string(self->pot->name())+
+            " potential at "+utils::toString(self->pot.get()));
         return 0;
     }
     catch(std::exception& e) {
@@ -1427,9 +1413,8 @@ static PyObject* createPotentialObject(const potential::PtrPotential& pot)
     // same hack as in 'createDensityObject()'
     new (&(pot_obj->pot)) potential::PtrPotential;
     pot_obj->pot = pot;
-#ifdef DEBUGPRINT
-    printf("Created a Python wrapper for %s potential at %p\n", pot->name(), pot.get());
-#endif
+    utils::msg(utils::VL_VERBOSE, "Agama",
+        "Created a Python wrapper for "+std::string(pot->name())+" potential");
     return (PyObject*)pot_obj;
 }
 
@@ -1480,10 +1465,9 @@ static actions::PtrActionFinder createActionFinder(const potential::PtrPotential
     actions::PtrActionFinder af = isSpherical(*pot) ?
         actions::PtrActionFinder(new actions::ActionFinderSpherical(*pot)) :
         actions::PtrActionFinder(new actions::ActionFinderAxisymFudge(pot));
-#ifdef DEBUGPRINT
-    printf("Created %s action finder for %s potential at %p\n",
-           isSpherical(*pot) ? "Spherical" : "Fudge", pot->name(), af.get());
-#endif
+    utils::msg(utils::VL_VERBOSE, "Agama",
+        "Created "+std::string(isSpherical(*pot) ? "Spherical" : "Fudge")+
+        " action finder for "+pot->name()+" potential at "+utils::toString(af.get()));
     return af;
 }
 
@@ -1497,9 +1481,8 @@ typedef struct {
 
 static void ActionFinder_dealloc(ActionFinderObject* self)
 {
-#ifdef DEBUGPRINT
-    printf("Deleted an action finder at %p\n", self->af.get());
-#endif
+    utils::msg(utils::VL_VERBOSE, "Agama", "Deleted an action finder at "+
+        utils::toString(self->af.get()));
     self->af.reset();
     self->ob_type->tp_free(self);
 }
@@ -1578,9 +1561,8 @@ static PyObject* createActionFinderObject(actions::PtrActionFinder af)
     // same trickery as in 'createDensityObject()'
     new (&(af_obj->af)) actions::PtrActionFinder;
     af_obj->af = af;
-#ifdef DEBUGPRINT
-    printf("Created a Python wrapper for action finder at %p\n", af.get());
-#endif
+    utils::msg(utils::VL_VERBOSE, "Agama", "Created a Python wrapper for action finder at "+
+        utils::toString(af.get()));
     return (PyObject*)af_obj;
 }
 
@@ -1655,9 +1637,8 @@ typedef struct {
 
 static void DistributionFunction_dealloc(DistributionFunctionObject* self)
 {
-#ifdef DEBUGPRINT
-    printf("Deleted a distribution function at %p\n", self->df.get());
-#endif
+    utils::msg(utils::VL_VERBOSE, "Agama", "Deleted a distribution function at "+
+        utils::toString(self->df.get()));
     self->df.reset();
     self->ob_type->tp_free(self);
 }
@@ -1775,9 +1756,8 @@ static int DistributionFunction_init(DistributionFunctionObject* self, PyObject*
                 "or a tuple of existing DistributionFunction objects to create a composite DF");
         }
         assert(self->df);
-#ifdef DEBUGPRINT
-        printf("Created a distribution function at %p\n", self->df.get());
-#endif
+        utils::msg(utils::VL_VERBOSE, "Agama", "Created a distribution function at "+
+            utils::toString(self->df.get()));
         return 0;
     }
     catch(std::exception& e) {
@@ -1818,9 +1798,9 @@ static PyObject* DistributionFunction_totalMass(PyObject* self)
     }
     double err;
     double val = ((DistributionFunctionObject*)self)->df->totalMass(1e-6, 1e6, &err);
-#ifdef DEBUGPRINT
-    if(err>1e-6*val) printf("can't reach tolerance in df->totalMass: err=%g\n", err/val);
-#endif
+    if(err>1e-6*val)
+        utils::msg(utils::VL_WARNING, "Agama", "can't reach tolerance in df->totalMass: "
+        "rel.err="+utils::toString(err/val));
     return Py_BuildValue("d", val / conv->massUnit);
 }
 
@@ -1853,15 +1833,13 @@ public:
     DistributionFunctionWrapper(PyObject* _fnc): fnc(_fnc)
     {
         Py_INCREF(fnc);
-#ifdef DEBUGPRINT
-        printf("Created a C++ df wrapper for Python function %s\n", toString(fnc).c_str());
-#endif
+        utils::msg(utils::VL_VERBOSE, "Agama",
+            "Created a C++ df wrapper for Python function "+toString(fnc));
     }
     ~DistributionFunctionWrapper()
     {
-#ifdef DEBUGPRINT
-        printf("Deleted a C++ df wrapper for Python function %s\n", toString(fnc).c_str());
-#endif
+        utils::msg(utils::VL_VERBOSE, "Agama",
+            "Deleted a C++ df wrapper for Python function "+toString(fnc));
         Py_DECREF(fnc);
     }
     virtual double value(const actions::Actions &J) const {
@@ -1905,9 +1883,7 @@ static PyObject* createDistributionFunctionObject(df::PtrDistributionFunction df
     // same hack as in 'createDensityObject()'
     new (&(df_obj->df)) df::PtrDistributionFunction;
     df_obj->df = df;
-#ifdef DEBUGPRINT
-    printf("Created a Python wrapper for distribution function at %p\n", df.get());
-#endif
+    utils::msg(utils::VL_VERBOSE, "Agama", "Created a Python wrapper for distribution function");
     return (PyObject*)df_obj;
 }
 
@@ -2734,6 +2710,8 @@ static const char* docstringSplineApprox =
 
 static int SplineApprox_init(PyObject* self, PyObject* args, PyObject* namedArgs)
 {
+    // "dirty hack" (see above) to construct a C++ object in an already allocated chunk of memory
+    new (&(((SplineApproxObject*)self)->spl)) math::CubicSpline;
     static const char* keywords[] = {"knots","x","y","smooth",NULL};
     PyObject* k_obj=NULL;
     PyObject* x_obj=NULL;
@@ -2946,7 +2924,7 @@ static PyObject* nonuniformGrid(PyObject* /*self*/, PyObject* args, PyObject* na
     PyArrayObject* result = (PyArrayObject*)PyArray_SimpleNew(1, &size, NPY_DOUBLE);
     if(!result)
         return NULL;
-    for(unsigned int index=0; index<size; index++)
+    for(npy_intp index=0; index<size; index++)
         ((double*)PyArray_DATA(result))[index] = grid[index];
     return (PyObject*)result;
 }
@@ -3201,3 +3179,5 @@ initagama(void)
 
     import_array();  // needed for NumPy to work properly
 }
+// ifdef HAVE_PYTHON
+#endif

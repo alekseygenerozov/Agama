@@ -11,6 +11,7 @@
 #include "potential_dehnen.h"
 #include "potential_ferrers.h"
 #include "units.h"
+#include "utils.h"
 #include <cstdio>
 #include <iostream>
 #include <iomanip>
@@ -19,11 +20,12 @@
 
 const double integr_eps=1e-8;  // integration accuracy parameter
 const double eps=1e-6;  // accuracy of comparison
+const bool output = utils::verbosityLevel >= utils::VL_VERBOSE;
 
 template<typename coordSysT>
 bool test_potential(const potential::BasePotential& potential,
     const coord::PosVelT<coordSysT>& initial_conditions,
-    const double total_time, const double timestep, const bool output)
+    const double total_time, const double timestep)
 {
     std::cout << potential.name()<<"  "<<coordSysT::name()<<" (";
     double ic[6];
@@ -133,16 +135,17 @@ int main() {
     std::cout<<std::setprecision(10);
     const double total_time=1000.;
     const double timestep=1.;
-    bool output=false;
-    bool allok=true;
+    bool allok = true;
     for(unsigned int ip=0; ip<pots.size(); ip++) {
         for(int ic=0; ic<numtestpoints; ic++) {
-            allok &= test_potential(*pots[ip], coord::PosVelCar(posvel_car[ic]), total_time, timestep, output);
-            allok &= test_potential(*pots[ip], coord::PosVelCyl(posvel_cyl[ic]), total_time, timestep, output);
-            allok &= test_potential(*pots[ip], coord::PosVelSph(posvel_sph[ic]), total_time, timestep, output);
+            allok &= test_potential(*pots[ip], coord::PosVelCar(posvel_car[ic]), total_time, timestep);
+            allok &= test_potential(*pots[ip], coord::PosVelCyl(posvel_cyl[ic]), total_time, timestep);
+            allok &= test_potential(*pots[ip], coord::PosVelSph(posvel_sph[ic]), total_time, timestep);
         }
     }
     if(allok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

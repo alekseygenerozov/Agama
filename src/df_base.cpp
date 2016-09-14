@@ -17,7 +17,7 @@ actions::Actions ActionSpaceScalingTriangLog::toActions(const double vars[], dou
     Jsum = exp( 1/(1-u) - 1/u ),                         // Jr+Jz+|Jphi|
     Jm   = v==0 || v==1 ? 0 : Jsum * (1 - fabs(2*v-1));  // Jr+Jz
     if(jac)
-        *jac  = math::withinReasonableRange(Jsum) ?   // if near J=0 or infinity, set jacobian to zero
+        *jac  = (Jsum>1e-100 && Jsum<1e100) ?   // if near J=0 or infinity, set jacobian to zero
             (2 - fabs(4*v-2)) * pow_3(Jsum) * (1/pow_2(1-u) + 1/pow_2(u)) : 0;
     return actions::Actions(w==0 ? 0 : Jm * w, w==1 ? 0 : Jm * (1-w), v==0.5 ? 0 : Jsum * (2*v-1));
 }
@@ -40,7 +40,7 @@ void ActionSpaceScalingTriangLog::toScaled(const actions::Actions &acts, double 
 ActionSpaceScalingRect::ActionSpaceScalingRect(double _scaleJm, double _scaleJphi) :
     scaleJm(_scaleJm), scaleJphi(_scaleJphi)
 {
-    if(scaleJm<=0 || scaleJphi<=0 || !math::isFinite(scaleJm+scaleJphi))
+    if(scaleJm<=0 || scaleJphi<=0 || !isFinite(scaleJm+scaleJphi))
         throw std::invalid_argument("ActionsSpaceScalingRect: invalid scaling factors");
 }
 

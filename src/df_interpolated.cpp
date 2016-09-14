@@ -50,7 +50,7 @@ InterpolatedDF<N>::InterpolatedDF(const PtrActionSpaceScaling& _scaling,
     if(amplitudes.size() != interp.numValues())
         throw std::invalid_argument("InterpolatedDF: invalid array size");
     for(unsigned int i=0; i<amplitudes.size(); i++)
-        if(amplitudes[i] < 0 || !math::isFinite(amplitudes[i]))
+        if(amplitudes[i] < 0 || !isFinite(amplitudes[i]))
             throw std::invalid_argument("InterpolatedDF: amplitudes must be non-negative");
 }
 

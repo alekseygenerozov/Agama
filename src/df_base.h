@@ -30,7 +30,7 @@ public:
         \returns    total mass
     */
     virtual double totalMass(const double reqRelError=1e-4, const int maxNumEval=1e6,
-        double* error=0, int* numEval=0) const;
+        double* error=NULL, int* numEval=NULL) const;
 
     /** Value of distribution function for the given set of actions
         \param[in] J - actions
@@ -82,7 +82,7 @@ public:
         \param[out] jac   if not NULL, will contain the value of jacobian of transformation;
         \return  the values of actions.
     */
-    virtual actions::Actions toActions(const double vars[3], double *jac=0) const = 0;
+    virtual actions::Actions toActions(const double vars[3], double *jac=NULL) const = 0;
 
     /** Convert from actions to scaled variables.
         \param[in]  acts  are the actions;
@@ -93,7 +93,7 @@ public:
 
 class ActionSpaceScalingTriangLog: public BaseActionSpaceScaling {
 public:
-    virtual actions::Actions toActions(const double vars[3], double *jac=0) const;
+    virtual actions::Actions toActions(const double vars[3], double *jac=NULL) const;
     virtual void toScaled(const actions::Actions &acts, double vars[3]) const;
 };
 
@@ -101,7 +101,7 @@ class ActionSpaceScalingRect: public BaseActionSpaceScaling {
     double scaleJm, scaleJphi;
 public:
     ActionSpaceScalingRect(double scaleJm, double scaleJphi);
-    virtual actions::Actions toActions(const double vars[3], double *jac=0) const;
+    virtual actions::Actions toActions(const double vars[3], double *jac=NULL) const;
     virtual void toScaled(const actions::Actions &acts, double vars[3]) const;
 };
 
@@ -129,6 +129,6 @@ double totalEntropy(const BaseDistributionFunction& DF,
     \param[out] totalMassErr (optional) if not NULL, will store the error estimate of the integral.
  */
 void sampleActions(const BaseDistributionFunction& DF, const int numSamples,
-    std::vector<actions::Actions>& samples, double* totalMass=0, double* totalMassErr=0);
+    std::vector<actions::Actions>& samples, double* totalMass=NULL, double* totalMassErr=NULL);
 
 }  // namespace df

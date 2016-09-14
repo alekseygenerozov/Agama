@@ -54,7 +54,7 @@ static void exceptionally_awesome_gsl_error_handler(const char *reason,
         throw std::domain_error(std::string("GSL domain error: ")+reason);
     if( gsl_errno == GSL_EINVAL )
         throw std::invalid_argument(std::string("GSL invalid argument error: ")+reason);
-    throw std::runtime_error("GSL error "+utils::convertToString(gsl_errno)+": "+reason);
+    throw std::runtime_error("GSL error "+utils::toString(gsl_errno)+": "+reason);
 }
 
 // a static variable that initializes our error handler
@@ -135,8 +135,9 @@ unsigned int binSearch(const NumT x, const NumT arr[], unsigned int size)
 template unsigned int binSearch(const double x, const double arr[], unsigned int size);
 template unsigned int binSearch(const float x, const float arr[], unsigned int size);
 template unsigned int binSearch(const int x, const int arr[], unsigned int size);
+template unsigned int binSearch(const long x, const long arr[], unsigned int size);
 template unsigned int binSearch(const unsigned int x, const unsigned int arr[], unsigned int size);
-//template unsigned int binSearch(const size_t x, const size_t arr[], unsigned int size);
+template unsigned int binSearch(const unsigned long x, const unsigned long arr[], unsigned int size);
 
 /* --------- random numbers -------- */
 class RandGenStorage{
@@ -803,7 +804,7 @@ static int integrandNdimWrapperCuba(const int *ndim, const double xscaled[],
         if(!isFinite(result)) {
             param->error = "integrateNdim: invalid function value encountered at";
             for(int n=0; n< *ndim; n++)
-                param->error += " "+utils::convertToString(param->xvalue[n], 15);
+                param->error += " "+utils::toString(param->xvalue[n], 15);
             return -1;
         }        
         return 0;   // success
@@ -836,7 +837,7 @@ static int integrandNdimWrapperCubature(unsigned int ndim, const double *x, void
         if(!isFinite(result)) {
             param->error = "integrateNdim: invalid function value encountered at";
             for(unsigned int n=0; n<ndim; n++)
-                param->error += " "+utils::convertToString(x[n], 15);
+                param->error += " "+utils::toString(x[n], 15);
             return -1;
         }
         return 0;   // success

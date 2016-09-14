@@ -7,7 +7,6 @@ OBJDIR    = obj
 LIBDIR    = lib
 EXEDIR    = exe
 TESTSDIR  = tests
-LEGACYDIR = src/legacy
 TORUSDIR  = src/torus
 
 # sources of the main library
@@ -54,7 +53,8 @@ SOURCES   = \
             potential_utils.cpp \
             utils.cpp \
             utils_config.cpp \
-            fortran_wrapper.cpp
+            fortran_wrapper.cpp \
+            py_wrapper.cpp
 
 # ancient Torus code
 TORUSSRC  = CHB.cc \
@@ -99,45 +99,41 @@ TESTSRCS  = test_math_core.cpp \
 
 TESTFORTRAN = test_fortran_wrapper.f
 
-LIBNAME   = $(LIBDIR)/libagama.a
-PY_WRAPPER= $(LIBDIR)/agama.so
-
-HEADERS   = $(SOURCES:.cpp=.h)
-OBJECTS   = $(patsubst %.cpp,$(OBJDIR)/%.o,$(SOURCES))
-TESTEXE   = $(patsubst %.cpp,$(EXEDIR)/%.exe,$(TESTSRCS))
-LEGACYOBJ = $(patsubst %.cpp,$(OBJDIR)/%.o,$(LEGACYSRC))
-TORUSOBJ  = $(patsubst %.cc, $(OBJDIR)/%.o,$(TORUSSRC))
+LIBNAME_A  = $(LIBDIR)/libagama.a
+LIBNAME_SO = $(LIBDIR)/agama.so
+ABSLIBNAME = $(abspath $(LIBNAME_SO))
+HEADERS    = $(SOURCES:.cpp=.h)
+OBJECTS    = $(patsubst %.cpp,$(OBJDIR)/%.o,$(SOURCES))
+TESTEXE    = $(patsubst %.cpp,$(EXEDIR)/%.exe,$(TESTSRCS))
+TORUSOBJ   = $(patsubst %.cc,$(OBJDIR)/%.o,$(TORUSSRC))
 TESTEXEFORTRAN = $(patsubst %.f,$(EXEDIR)/%.exe,$(TESTFORTRAN))
 
-all:      $(LIBNAME) $(TESTEXE) $(PY_WRAPPER) $(TESTEXEFORTRAN)
+all:  $(LIBNAME_SO) $(LIBNAME_A) $(TESTEXE) $(TESTEXEFORTRAN)
 
-$(LIBNAME):  $(OBJECTS) $(LEGACYOBJ) $(TORUSOBJ) Makefile Makefile.local
+$(LIBNAME_SO):  $(OBJECTS) $(TORUSOBJ) Makefile Makefile.local
 	@mkdir -p $(LIBDIR)
-	ar rv $(LIBNAME) $(OBJECTS) $(LEGACYOBJ) $(TORUSOBJ)
+	$(LINK) -shared -o $(ABSLIBNAME) $(OBJECTS) $(TORUSOBJ) $(LFLAGS) $(LIBS)
 
-$(EXEDIR)/%.exe:  $(TESTSDIR)/%.cpp $(LIBNAME)
+$(LIBNAME_A):  $(OBJECTS) $(TORUSOBJ) Makefile Makefile.local
+	@mkdir -p $(LIBDIR)
+	ar rv $(LIBNAME_A) $(OBJECTS) $(TORUSOBJ)
+
+$(EXEDIR)/%.exe:  $(TESTSDIR)/%.cpp $(LIBNAME_SO)
 	@mkdir -p $(EXEDIR)
-	$(CXX) -o "$@" "$<" $(CXXFLAGS) $(LIBNAME) $(LFLAGS)
+	$(LINK) -o "$@" "$<" $(CXXFLAGS) $(ABSLIBNAME) $(LFLAGS)
 
-$(TESTEXEFORTRAN):  $(TESTSDIR)/$(TESTFORTRAN) $(LIBNAME)
-	$(FC) -o "$@" $(TESTSDIR)/$(TESTFORTRAN) $(LIBNAME) $(LFLAGS) -lstdc++
-
-$(PY_WRAPPER): $(SRCDIR)/py_wrapper.cpp $(LIBNAME)
-	$(CXX) -c $(CXXFLAGS) $(PYFLAGS) $(SRCDIR)/py_wrapper.cpp -o $(OBJDIR)/py_wrapper.o
-	$(CXX) -shared -o $(PY_WRAPPER) $(OBJDIR)/py_wrapper.o $(LIBNAME) $(LFLAGS) $(PYFLAGS)
+$(TESTEXEFORTRAN):  $(TESTSDIR)/$(TESTFORTRAN) $(LIBNAME_SO)
+	$(FC) -o "$@" $(TESTSDIR)/$(TESTFORTRAN) $(ABSLIBNAME) $(LFLAGS) -lstdc++
 
 $(OBJDIR)/%.o:  $(SRCDIR)/%.cpp Makefile.local
 	@mkdir -p $(OBJDIR)
-	$(CXX) -c $(CXXFLAGS) -o "$@" "$<"
-
-$(OBJDIR)/%.o:  $(LEGACYDIR)/%.cpp
-	$(CXX) -c $(CXXFLAGS) -o "$@" "$<"
+	$(CXX) -c $(CXXFLAGS) $(DEFINES) $(INCLUDES) -o "$@" "$<"
 
 $(OBJDIR)/%.o:  $(TORUSDIR)/%.cc
-	$(CXX) -c $(CXXFLAGS) $(TORUSFLAGS) -o "$@" "$<"
+	$(CXX) -c $(CXXFLAGS) $(TORUSFLAGS) $(INCLUDES) -o "$@" "$<"
 
 clean:
-	rm -f $(OBJDIR)/*.o $(EXEDIR)/*.exe $(LIBNAME) $(PY_WRAPPER)
+	rm -f $(OBJDIR)/*.o $(EXEDIR)/*.exe $(LIBNAME)
 
 test:
 	cp $(TESTSDIR)/test_all.pl $(EXEDIR)/
@@ -147,7 +143,8 @@ test:
 ifdef NEMO
 NEMOACC = $(NEMOOBJ)/acc/agama.so
 nemo:   $(LIBNAME)
-	$(CXX) $(CXXFLAGS) -I$(NEMOINC) src/nemo_wrapper.cpp -shared -o $(NEMOACC) $(LIBNAME) $(LFLAGS) -lnemo
+	$(CXX) $(CXXFLAGS) -I$(NEMOINC) src/nemo_wrapper.cpp \
+	-shared -o $(NEMOACC) $(OBJECTS) $(LFLAGS) $(LIBS) -lnemo
 endif
 
 .PHONY: clean test

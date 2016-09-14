@@ -174,7 +174,7 @@ int SphHarmIndices::index_l(unsigned int c)
 int SphHarmIndices::index_m(unsigned int c)
 {
     int l=index_l(c);
-    return c-l*(l+1);
+    return (int)c-l*(l+1);
 }
 
 SphHarmIndices getIndicesFromCoefs(const std::vector<double> &C)

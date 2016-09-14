@@ -73,7 +73,6 @@ private:
     const bool append;           ///< whether to append to the end of file or overwrite it
 };
 
-#ifdef HAVE_UNSIO
 /// GADGET snapshot format; needs UNSIO library.
 class IOSnapshotGadget: public BaseIOSnapshot {
 public:
@@ -85,7 +84,6 @@ private:
     const std::string fileName;
     const units::ExternalUnits conv;
 };
-#endif
 
 /// smart pointer to snapshot interface
 typedef unique_ptr<BaseIOSnapshot> PtrIOSnapshot;

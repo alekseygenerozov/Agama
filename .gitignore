@@ -14,3 +14,4 @@ doc/*
 .DS_Store
 Makefile.local
 python/*
+raga/*

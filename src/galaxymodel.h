@@ -85,9 +85,9 @@ void computeMoments(const GalaxyModelType& model,
     \return  the value of projected DF.
 */
 double computeProjectedDF(const GalaxyModel& model,
-    const double R, const double vz, const double vz_error=0,
+    const double R, const double vz, const double vz_error=NULL,
     const double reqRelError=1e-4, const int maxNumEval=1e3,
-    double* error=0, int* numEval=0);
+    double* error=NULL, int* numEval=NULL);
 
 
 /** Compute the projected moments of distribution function:
@@ -105,7 +105,7 @@ double computeProjectedDF(const GalaxyModel& model,
 void computeProjectedMoments(const GalaxyModel& model, const double R,
     const double reqRelError, const int maxNumEval,
     double& surfaceDensity, double& losvdisp,
-    double* surfaceDensityErr=0, double* losvdispErr=0, int* numEval=0);
+    double* surfaceDensityErr=NULL, double* losvdispErr=NULL, int* numEval=NULL);
 
 
 /** Generate N-body samples of the distribution function 
@@ -121,7 +121,7 @@ void computeProjectedMoments(const GalaxyModel& model, const double R,
 */
 particles::ParticleArrayCyl generateActionSamples(
     const GalaxyModel& model, const unsigned int numPoints,
-    std::vector<actions::Actions>* actions=0);
+    std::vector<actions::Actions>* actions=NULL);
 
 
 /** Generate N-body samples of the distribution function 

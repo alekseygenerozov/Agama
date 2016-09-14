@@ -295,23 +295,23 @@ int main()
     double x1 = x0 + math::PointNeighborhood(test4(0), x0).dxToPositive();
     result = test4(0)(x1);
     std::cout << "positive value at x="<<x1<<", value="<<result<<"\n";
-    ok &= (math::isFinite(x1+result) && x1>0 && x1<exact && result>0) || err();
+    ok &= (isFinite(x1+result) && x1>0 && x1<exact && result>0) || err();
     x0 = exact*0.9;
     x1 = x0 + math::PointNeighborhood(test4(0), x0).dxToNegative();
     result = test4(0)(x1);
     std::cout << "negative value at x="<<x1<<", value="<<result<<"\n";
-    ok &= (math::isFinite(x1+result) && result<0) || err();
+    ok &= (isFinite(x1+result) && result<0) || err();
     x1 = x0 + math::PointNeighborhood(test4(1), x0).dxToNegative();
     result = test4(0)(x1);
     std::cout << "(with deriv) negative value at x="<<x1<<", value="<<result<<"\n";
-    ok &= (math::isFinite(x1+result) && result<0) || err();
+    ok &= (isFinite(x1+result) && result<0) || err();
 
     x0 = 1.00009;
     exact = 1.000100000002;
     x1 = x0 + math::PointNeighborhood(test5(), x0).dxToPositive();
     result = test5()(x1);
     std::cout << "f5: positive value at x="<<exact<<"+"<<(x1-exact)<<", value="<<result<<"\n";
-    ok &= (math::isFinite(x1+result) && result>0) || err();
+    ok &= (isFinite(x1+result) && result>0) || err();
     numEval=0;
     result = math::findRoot(test5(), 1, x1, toler);
     std::cout << "Root5="<<result<<" (delta="<<(result-exact)<<"; neval="<<numEval<<")\n";
@@ -453,5 +453,7 @@ int main()
 
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

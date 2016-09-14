@@ -265,7 +265,7 @@ int main()
     for(int i=0; i<5; i++) {
         std::cout << "Starting iteration #" << ++iteration << '\n';
         doIteration(model);
-        printoutInfo(model, utils::convertToString(iteration));
+        printoutInfo(model, utils::toString(iteration));
     }
 
     // now that we have a reasonable guess for the total potential,
@@ -307,12 +307,12 @@ int main()
     for(int i=0; i<5; i++) {
         std::cout << "Starting iteration #" << ++iteration << '\n';
         doIteration(model);
-        printoutInfo(model, utils::convertToString(iteration));
+        printoutInfo(model, utils::toString(iteration));
     }
 
     // export model to an N-body snapshot
     std::cout << "Creating an N-body representation of the model\n";
-    std::string iterationStr(utils::convertToString(iteration));
+    std::string iterationStr(utils::toString(iteration));
 
     // first create a representation of density profiles without velocities
     // (just for demonstration), by drawing samples from the density distribution

@@ -23,7 +23,7 @@ Actions actionsIsochrone(
 ActionAngles actionAnglesIsochrone(
     const double isochroneMass, const double isochroneRadius,
     const coord::PosVelCyl& point,
-    Frequencies* freq=0);
+    Frequencies* freq=NULL);
 
 /** Compute position/velocity from actions/angles in a spherical Isochrone potential.
     \param[in]  isochroneMass   is the total mass associated with the potential;
@@ -34,7 +34,7 @@ ActionAngles actionAnglesIsochrone(
 */
 coord::PosVelCyl mapIsochrone(
     const double isochroneMass, const double isochroneRadius,
-    const ActionAngles& actAng, Frequencies* freq=0);
+    const ActionAngles& actAng, Frequencies* freq=NULL);
 
 /** Class for performing action/angle to coordinate/momentum transformation using 
     the Isochrone mapping expressed in modified spherical coordinates */
@@ -46,10 +46,10 @@ public:
         M(isochroneMass), b(isochroneRadius) {};
     virtual coord::PosVelSphMod map(
         const ActionAngles& actAng,
-        Frequencies* freq=0,
-        DerivAct<coord::SphMod>* derivAct=0,
-        DerivAng<coord::SphMod>* derivAng=0,
-        coord::PosVelSphMod* derivParam=0) const;
+        Frequencies* freq=NULL,
+        DerivAct<coord::SphMod>* derivAct=NULL,
+        DerivAng<coord::SphMod>* derivAng=NULL,
+        coord::PosVelSphMod* derivParam=NULL) const;
 };
 
 }  // namespace actions

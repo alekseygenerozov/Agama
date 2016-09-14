@@ -51,19 +51,24 @@ double erfinv(const double x)
 
 double hypergeom2F1(const double a, const double b, const double c, const double x)
 {
-    if (-1.<=x and x<1.)
-        return gsl_sf_hyperg_2F1(a, b, c, x);
-    // extension for 2F1 into the range x<-1 which is not provided by GSL; code from Heiko Bauke
-    if (x<-1.) {
-        if (c-a<0)
-            return pow(1.-x, -a) * gsl_sf_hyperg_2F1(a, c-b, c, x/(x-1.));
-        if (c-b<0)
-            return pow(1.-x, -b) * gsl_sf_hyperg_2F1(c-a, c, c, x/(x-1.));
-        // choose one of two equivalent formulas which is expected to be more accurate
-        if (a*(c-b)<(c-a)*b)
-            return pow(1.-x, -a) * gsl_sf_hyperg_2F1(a, c-b, c, x/(x-1.));
-        else
-            return pow(1.-x, -b) * gsl_sf_hyperg_2F1(c-a, b, c, x/(x-1.));
+    try{
+        if (-1.<=x and x<1.)
+            return gsl_sf_hyperg_2F1(a, b, c, x);
+        // extension for 2F1 into the range x<-1 which is not provided by GSL; code from Heiko Bauke
+        if (x<-1.) {
+            if (c-a<0)
+                return pow(1.-x, -a) * gsl_sf_hyperg_2F1(a, c-b, c, x/(x-1.));
+            if (c-b<0)
+                return pow(1.-x, -b) * gsl_sf_hyperg_2F1(c-a, c, c, x/(x-1.));
+            // choose one of two equivalent formulas which is expected to be more accurate
+            if (a*(c-b)<(c-a)*b)
+                return pow(1.-x, -a) * gsl_sf_hyperg_2F1(a, c-b, c, x/(x-1.));
+            else
+                return pow(1.-x, -b) * gsl_sf_hyperg_2F1(c-a, b, c, x/(x-1.));
+        }
+    }
+    catch(std::exception&) {  // GSL routines are not very robust and may fail for some arguments
+        return NAN;
     }
     return NAN;  // not defined for x>=1
 }
@@ -310,6 +315,35 @@ double besselK(const int n, const double x) {
 
 double lambertW(const double x, bool Wminus1branch) {
     return Wminus1branch ? gsl_sf_lambert_Wm1(x) : gsl_sf_lambert_W0(x);
+}
+
+void solveKepler(double ecc, double phase, double &eta, double &sineta, double &coseta)
+{
+    phase = math::wrapAngle(phase);
+    if(phase==0 || phase==M_PI) {
+        eta    = phase;
+        sineta = 0;
+        coseta = phase==0 ? 1 : -1;
+        return;
+    }
+    if(ecc>0.95 && (phase<0.3 || phase>6.0)) {
+        if(phase>M_PI) phase -= 2*M_PI;
+        eta = phase + pow_2(ecc) * (cbrt(6*phase) - phase);
+    } else
+        eta = phase + ecc * sin(phase) / sqrt(1 - ecc * (2*cos(phase) - ecc));
+    double deltaeta = 0;
+    int niter = 0;
+    do {  // Halley's method
+        sineta    = sin(eta);
+        coseta    = cos(eta);
+        double f  = eta - ecc * sineta - phase;
+        double df = 1.  - ecc * coseta;
+        deltaeta  = -f/df;
+        // refinement using second derivative (thanks to A.Gurkan)
+        deltaeta  = -f / (df + 0.5 * deltaeta * ecc * sineta);
+        eta      += deltaeta;
+        niter++;
+    } while(fabs(deltaeta) > 1e-15 && niter<42);
 }
 
 }  // namespace

@@ -1,10 +1,10 @@
 #include "actions_torus.h"
 #include "math_core.h"
 #include "potential_utils.h"
+#include "utils.h"
 #include "torus/Torus.h"
 #include "torus/Potential.h"
 #include <stdexcept>
-#include <iostream>
 
 namespace actions{
 
@@ -55,12 +55,11 @@ ActionMapperTorus::ActionMapperTorus(const potential::BasePotential& poten, cons
     act[0] = acts.Jr;
     act[1] = acts.Jz;
     act[2] = acts.Jphi;
-    int printDebug = 2;
-    int result = torus->AutoFit(act, &potwrap, tol, 600, 150, 12, 3, 16, 200, 12, printDebug);
-    if(printDebug) {
-        if(result!=0)
-            std::cout << "\033[1;31mNOT CONVERGED: "<<result<<"\033[0m ";
-        torus->show(std::cout);
+    int result = torus->AutoFit(act, &potwrap, tol, 600, 150, 12, 3, 16, 200, 12,
+        (int)utils::verbosityLevel);
+    if(result!=0) {
+        utils::msg(utils::VL_WARNING, "Torus", "Not converged: "+utils::toString(result));
+        //torus->show(std::cout);
     }
 }
 

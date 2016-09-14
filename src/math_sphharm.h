@@ -35,7 +35,7 @@ namespace math {
     using asymptotic expressions.
 */
 void sphHarmArray(const unsigned int lmax, const unsigned int m, const double tau,
-    double* resultArray, double* derivArray=0, double* deriv2Array=0);
+    double* resultArray, double* derivArray=NULL, double* deriv2Array=NULL);
 
 /** Compute the values of cosines and optionally sines of an arithmetic progression of angles:
     cos(phi), cos(2 phi), ..., cos(m phi), [ sin(phi), sin(2 phi), ..., sin(m phi) ].
@@ -145,7 +145,7 @@ public:
     static int index_m(unsigned int c);
 
     /// minimum l-index for the given m (if larger than lmax, it means that this value of m is not used)
-    inline int lmin(int m) const { return lmin_arr[m+mmax]; }
+    inline int lmin(int m) const { return m>=-mmax && m<=mmax ? lmin_arr[m+mmax] : lmax+1; }
 
     /// minimum m-index
     inline int mmin() const { return isYReflSymmetric(sym) ? 0 : -mmax; }

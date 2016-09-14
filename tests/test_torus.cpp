@@ -20,6 +20,7 @@
 #include "actions_torus.h"
 #include "potential_factory.h"
 #include "units.h"
+#include "utils.h"
 #include "debug_utils.h"
 #include "utils_config.h"
 #include <iostream>
@@ -30,7 +31,7 @@
 const units::InternalUnits unit(units::galactic_Myr);//(1.*units::Kpc, 977.8*units::Myr);
 const unsigned int NUM_ANGLE_SAMPLES = 64;
 const double NUM_ANGLE_PERIODS = 4;
-const bool output = true;
+const bool output = utils::verbosityLevel >= utils::VL_VERBOSE;
 
 bool test_actions(const potential::BasePotential& poten,
     const actions::BaseActionFinder& finder, const actions::BaseActionMapper& mapper, const actions::Actions actions)
@@ -117,6 +118,8 @@ int main(int argc, const char* argv[]) {
     actions::ActionFinderAxisymFudge finder(pot);
     allok &= test_actions(*pot, finder, mapper, acts);
     if(allok)
-        std::cout << "ALL TESTS PASSED\n";
+        std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

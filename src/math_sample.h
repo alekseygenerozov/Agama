@@ -31,6 +31,6 @@ namespace math{
  */
 void sampleNdim(const IFunctionNdim& F, const double xlower[], const double xupper[],
     const unsigned int numSamples,
-    Matrix<double>& samples, int* numTrialPoints=0, double* integral=0, double* interror=0);
+    Matrix<double>& samples, int* numTrialPoints=NULL, double* integral=NULL, double* interror=NULL);
 
 }  // namespace

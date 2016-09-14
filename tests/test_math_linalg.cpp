@@ -22,15 +22,23 @@ int main()
 
     const unsigned int NR=500, NV=5000;  // matrix size, # of nonzero values
     std::vector<math::Triplet> spdata;
+    // init matrix content
     for(unsigned int k=0; k<NV; k++) {
         unsigned int i = static_cast<unsigned int>(math::random()*NR);
         unsigned int j = static_cast<unsigned int>(math::random()*NR);
         double v = math::random();
         spdata.push_back(math::Triplet(i, j, v));
     }
-    math::SpMatrix<float> spmatf(NR, NR, spdata);  // not used, just test that it compiles
     math::SpMatrix<double> spmat(NR, NR, spdata);
     math::Matrix<double> mat(spmat);
+    {   // not used, just check that it compiles
+        math::SpMatrix<float> spmat(NR, NR, spdata);
+        math::SpMatrix<float> spmat1 = spmat;
+        math::Matrix<float> mat(NR, NR, spdata);
+        math::Matrix<float> mat1 = mat;
+    }
+
+    // init rhs
     std::vector<double> rhs(NR), sol, mul(NR);
     for(unsigned int i=0; i<NR; i++)
         rhs[i] = math::random();
@@ -118,5 +126,7 @@ int main()
 
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

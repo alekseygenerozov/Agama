@@ -130,7 +130,7 @@ public:
 
     /** compute the value of interpolator and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
-    virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
+    virtual void evalDeriv(const double x, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
 };
 
 
@@ -158,7 +158,7 @@ public:
 
     /** compute the value of spline and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
-    virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
+    virtual void evalDeriv(const double x, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
 
     /** return the integral of spline function times x^n on the interval [x1..x2] */
     virtual double integrate(double x1, double x2, int n=0) const;
@@ -193,7 +193,7 @@ public:
 
     /** compute the value of spline and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
-    virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
+    virtual void evalDeriv(const double x, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
 
 private:
     std::vector<double> fder;  ///< first derivatives of function at grid nodes
@@ -218,7 +218,7 @@ public:
 
     /** compute the value of spline and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
-    virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const;
+    virtual void evalDeriv(const double x, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
 
     /** return the value of 3rd derivative at a given point */
     double deriv3(const double x) const;
@@ -253,8 +253,8 @@ public:
         if any of them is not needed, the corresponding pointer should be set to NULL.
     */
     virtual void evalDeriv(const double x, const double y,
-        double* value=0, double* deriv_x=0, double* deriv_y=0,
-        double* deriv_xx=0, double* deriv_xy=0, double* deriv_yy=0) const = 0;
+        double* value=NULL, double* deriv_x=NULL, double* deriv_y=NULL,
+        double* deriv_xx=NULL, double* deriv_xy=NULL, double* deriv_yy=NULL) const = 0;
 
     /** shortcut for computing the value of spline */
     double value(const double x, const double y) const {
@@ -307,8 +307,8 @@ public:
     /** Compute the value and/or derivatives of the interpolator;
         note that for the linear interpolator the 2nd derivatives are always zero. */
     virtual void evalDeriv(const double x, const double y,
-        double* value=0, double* deriv_x=0, double* deriv_y=0,
-        double* deriv_xx=0, double* deriv_xy=0, double* deriv_yy=0) const;
+        double* value=NULL, double* deriv_x=NULL, double* deriv_y=NULL,
+        double* deriv_xx=NULL, double* deriv_xy=NULL, double* deriv_yy=NULL) const;
 };
 
 
@@ -330,8 +330,8 @@ public:
 
     /** compute the value of spline and optionally its derivatives at point x,y */
     virtual void evalDeriv(const double x, const double y,
-        double* value=0, double* deriv_x=0, double* deriv_y=0,
-        double* deriv_xx=0, double* deriv_xy=0, double* deriv_yy=0) const;
+        double* value=NULL, double* deriv_x=NULL, double* deriv_y=NULL,
+        double* deriv_xx=NULL, double* deriv_xy=NULL, double* deriv_yy=NULL) const;
 
 private:
     /// flattened 2d arrays of derivatives in x and y directions, and mixed 2nd derivatives
@@ -354,8 +354,8 @@ public:
 
     /** compute the value of spline and optionally its derivatives at point x,y */
     virtual void evalDeriv(const double x, const double y,
-        double* value=0, double* deriv_x=0, double* deriv_y=0,
-        double* deriv_xx=0, double* deriv_xy=0, double* deriv_yy=0) const;
+        double* value=NULL, double* deriv_x=NULL, double* deriv_y=NULL,
+        double* deriv_xx=NULL, double* deriv_xy=NULL, double* deriv_yy=NULL) const;
 
 private:
     Matrix<double> fx, fy, fxxx, fyyy, fxyy, fxxxyy;
@@ -623,8 +623,8 @@ public:
         the constructor of CubicSpline class that will provide the interpolated function;
         the length of this array is numKnots+2.
     */
-    std::vector<double> fit(const std::vector<double> &yvalues, const double edf=0, 
-        double *rmserror=0) const;
+    std::vector<double> fit(const std::vector<double> &yvalues, const double edf=NULL, 
+        double *rmserror=NULL) const;
 
     /** perform fitting with adaptive choice of smoothing parameter that minimizes
         the value of AIC (Akaike information criterion), defined as 
@@ -634,7 +634,7 @@ public:
         but may be reported as output argument `edf` if the latter is not NULL.
     */
     std::vector<double> fitOptimal(const std::vector<double> &yvalues, 
-        double *rmserror=0, double* edf=0) const {
+        double *rmserror=NULL, double* edf=NULL) const {
         return fitOversmooth(yvalues, 0., rmserror, edf);
     }
 
@@ -645,7 +645,7 @@ public:
         The other arguments have the same meaning as in `fitOptimal()`.
     */
     std::vector<double> fitOversmooth(const std::vector<double> &yvalues, const double deltaAIC, 
-        double *rmserror=0, double* edf=0) const;
+        double *rmserror=NULL, double* edf=NULL) const;
 
 private:
     const SplineApproxImpl* impl;   ///< internal object hiding the implementation details

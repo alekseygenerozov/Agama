@@ -33,7 +33,7 @@ public:
     /** evaluates the function G(tau) and up to two its derivatives,
         if the supplied output arguments are not NULL 
         (implements the math::IFunction interface) */
-    virtual void evalDeriv(double tau, double* G=0, double* Gderiv=0, double* Gderiv2=0) const;
+    virtual void evalDeriv(double tau, double* G=NULL, double* Gderiv=NULL, double* Gderiv2=NULL) const;
 
 private:
     const double mass;
@@ -61,7 +61,7 @@ private:
     /** the function that does the actual computation in prolate spheroidal coordinates 
         (implements the coord::IScalarFunction<ProlSph> interface) */
     virtual void evalScalar(const coord::PosProlSph& pos,
-        double* value=0, coord::GradProlSph* deriv=0, coord::HessProlSph* deriv2=0) const;
+        double* value=NULL, coord::GradProlSph* deriv=NULL, coord::HessProlSph* deriv2=NULL) const;
 
     virtual unsigned int numDerivs() const { return 2; }
 };

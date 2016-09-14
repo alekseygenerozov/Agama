@@ -4,14 +4,9 @@
 #include "math_sample.h"
 #include "math_specfunc.h"
 #include "smart.h"
+#include "utils.h"
 #include <cmath>
 #include <stdexcept>
-
-// this is a temporary measure
-#ifdef VERBOSE_REPORT
-#include "debug_utils.h"
-#include <iostream>
-#endif
 
 namespace galaxymodel{
 
@@ -47,11 +42,10 @@ static double escapeVel(const coord::PosCyl& pos, const potential::BasePotential
         return 0;
     const double Phi_inf = 0;   // assume that the potential is zero at infinity
     const double vesc = sqrt(2. * (Phi_inf - poten.value(pos)));
-    if(!math::isFinite(vesc)) {
-#ifdef VERBOSE_REPORT
-        std::cout << "Error in escape velocity at "<<pos<<", potential="<<poten.value(pos)<<"\n";
-#endif
-        throw std::invalid_argument("Error in computing moments: escape velocity is undetermined");
+    if(!isFinite(vesc)) {
+        throw std::invalid_argument("Error in computing moments: escape velocity is undetermined at "
+            "R="+utils::toString(pos.R)+", z="+utils::toString(pos.z)+", phi="+utils::toString(pos.phi)+
+            " (Phi="+utils::toString(poten.value(pos))+")");
     }
     return vesc;
 }
@@ -119,14 +113,16 @@ public:
             // 3. compute the value of distribution function times the jacobian
             dfval = model.distrFunc.value(acts) * jac;
 
-            if(!math::isFinite(dfval))
+            if(!isFinite(dfval))
                 throw std::runtime_error("DF is not finite");
         }
         catch(std::exception& e) {
-#ifdef VERBOSE_REPORT
-            //!!! this is a temporary measure, should replace with a more sophisticated error reporting
-//            std::cout << e.what() <<" at "<<posvel<<" ("<<acts<<")\n";
-#endif
+            if(utils::verbosityLevel >= utils::VL_VERBOSE) {
+                utils::msg(utils::VL_VERBOSE, "DFIntegrandNdim", std::string(e.what()) +
+                    " at R="+utils::toString(posvel.R)  +", z="   +utils::toString(posvel.z)+
+                    ", phi="+utils::toString(posvel.phi)+", vR="  +utils::toString(posvel.vR)+
+                    ", vz=" +utils::toString(posvel.vz) +", vphi="+utils::toString(posvel.vphi));
+            }
             dfval = 0;
         }
 

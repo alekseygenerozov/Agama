@@ -1,4 +1,4 @@
-/** \file    test_distributionfunction.cpp
+/** \file    test_df_halo.cpp
     \author  Eugene Vasiliev
     \date    August 2015
 
@@ -55,7 +55,7 @@ bool testActionSpaceScaling(const df::BaseActionSpaceScaling& s)
             return false;
         actions::Actions J1 = s.toActions(w);
         if( J1.Jr!=J1.Jr || J1.Jz!=J1.Jz || J1.Jphi!=J1.Jphi ||
-            (math::isFinite(J1.Jr+J1.Jz+fabs(J1.Jphi)) && (math::fcmp(J.Jr, J1.Jr, 1e-10)!=0) ||
+            (isFinite(J1.Jr+J1.Jz+fabs(J1.Jphi) && math::fcmp(J.Jr, J1.Jr, 1e-10)!=0) ||
             math::fcmp(J.Jz, J1.Jz, 1e-10)!=0 || math::fcmp(J.Jphi, J1.Jphi, 1e-10)!=0) )
             return false;
     }
@@ -170,5 +170,7 @@ int main(){
 
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";
+    else
+        std::cout << "\033[1;31mSOME TESTS FAILED\033[0m\n";
     return 0;
 }

@@ -1,13 +1,13 @@
 #include "df_spherical.h"
 #include "math_core.h"
 #include "math_specfunc.h"
+#include "utils.h"
+#include <cassert>
 #include <stdexcept>
 #include <cmath>
-
-#ifdef VERBOSE_OUTPUT
+#include <algorithm>
+// debugging
 #include <fstream>
-#include <iomanip>
-#endif
 
 namespace df {
 namespace{
@@ -59,39 +59,66 @@ template<Operation mode>
 class DFIntegrand: public math::IFunctionNoDeriv {
     const math::IFunction &df;
     const PhaseVolume &pv;
-    const double Phi;
+    const double logh0;
 public:
-    DFIntegrand(const math::IFunction& _df, const PhaseVolume& _pv, double _Phi=0) :
-        df(_df), pv(_pv), Phi(_Phi) {}
+    DFIntegrand(const math::IFunction& _df, const PhaseVolume& _pv, double _logh0=0) :
+        df(_df), pv(_pv), logh0(_logh0) {}
     virtual double value(const double logh) const {
-        double h = exp(logh), g, E = pv.E(h, &g);
+        double g, h = exp(logh);
+        double deltaE = pv.deltaE(logh, logh0, &g);
         double val =   // the value of weighting function in the integrand
             mode==MODE_INTF  ? 1 :
             mode==MODE_INTFG ? g :
             mode==MODE_INTFH ? h :
-            mode==MODE_INTJ1 ? sqrt(1-E/Phi) :
-            mode==MODE_INTJ3 ? pow_3(sqrt(1-E/Phi)) : NAN;
-        // the original integrals are formulated in terms of \int f(E) val(E) dE,
-        // and we replace dE by d(log h) * [ dh / d(log h) ] / [ dh / dE ],
+            mode==MODE_INTJ1 ? sqrt(deltaE) :
+            mode==MODE_INTJ3 ? pow_3(sqrt(deltaE)) : NAN;
+        // the original integrals are formulated in terms of  \int f(E) val(E) dE,
+        // and we replace  dE  by  d(log h) * [ dh / d(log h) ] / [ dh / dE ],
         // that's why there are extra factors h and 1/g below.
         return df(h) * h / g * val;
     }
 };
 
-/// scaling transformations for energy: the input energy ranges from Phi0 to 0,
+/// Scaling transformations for energy: the input energy ranges from Phi0 to 0,
 /// the output scaled variable - from -inf to +inf. Here Phi0=Phi(0) may be finite or -inf.
-static inline double scaledE(const double E, const double Phi0) {
-    return log(1/Phi0 - 1/E);
+/// The goal is to avoid cancellation errors when Phi0 is finite and E --> Phi0 --
+/// in this case the scaled variable may achieve any value down to -inf, instead of
+/// cramping into a few remaining bits of precision when E is almost equal to Phi0,
+/// so that any function that depends on scaledE may be comfortably evaluated with full precision.
+/// Additionally, this transformation is intended to achieve an asymptotic power-law behaviour
+/// for any quantity whose logarithm is interpolated as a function of scaledE and linearly
+/// extrapolated as its argument tends to +- infinity.
+
+/// return scaledE and dE/d(scaledE) as functions of E and invPhi0 = 1/Phi(0)
+static inline void scaleE(const double E, const double invPhi0,
+    /*output*/ double& scaledE, double& dEdscaledE)
+{
+    double expE = invPhi0 - 1/E;
+    scaledE     = log(expE);
+    dEdscaledE  = E * E * expE;
 }
 
-/// inverse scaling transformation for energy or potential
-static inline double unscaledE(const double scaledE, const double Phi0) {
-    return 1 / (1/Phi0 - exp(scaledE));
+/// return E and dE/d(scaledE) as functions of scaledE
+static inline void unscaleE(const double scaledE, const double invPhi0,
+    /*output*/ double& E, double& dEdscaledE)
+{
+    double expE = exp(scaledE);
+    E           = 1 / (invPhi0 - expE);
+    dEdscaledE  = E * E * expE;
 }
 
-/// derivative of scaling transformation: dE/d{scaledE}
-static inline double scaledEder(const double E, const double Phi0) {
-    return E * (E/Phi0 - 1);
+/// same as above, but for two separate values of E1 and E2;
+/// in addition, compute the difference between E1 and E2 in a way that is not prone
+/// to cancellation when both E1 and E2 are close to Phi0 and the latter is finite.
+static inline void unscaleDeltaE(const double scaledE1, const double scaledE2, const double invPhi0,
+    /*output*/ double& E1, double& E2, double& E1minusE2, double& dE1dscaledE1)
+{
+    double exp1  = exp(scaledE1);
+    double exp2  = exp(scaledE2);
+    E1           = 1 / (invPhi0 - exp1);
+    E2           = 1 / (invPhi0 - exp2);
+    E1minusE2    = (exp1 - exp2) * E1 * E2;
+    dE1dscaledE1 = E1 * E1 * exp1;
 }
 
 /// linearly extrapolate a two-dimensional spline (or just compute it if the point is inside its domain)
@@ -99,18 +126,10 @@ static inline double evalExtrapolate(const math::BaseInterpolator2d& interp, dou
 {
     double xx = fmin(fmax(x, interp.xmin()), interp.xmax());
     double yy = fmin(fmax(y, interp.ymin()), interp.ymax());
-#if 0
-    double val, xder, yder;
-    interp.evalDeriv(xx, yy, &val, xx!=x ? &xder : NULL, yy!=y ? &yder : NULL);
-    if(xx!=x)
-        val += xder * (x-xx);
-    if(yy!=y)
-        val += yder * (y-yy);
-    return val;
-#else
+    if(x<xx)
+        utils::msg(utils::VL_WARNING, "DiffusionCoefs", "Extrapolating to small h");
     // in the present implementation, derivatives are assumed to be zero at endpoints
     return interp.value(xx, yy);
-#endif
 }
 
 }  // internal namespace
@@ -119,9 +138,10 @@ static inline double evalExtrapolate(const math::BaseInterpolator2d& interp, dou
 
 PhaseVolume::PhaseVolume(const math::IFunction& pot)
 {
-    Phi0 = pot(0);
+    double Phi0 = pot(0);
     if(!(Phi0<0))
         throw std::invalid_argument("PhaseVolume: invalid value of Phi(r=0)");
+    invPhi0 = 1/Phi0;
 
     // TODO: make the choice of initial radius more scale-invariant!
     const double logRinit = 0; // initial value of log radius (rather arbitrary but doesn't matter)
@@ -139,9 +159,11 @@ PhaseVolume::PhaseVolume(const math::IFunction& pot)
         double E = pot(R);
         double G = math::integrate(PotIntegrand(pot, R, 0.5), 0, 1, ACCURACY);
         double H = math::integrate(PotIntegrand(pot, R, 1.5), 0, 1, ACCURACY);
-        gridE.push_back(scaledE(E, Phi0));
+        double scaledE, dEdscaledE;
+        scaleE(E, invPhi0, scaledE, dEdscaledE);
+        gridE.push_back(scaledE);
         gridH.push_back(log(H) + log(16*M_PI*M_PI/3*2*M_SQRT2) + 3*logR);
-        gridG.push_back(1.5*G/H * scaledEder(E, Phi0));
+        gridG.push_back(1.5*G/H * dEdscaledE);
 
         // check if we have reached an asymptotic regime,
         // by examining the curvature (2nd derivative) of relation between scaled H and E.
@@ -182,7 +204,7 @@ PhaseVolume::PhaseVolume(const math::IFunction& pot)
 void PhaseVolume::evalDeriv(const double E, double* h, double* g, double*) const
 {
     // out-of-bounds value of energy returns 0 or infinity, but not NAN
-    if(E<=Phi0) {
+    if(!(E * invPhi0 < 1)) {
         if(h) *h=0;
         if(g) *g=0;
         return;
@@ -192,31 +214,44 @@ void PhaseVolume::evalDeriv(const double E, double* h, double* g, double*) const
         if(g) *g=INFINITY;
         return;
     }
-    double val;
-    HofE.evalDeriv(scaledE(E, Phi0), &val, g);
+    double scaledE, dEdscaledE, val;
+    scaleE(E, invPhi0, scaledE, dEdscaledE);
+    HofE.evalDeriv(scaledE, &val, g);
     val = exp(val);
     if(h)
         *h = val;
     if(g)
-        *g *= val / scaledEder(E, Phi0);
+        *g *= val / dEdscaledE;
 }
 
 double PhaseVolume::E(const double h, double* g) const
 {
     if(h==0) {
         if(g) *g=0;
-        return Phi0;
+        return invPhi0 == 0 ? -INFINITY : 1/invPhi0;
     }
     if(h==INFINITY) {
         if(g) *g=INFINITY;
         return 0;
     }
-    double e;
-    EofH.evalDeriv(log(h), &e, g);
-    e = unscaledE(e, Phi0);
+    double scaledE, dEdscaledE, realE;
+    EofH.evalDeriv(log(h), &scaledE, g);
+    unscaleE(scaledE, invPhi0, realE, dEdscaledE);
     if(g)
-        *g = h / *g / scaledEder(e, Phi0);
-    return e;
+        *g = h / *g / dEdscaledE;
+    return realE;
+}
+
+double PhaseVolume::deltaE(const double logh1, const double logh2, double* g1) const
+{
+    //return E(exp(logh1), g1) - E(exp(logh2)); //<-- naive implementation
+    double scaledE1, scaledE2, E1, E2, E1minusE2, scaledE1deriv;
+    EofH.evalDeriv(logh1, &scaledE1, g1);
+    EofH.evalDeriv(logh2, &scaledE2);
+    unscaleDeltaE(scaledE1, scaledE2, invPhi0, E1, E2, E1minusE2, scaledE1deriv);
+    if(g1)
+        *g1 = exp(logh1) / *g1 / scaledE1deriv;
+    return E1minusE2;
 }
 
 
@@ -231,7 +266,7 @@ SphericalIsotropic::SphericalIsotropic(const std::vector<double>& gridh, const s
     for(unsigned int i=0; i<gridh.size(); i++) {
         sh[i] = log(gridh[i]);
         sf[i] = log(gridf[i]);
-        if((i>0 && sh[i]<=sh[i-1]) || !math::isFinite(sf[i]+sh[i]))
+        if((i>0 && sh[i]<=sh[i-1]) || !isFinite(sf[i]+sh[i]))
             throw std::invalid_argument("SphericalIsotropic: incorrect input data");
     }
     // construct the spline, optionally with the user-provided endpoint derivatives:
@@ -266,17 +301,33 @@ SphericalIsotropic fitSphericalDF(
     const unsigned int nbody = hvalues.size();
     if(masses.size() != nbody)
         throw std::invalid_argument("fitSphericalDF: array sizes are not equal");
-    const int minParticlesPerBin  = std::max(1, static_cast<int>(log(nbody+1)/log(2)));
+
+    // 1. collect the log-scaled values of phase volume
     std::vector<double> logh(nbody);
     for(unsigned int i=0; i<nbody; i++) {
         logh[i] = log(hvalues[i]);
-        if(!math::isFinite(logh[i]+masses[i]) || masses[i]<0)
+        if(!isFinite(logh[i]+masses[i]) || masses[i]<0)
             throw std::invalid_argument("fitSphericalDF: incorrect input data");
     }
-    std::vector<double> gridh = math::createAlmostUniformGrid(gridSize, logh, minParticlesPerBin);
+
+    // 2. create a reasonable grid in log(h), with almost uniform spacing subject to the condition
+    // that each segment contains at least "a few" particles (weakly depending on their total number)
+    const int minParticlesPerBin  = std::max(1, static_cast<int>(log(nbody+1)/log(2)));
+    std::vector<double> gridh = math::createAlmostUniformGrid(gridSize+2, logh, minParticlesPerBin);
+    utils::msg(utils::VL_DEBUG, "fitSphericalDF",
+        "Grid in h=["+utils::toString(exp(gridh[1]))+":"+utils::toString(exp(gridh[gridh.size()-2]))+"]"
+        ", particles span h=["+utils::toString(exp(gridh[0]))+":"+utils::toString(exp(gridh.back()))+"]");
+    gridh.erase(gridh.begin());
+    gridh.pop_back();
+
+    // 3a. perform spline log-density fit, and
+    // 3b. initialize a cubic spline for log(f) as a function of log(h)
     math::CubicSpline fitfnc(gridh,
         math::splineLogDensity<3>(gridh, logh, masses,
         math::FitOptions(math::FO_INFINITE_LEFT | math::FO_INFINITE_RIGHT | math::FO_PENALTY_3RD_DERIV)));
+
+    // 4. store the values of cubic spline at grid nodes, together with two endpoint derivatives --
+    // this data is sufficient to reconstruct it exactly later in the SphericalIsotropic constructor
     double slopeIn, slopeOut;
     fitfnc.evalDeriv(gridh.front(), NULL, &slopeIn);
     fitfnc.evalDeriv(gridh.back(),  NULL, &slopeOut);
@@ -288,9 +339,22 @@ SphericalIsotropic fitSphericalDF(
         gridf[i] = exp(fitfnc(gridh[i])) / h;
         gridh[i] = h;
     }
-    // construct an interpolating spline that matches exactly our fitfnc (it's also a cubic spline
+    // additional "-1" comes from the fact that slopes were computed as d [log (h f(h) ) ] / d [log h],
+    // and the SphericalIsotropic interpolator takes the slopes for d[ log f(h) ] / d [log h]
+    slopeIn  -= 1;
+    slopeOut -= 1;
+
+    // debugging output
+    if(utils::verbosityLevel >= utils::VL_VERBOSE) {
+        std::ofstream strm("dffit");
+        strm << "#slope_in\t" << slopeIn << "\n#slope_out\t" << slopeOut << '\n';
+        for(unsigned int i=0; i<gridh.size(); i++)
+            strm << gridh[i] << '\t' << gridf[i] << '\n';
+    }
+
+    // 5. construct an interpolating spline that matches exactly our fitfnc (it's also a cubic spline
     // in the same scaled variables), including the correct slopes for extrapolation outside the grid
-    return SphericalIsotropic(gridh, gridf, slopeIn-1, slopeOut-1);
+    return SphericalIsotropic(gridh, gridf, slopeIn, slopeOut);
 }
 
 
@@ -372,6 +436,7 @@ DiffusionCoefs::DiffusionCoefs(const PhaseVolume& _phasevol, const math::IFuncti
     // add the contribution of integrals from the last grid point up to infinity (very small anyway)
     gridFGint.back() -= gridF.back() * gridH.back() / (1 + outerFslope);
     gridFHint.back() -= gridF.back() * pow_2(gridH.back()) / gridG.back() / (1 + outerEslope + outerFslope);
+    totalMass = gridFGint.back();  // cache the value of total mass which is used in evalLocal/evalOrbitAvg
 
     // 4c. log-scale the computed values and prepare derivatives for quintic spline
     std::vector<double> gridFder(npoints), gridFGder(npoints), gridFHder(npoints);
@@ -383,7 +448,7 @@ DiffusionCoefs::DiffusionCoefs(const PhaseVolume& _phasevol, const math::IFuncti
         gridFGint[i] = log(gridFGint[i]);
         gridFHint[i] = log(gridFHint[i]);
         if(!(gridFder[i]<=0 && gridFGder[i]>=0 && gridFHder[i]>=0 && 
-            math::isFinite(gridFint[i] + gridFGint[i] + gridFHint[i])))
+            isFinite(gridFint[i] + gridFGint[i] + gridFHint[i])))
             throw std::runtime_error("DiffusionCoefs: cannot construct valid interpolators");
     }
     // integrals of f*g and f*h have finite limit as h-->inf;
@@ -395,83 +460,100 @@ DiffusionCoefs::DiffusionCoefs(const PhaseVolume& _phasevol, const math::IFuncti
     intfg = math::QuinticSpline(gridLogH, gridFGint, gridFGder);
     intfh = math::QuinticSpline(gridLogH, gridFHint, gridFHder);
 
-    // 5. construct 2d interpolating splines for J1 and J3 as functions of Phi and E
+    // 5. construct 2d interpolating splines for dv2par, dv2per as functions of Phi and E
 
     // 5a. asymptotic values for J1/J0 and J3/J0 as Phi --> 0 and (E/Phi) --> 0
     double outerJ1 = 0.5*M_SQRTPI * math::gamma(2 + outerRatio) / math::gamma(2.5 + outerRatio);
-    double outerJ3 = outerJ1 * 3 / (5 + 2*outerRatio);
+    double outerJ3 = outerJ1 * 1.5 / (2.5 + outerRatio);
 
     // 5b. compute the values of J1/J0 and J3/J0 at nodes of 2d grid in X=log(h(Phi)), Y=log(h(E)/h(Phi))
     math::Matrix<double> gridv2par(npoints, npointsY), gridv2per(npoints, npointsY);
-    for(unsigned int i=0; i<npoints; i++) {
-        double Phi = phasevol.E(gridH[i]);
-        double I0  = exp(intf(gridLogH[i]));
-        double J1overI0 = 0, J3overI0 = 0;
-        DFIntegrand<MODE_INTJ1> intJ1(df, phasevol, Phi);
-        DFIntegrand<MODE_INTJ3> intJ3(df, phasevol, Phi);
+    for(unsigned int i=0; i<npoints; i++)
+    {
+        // The first coordinate of the grid is X = log(h(Phi)), the second is Y = log(h(E)) - X.
+        // For each pair of values of X and Y, we compute the following integrals:
+        // J_n = \int_\Phi^E f(E') [(E'-\Phi) / (E-\Phi)]^{n/2}  dE';  n = 0, 1, 3.
+        // Then the value of 2d interpolants are assigned as
+        // \log[ J3 / J0 ], \log[ (3*J1-J3) / J0 ] .
+        // In practice, we replace the integration over dE by integration over dy = d(log h),
+        // and accumulate the values of modified integrals sequentially over each segment in Y.
+        // Here the modified integrals are  J{n}acc = \int_X^Y f(y) (dE'/dy) (E'(y)-\Phi)^{n/2}  dy,
+        // i.e., without the term [E(Y,X)-\Phi(X)]^{n/2} in the denominator,
+        // which is invoked later when we assign the values to the 2d interpolants.
+        double J0acc = 0, J1acc = 0, J3acc = 0;  // accumulators
+        DFIntegrand<MODE_INTF>  intJ0(df, phasevol, gridLogH[i]);
+        DFIntegrand<MODE_INTJ1> intJ1(df, phasevol, gridLogH[i]);
+        DFIntegrand<MODE_INTJ3> intJ3(df, phasevol, gridLogH[i]);
         gridv2par(i, 0) = log(2./5);  // analytic limiting values for Phi=E
         gridv2per(i, 0) = log(8./5);
         for(unsigned int j=1; j<npointsY; j++) {
-            double EoverPhi=0, J0overI0=1;
+            double logHprev = gridLogH[i] + gridY[j-1];
+            double logHcurr = gridLogH[i] + gridY[j];
+            if(j==1) {
+                // integration over the first segment uses a more accurate quadrature rule
+                // to accounting for a possible endpoint singularity at Phi=E
+                J0acc = math::integrate(math::ScaledIntegrandEndpointSing(
+                    intJ0, logHprev, logHcurr), 0, 1, ACCURACY);
+                J1acc = math::integrate(math::ScaledIntegrandEndpointSing(
+                    intJ1, logHprev, logHcurr), 0, 1, ACCURACY);
+                J3acc = math::integrate(math::ScaledIntegrandEndpointSing(
+                    intJ3, logHprev, logHcurr), 0, 1, ACCURACY);
+            } else {
+                J0acc += math::integrate(intJ0, logHprev, logHcurr, ACCURACY);
+                J1acc += math::integrate(intJ1, logHprev, logHcurr, ACCURACY);
+                J3acc += math::integrate(intJ3, logHprev, logHcurr, ACCURACY);
+            }
             if(i==npoints-1) {
                 // last row: analytic limiting values for Phi-->0 and any E/Phi
-                EoverPhi = exp(gridY[j] * outerEslope);
-                double oneMinusJ0overI0 = pow(EoverPhi, 1+outerRatio);
-                J0overI0 = 1 - oneMinusJ0overI0;
-                J1overI0 = outerJ1 - oneMinusJ0overI0 * (j<npointsY-1 ?
-                    math::hypergeom2F1(-0.5, 1+outerRatio, 2+outerRatio, EoverPhi) : 0);
-                J3overI0 = outerJ3 - oneMinusJ0overI0 * (j<npointsY-1 ?
-                    math::hypergeom2F1(-1.5, 1+outerRatio, 2+outerRatio, EoverPhi) : 0);
-            } else {
-                double logHprev = gridLogH[i] + gridY[j-1];
-                double logHcurr = gridLogH[i] + gridY[j];
-                /*if(j==npointsY-1)
-                    logHcurr = fmax(logHcurr, gridLogH.back());*/
-                double hcurr = exp(logHcurr);
-                EoverPhi = phasevol.E(hcurr) / Phi;  // <=1
-                J0overI0 = 1 - exp(intf(logHcurr)) / I0;
-                if(j==1) {
-                    J1overI0 = math::integrate(math::ScaledIntegrandEndpointSing(
-                        intJ1, logHprev, logHcurr), 0, 1, ACCURACY) / I0;
-                    J3overI0 = math::integrate(math::ScaledIntegrandEndpointSing(
-                        intJ3, logHprev, logHcurr), 0, 1, ACCURACY) / I0;
+                double EoverPhi = exp(gridY[j] * outerEslope);  // strictly < 1
+                double oneMinusJ0overI0 = pow(EoverPhi, 1+outerRatio);  // < 1
+                double Fval1 = math::hypergeom2F1(-0.5, 1+outerRatio, 2+outerRatio, EoverPhi);
+                double Fval3 = math::hypergeom2F1(-1.5, 1+outerRatio, 2+outerRatio, EoverPhi);
+                double I0    = exp(intf(gridLogH[i]));
+                double sqPhi = sqrt(-phasevol.E(gridH[i]));
+                if(isFinite(Fval1+Fval3)) {
+                    J0acc = I0 * (1 - oneMinusJ0overI0);
+                    J1acc = I0 * (outerJ1 - oneMinusJ0overI0 * Fval1) * sqPhi;
+                    J3acc = I0 * (outerJ3 - oneMinusJ0overI0 * Fval3) * pow_3(sqPhi);
                 } else {
-                    J1overI0 += math::integrate(intJ1, logHprev, logHcurr, ACCURACY) / I0;
-                    J3overI0 += math::integrate(intJ3, logHprev, logHcurr, ACCURACY) / I0;
+                    // this procedure sometimes fails, since hypergeom2F1 is not very robust;
+                    // in this case we simply keep the values computed by numerical integration
+                    utils::msg(utils::VL_WARNING, "DiffusionCoefs", "Can't compute asymptotic value");
                 }
-                /*if(j==npointsY-1) {
-                    double mult = -Phi * EoverPhi * df(hcurr) / (1+outerRatio) / I0;
-                    J1overI0 += mult * math::hypergeom2F1(-0.5, 1+outerRatio, 2+outerRatio, EoverPhi);
-                    J3overI0 += mult * math::hypergeom2F1(-1.5, 1+outerRatio, 2+outerRatio, EoverPhi);
-                    EoverPhi = 0;
-                    J0overI0 = 1;
-                }*/
             }
-            double J1 = J1overI0 / J0overI0 / sqrt(1-EoverPhi);
-            double J3 = J3overI0 / J0overI0 / pow_3(sqrt(1-EoverPhi));
-            gridv2par(i, j) = log(J3);
-            gridv2per(i, j) = log(3 * J1 - J3);
+            double dv = sqrt(phasevol.deltaE(logHcurr, gridLogH[i]));
+            double J1overJ0 = J1acc / J0acc / dv;
+            double J3overJ0 = J3acc / J0acc / pow_3(dv);
+            if(J1overJ0<=0 || J3overJ0<=0 || !isFinite(J1overJ0+J3overJ0)) {
+                utils::msg(utils::VL_WARNING, "DiffusionCoefs", "Invalid value"
+                    "  J0="+utils::toString(J0acc)+
+                    ", J1="+utils::toString(J1acc)+
+                    ", J3="+utils::toString(J3acc));
+                J1overJ0 = 2./3;   // fail-safe values corresponding to E=Phi
+                J3overJ0 = 2./5;
+            }
+            gridv2par(i, j) = log(J3overJ0);
+            gridv2per(i, j) = log(3 * J1overJ0 - J3overJ0);
         }
     }
 
-#ifdef VERBOSE_OUTPUT
-    ///!!! debugging
-    std::ofstream strm("bla");
-    for(unsigned int i=0; i<npoints; i++) {
-        double Phi = phasevol.E(gridH[i]);
-        for(unsigned int j=0; j<npointsY; j++) {
-            double E = phasevol.E(exp(gridLogH[i] + gridY[j]));
-            strm << gridLogH[i] << ' ' << gridY[j] << '\t' << Phi << ' ' << E << '\t' <<
-            exp(gridv2par(i, j)) << ' ' << exp(gridv2per(i, j)) << '\n';
+    // debugging output
+    if(utils::verbosityLevel >= utils::VL_VERBOSE) {
+        std::ofstream strm("diffcoefs");
+        for(unsigned int i=0; i<npoints; i++) {
+            double Phi = phasevol.E(gridH[i]);
+            for(unsigned int j=0; j<npointsY; j++) {
+                double E = phasevol.E(exp(gridLogH[i] + gridY[j]));
+                strm << gridLogH[i] << ' ' << gridY[j] << '\t' << Phi << ' ' << E << '\t' <<
+                exp(gridv2par(i, j)) << ' ' << exp(gridv2per(i, j)) << '\n';
+            }
+            strm << '\n';
         }
-        strm << '\n';
     }
-    strm.close();
-#endif
 
     // 5c. construct the 2d splines
-    intv2par = math::CubicSpline2d(gridLogH, gridY, gridv2par/*, 0, 0, NAN, 0*/);
-    intv2per = math::CubicSpline2d(gridLogH, gridY, gridv2per/*, 0, 0, NAN, 0*/);
+    intv2par = math::CubicSpline2d(gridLogH, gridY, gridv2par);
+    intv2per = math::CubicSpline2d(gridLogH, gridY, gridv2per);
 }
 
 void DiffusionCoefs::evalOrbitAvg(double E, double &DE, double &DEE) const
@@ -480,12 +562,11 @@ void DiffusionCoefs::evalOrbitAvg(double E, double &DE, double &DEE) const
     phasevol.evalDeriv(E, &h, &g);
     double
     logh = log(h),
-    mass = exp(intfg(intfg.xmax())),
     IF   = exp(intf(logh)),
     IFG  = exp(intfg(logh)),
     IFH  = exp(intfh(logh));
-    DE   = 16*M_PI*M_PI * mass * (IF - IFG / g);
-    DEE  = 32*M_PI*M_PI * mass * (IF * h + IFH) / g;
+    DE   = 16*M_PI*M_PI * totalMass * (IF - IFG / g);
+    DEE  = 32*M_PI*M_PI * totalMass * (IF * h + IFH) / g;
 }
 
 void DiffusionCoefs::evalLocal(double Phi, double E, double &dvpar, double &dv2par, double &dv2per) const
@@ -496,9 +577,8 @@ void DiffusionCoefs::evalLocal(double Phi, double E, double &dvpar, double &dv2p
     if(!(Phi<0 && loghEi >= loghPhi))
         throw std::invalid_argument("DiffusionCoefs: incompatible values of E and Phi");
     
-    double logmass = intfg(intfg.xmax());   // log(total mass)
-    double I0 = exp(intf(loghEi) + logmass);
-    double J0 = exp(intf(loghPhi)+ logmass) - I0;
+    double I0 = exp(intf(loghEi));
+    double J0 = fmax(exp(intf(loghPhi)) - I0, 0);
     double v2par = exp(evalExtrapolate(intv2par, loghPhi, loghEi-loghPhi)) * J0;
     double v2per = exp(evalExtrapolate(intv2per, loghPhi, loghEi-loghPhi)) * J0;
     if(E>0) {  // in this case, the coefficients were computed for Ei=0, need to scale them to E>0
@@ -508,7 +588,7 @@ void DiffusionCoefs::evalLocal(double Phi, double E, double &dvpar, double &dv2p
         v2par *= pow_3(corr);
         v2per  = 3 * J1 - v2par;
     }
-    double mult = 32*M_PI*M_PI/3;
+    double mult = 32*M_PI*M_PI/3 * totalMass;
     dvpar  = -mult * (v2par + v2per);
     dv2par =  mult * (v2par + I0);
     dv2per =  mult * (v2per + I0 * 2);

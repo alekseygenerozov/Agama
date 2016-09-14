@@ -1,17 +1,12 @@
 #include "math_sample.h"
 #include "math_core.h"
 #include "math_spline.h"
+#include "utils.h"
 #include <stdexcept>
 #include <cassert>
 #include <cmath>
 #include <map>
 #include <algorithm>
-
-#ifdef VERBOSE_REPORT
-#include "debug_utils.h"
-#include <iostream>
-#include <fstream>
-#endif
 
 namespace math{
 
@@ -319,7 +314,7 @@ void Sampler::evalFncLoop(unsigned int first, unsigned int count)
 
 void Sampler::runPass(const unsigned int numSamples)
 {
-    sampleCoords.resize(numSamples, Ndim);    // preallocate space for both arrays
+    sampleCoords=math::Matrix<double>(numSamples, Ndim);    // preallocate space for both arrays
     weightedFncValues.resize(numSamples);
     defaultSamplesPerCell = numSamples * 1. / numCells;
     samplesPerCell.clear();
@@ -347,10 +342,9 @@ void Sampler::computeIntegral()
         avg.add(weightedFncValues[i]);
     integValue = avg.mean() * numSamples;
     integError = sqrt(avg.disp() * numSamples);
-#ifdef VERBOSE_REPORT
-    std::cout <<  "Integral value= " << integValue <<
-        " +- " << integError << " using " << numCallsFnc << " function calls" << std::endl;
-#endif
+    utils::msg(utils::VL_DEBUG, "sampleNdim",
+        "Integral value="+utils::toString(integValue)+" +- "+utils::toString(integError)+
+        " using "+utils::toString(numCallsFnc)+" function calls");
 }
 
 void Sampler::readjustBins()
@@ -459,14 +453,14 @@ void Sampler::readjustBins()
         
         numCells /= 2;
     }
-#ifdef VERBOSE_REPORT
-    for(unsigned int d=0; d<Ndim; d++) {
-        std::cout << "bins for D=" << d << ':';
-        for(unsigned int k=0; k<binBoundaries[d].size(); k++)
-            std::cout << ' ' << binBoundaries[d][k];
-        std::cout << std::endl;
+    if(utils::verbosityLevel >= utils::VL_VERBOSE) {
+        for(unsigned int d=0; d<Ndim; d++) {
+            std::string text = "bins for D=" + utils::toString(d) + ':';
+            for(unsigned int k=0; k<binBoundaries[d].size(); k++)
+                text += ' ' + utils::toString(binBoundaries[d][k]);
+            utils::msg(utils::VL_VERBOSE, "sampleNdim", text);
+        }
     }
-#endif
 }
 
 // put more samples into a cells, while decreasing the weights of existing samples in it
@@ -495,10 +489,12 @@ void Sampler::refineCellByAddingSamples(CellEnum indexCell, double refineFactor,
     for(unsigned int i=0; i<listOfPointsInCell.size(); i++)
         weightedFncValues[ listOfPointsInCell[i] ] /= refineFactor;
 
-    // extend the array of sampling points
+    // extend the array of sampling points while preserving the existing values
     unsigned int numPrevSamples = sampleCoords.rows();
     assert(weightedFncValues.size() == numPrevSamples);
-    sampleCoords.conservativeResize(numPrevSamples + numNewSamples, Ndim);  // preserve existing values
+    Matrix<double> newSampleCoords(numPrevSamples + numNewSamples, Ndim);
+    std::copy(sampleCoords.data(), sampleCoords.data()+sampleCoords.size(), newSampleCoords.data());
+    sampleCoords = newSampleCoords;
     weightedFncValues.resize(numPrevSamples + numNewSamples);
 
     // assign coordinates for newly sampled points, but don't evaluate function yet --
@@ -526,9 +522,7 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
         // new samples we need to place into this cell: R = (N_new + N_existing) / N_existing )
         CellMap cellsForRefinement;
 
-#ifdef VERBOSE_REPORT
         unsigned int numOverweightSamples=0, numCellsForRefinement=0;
-#endif
         // determine if any of our sampled points are too heavy for the requested number of output points
         for(unsigned int indexPoint=0; indexPoint<numSamples; indexPoint++) {
             double refineFactor = weightedFncValues[indexPoint] / maxWeight;
@@ -539,9 +533,7 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
                     cellsForRefinement.insert(std::make_pair(indexCell, refineFactor));
                 else if(iter->second < refineFactor)
                     iter->second = refineFactor;   // update the required refinement factor for this cell
-#ifdef VERBOSE_REPORT
                 ++numOverweightSamples;
-#endif
             }
         }
         if(cellsForRefinement.empty())
@@ -561,19 +553,16 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
             iter != cellsForRefinement.end(); ++iter) {
             CellEnum indexCell  = iter->first;
             double refineFactor = iter->second*1.25;  // safety margin
-#ifdef VERBOSE_REPORT
             ++numCellsForRefinement;
-#endif
             refineCellByAddingSamples(indexCell, refineFactor, samplesInCell[indexCell]);
         }
 
         // then evaluate function values for all new samples
         unsigned int numNewSamples = sampleCoords.rows()-numSamples;
-#ifdef VERBOSE_REPORT
-        std::cout << "Iteration #" << nIter <<": refining " << numCellsForRefinement <<
-            " cells because of " << numOverweightSamples << " overweight samples"
-            " by making further " << numNewSamples << " function calls; " << std::endl;
-#endif
+        utils::msg(utils::VL_DEBUG, "sampleNdim",
+            "Iteration #"+utils::toString(nIter)+": refining "+utils::toString(numCellsForRefinement)+
+            " cells because of "+utils::toString(numOverweightSamples)+" overweight samples"
+            " by making further "+utils::toString(numNewSamples)+" function calls");
         evalFncLoop(numSamples, numNewSamples);
 
         // update the integral estimate
@@ -585,7 +574,7 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
 
 void Sampler::drawSamples(const unsigned int numOutputSamples, Matrix<double>& outputSamples) const
 {
-    outputSamples.resize(numOutputSamples, Ndim);
+    outputSamples=math::Matrix<double>(numOutputSamples, Ndim);
     const unsigned int npoints = weightedFncValues.size();
     assert(sampleCoords.rows() == npoints);   // number of internal samples already taken
     double partialSum = 0;        // accumulates the sum of f(x_i) w(x_i) for i=0..{current value}
@@ -602,11 +591,11 @@ void Sampler::drawSamples(const unsigned int numOutputSamples, Matrix<double>& o
             outputIndex++;
         }
     }
-    if(outputIndex != numOutputSamples)
-        outputSamples.conservativeResize(outputIndex, Ndim);
+    assert(outputIndex == numOutputSamples);
 }
 
 #if 0
+/// this is a potentially more efficient implementation, but currently is considered unstable
 class NewSampler {
 public:
     /** Construct an N-dimensional sampler object */
@@ -767,11 +756,9 @@ double NewSampler::computeResult()
     // maximum allowed value of f(x)*w(x), which is the weight of one output sample
     // (it is not constant because the estimate of integValue is adjusted after each iteration)
 //    outputSampleWeight = integValue / numOutputSamples;
-#ifdef VERBOSE_REPORT
     std::cout <<  "Integral value= " << integValue << " +- " << integError <<
         " using " << numCallsFnc << " points (" << numActivePoints << " active)"
         " with " << cells.size() << " cells; refineFactor=" << refineFactor << std::endl;
-#endif
     return refineFactor;
 }
 
@@ -1070,22 +1057,16 @@ void NewSampler::run()
 //        strm.close();
         
         int numAdd = numActivePoints * newRefFactor * oversamplingFactor;
-#ifdef VERBOSE_REPORT
         std::cout << "New ref factor="<<newRefFactor<<"\n";
-#endif
         if(newRefFactor+1 < refineFactor) {  // discard old points
             for(unsigned int p=0; p<numPoints; p++)
                 points[p].weight = 0;
         }
         
         if(numAdd>0) {
-#ifdef VERBOSE_REPORT
             std::cout << "Adding " << numAdd << " points in " << cells.size() << " cells" << std::flush;
-#endif
             addPoints(numAdd);
-#ifdef VERBOSE_REPORT
             std::cout << ", collecting samples" << std::endl;
-#endif
 //            strm.open((std::string("iter")+char(nIter+49)+".points").c_str());
             evalFncLoop(numPoints, numAdd);
 //            strm.close();

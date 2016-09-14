@@ -9,8 +9,7 @@
     in run-time at the expense of a significantly longer compilation time
     (since it a header-only library entirely based on esoteric template constructions).
     GSL implementations of the same routines are typically several times slower.
-    The switch of back-end is transparent for the rest of the code outside this module,
-    however, everything should be recompiled as the definition of Matrix class changes.
+    The switch of back-end is transparent for the rest of the code outside this module.
 
     Matrices may be defined over any numerical type, although all linear algebra
     routines operate only on matrices of double, and can be either dense or sparse.
@@ -26,12 +25,6 @@
 */
 #pragma once
 #include <vector>
-#ifdef HAVE_EIGEN
-// don't use internal OpenMP parallelization at the level of internal Eigen routines
-#define EIGEN_DONT_PARALLELIZE
-#include <Eigen/Core>
-#include <Eigen/SparseCore>
-#endif
 
 namespace math{
 
@@ -40,9 +33,9 @@ namespace math{
 
 /// a triplet of numbers specifying an element in a sparse matrix
 struct Triplet {
-    int i;    ///< row
-    int j;    ///< column
-    double v; ///< value
+    unsigned int i; ///< row
+    unsigned int j; ///< column
+    double v;       ///< value
     Triplet() : i(0), j(0), v(0) {}
     Triplet(const int _i, const int _j, const double _v) : i(_i), j(_j), v(_v) {}
     int row() const { return i; }
@@ -61,16 +54,13 @@ struct Triplet {
 */
 template<typename NumT>
 struct IMatrix {
+    IMatrix(unsigned int _nRows=0, unsigned int _nCols=0) :
+        nRows(_nRows), nCols(_nCols) {}
+
     virtual ~IMatrix() {}
 
     /// overall size of the matrix (number of possibly nonzero elements)
     virtual unsigned int size() const = 0;
-
-    /// number of matrix rows
-    virtual unsigned int numRows() const = 0;
-
-    /// number of matrix columns
-    virtual unsigned int numCols() const = 0;
 
     /// return an element from the matrix at the specified position
     virtual NumT at(const unsigned int row, const unsigned int col) const = 0;
@@ -78,19 +68,43 @@ struct IMatrix {
     /// return an element at the overall `index` from the matrix (0 <= index < size),
     /// together with its separate row and column indices; used to loop over all nonzero elements
     virtual NumT elem(const unsigned int index, unsigned int &row, unsigned int &col) const = 0;
+
+    /// get the number of matrix rows
+    unsigned int rows() const { return nRows; }
+    
+    /// get the number of matrix columns
+    unsigned int cols() const { return nCols; }
+
+    friend void swap(IMatrix<NumT>& first, IMatrix<NumT>& second)
+    {
+        using std::swap;
+        swap(first.nRows, second.nRows);
+        swap(first.nCols, second.nCols);
+    }
+private:
+    unsigned int nRows;     ///< number of rows (first index)
+    unsigned int nCols;     ///< number of columns (second index)
 };
 
 /// The interface for diagonal matrices
 template<typename NumT>
 struct DiagonalMatrix: public IMatrix<NumT> {
+    using IMatrix<NumT>::rows;
+    using IMatrix<NumT>::cols;
+
+    /// default empty constructor
     DiagonalMatrix() {}
-    explicit DiagonalMatrix(const std::vector<NumT>& src): D(src) {};
-    virtual unsigned int size()    const { return D.size(); }
-    virtual unsigned int numRows() const { return D.size(); }
-    virtual unsigned int numCols() const { return D.size(); }
+
+    /// construct the matrix from the vector of diagonal values
+    explicit DiagonalMatrix(const std::vector<NumT>& src) :
+        IMatrix<NumT>(src.size(), src.size()), D(src) {}
+
+    virtual unsigned int size() const { return rows(); }
+
     virtual NumT at(const unsigned int row, const unsigned int col) const {
         return col==row ? D.at(col) : 0;
     }
+
     virtual NumT elem(const unsigned int index, unsigned int &row, unsigned int &col) const {
         row = col = index;
         return D.at(index);
@@ -99,141 +113,43 @@ private:
     const std::vector<NumT> D;  ///< the actual storage of diagonal elements
 };
 
-#ifdef HAVE_EIGEN
-
-/// Class for read-only sparse matrices
-template<typename NumT>
-struct SpMatrix: public IMatrix<NumT> {
-    typedef Eigen::SparseMatrix<NumT, Eigen::ColMajor> Type;
-    
-    /// the actual Eigen sparse matrix object, not to be used directly outside this module
-    Type impl;
-
-    /// default constructor for an empty matrix
-    SpMatrix() {}
-
-    /// create a matrix of given size from a list of triplets (row,column,value)
-    SpMatrix(unsigned int nRows, unsigned int nCols,
-        const std::vector<Triplet>& values = std::vector<Triplet>());
-    
-    /// read-only element access
-    NumT operator() (unsigned int row, unsigned int col) const { return impl.coeff(row, col); }
-    
-    /// return all non-zero elements in a single array of triplets (row, column, value)
-    std::vector<Triplet> values() const;
-    
-    /// get the number of matrix rows
-    unsigned int rows() const { return impl.rows(); }
-    
-    /// get the number of matrix columns
-    unsigned int cols() const { return impl.cols(); }
-    
-    /// get the number of nonzero elements
-    virtual unsigned int size() const { return impl.nonZeros(); }
-
-    /// return the given nonzero element and store its row and column indices
-    virtual NumT elem(const unsigned int index, unsigned int &row, unsigned int &col) const;
-
-    // other virtual functions of IMatrix interface
-    virtual NumT at(unsigned int row, unsigned int col) const { return impl.coeff(row, col); }
-    virtual unsigned int numRows() const { return impl.rows(); }
-    virtual unsigned int numCols() const { return impl.cols(); }
-};
-
-/** Class for two-dimensional matrices that is simply a wrapper around the Matrix class from Eigen.
-    We can't partially specialize the Eigen matrix template in pre-C++11 standard,
-    so need to define a container class that transparently exposes the basic methods of Eigen::Matrix */
-template<typename NumT>
-struct Matrix: public IMatrix<NumT> {
-    /// a workaround for template typedef that can only be defined inside another class
-    typedef Eigen::Matrix<NumT, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Type;
-
-    /// the actual Eigen matrix object (should not be used directly outside this module)
-    Type impl;
-
-    /// create an empty matrix
-    Matrix() {}
-
-    /// create a matrix of given size (values are not initialized!)
-    Matrix(unsigned int nRows, unsigned int nCols) : impl(nRows, nCols) {}
-
-    /// create a matrix of given size and initialize it with the given value
-    Matrix(unsigned int nRows, unsigned int nCols, const NumT value) :
-        impl(nRows, nCols) { impl.fill(value); }
-
-    /// create a dense matrix from a sparse one
-    explicit Matrix(const SpMatrix<NumT>& src) : impl(src.impl) {}
-
-    /// create a matrix from a list of triplets (row,column,value)
-    Matrix(unsigned int nRows, unsigned int nCols, const std::vector<Triplet>& values) :
-        impl(nRows, nCols)
-    {
-        impl.fill(0);
-        for(unsigned int k=0; k<values.size(); k++)
-            impl(values[k].i, values[k].j) = static_cast<NumT>(values[k].v);
-    }
-
-    /// fill the matrix with the given value
-    void fill(const NumT value) { impl.fill(value); };
-
-    /// resize an existing matrix while preserving its existing elements
-    void conservativeResize(unsigned int newRows, unsigned int newCols) {
-        impl.conservativeResize(newRows, newCols); }
-
-    /// resize matrix without preserving its elements
-    void resize(unsigned int newRows, unsigned int newCols) { impl.resize(newRows, newCols); }
-
-    /// access the matrix element for reading
-    const NumT& operator() (unsigned int row, unsigned int col) const { return impl(row, col); }
-
-    /// access the matrix element for writing
-    NumT& operator() (unsigned int row, unsigned int col) { return impl(row, col); }
-
-    /// get the number of matrix rows
-    unsigned int rows() const { return impl.rows(); }
-
-    /// get the number of matrix columns
-    unsigned int cols() const { return impl.cols(); }
-
-    /// access raw data for reading (2d array in row-major order:
-    /// indexing scheme is  `M(row, column) = M.data[ row*M.cols() + column ]` )
-    const NumT* data() const { return impl.data(); }
-
-    /// access raw data for writing (2d array in row-major order)
-    NumT* data() { return impl.data(); }
-
-    /// get the number of elements
-    virtual unsigned int size() const { return impl.rows() * impl.cols(); }
-    
-    /// return the given nonzero element and store its row and column indices
-    virtual NumT elem(const unsigned int index, unsigned int &row, unsigned int &col) const {
-        row = index / impl.cols();
-        col = index % impl.cols();
-        return impl(row, col);
-    }
-    
-    // other virtual functions of IMatrix interface
-    virtual NumT at(unsigned int row, unsigned int col) const { return impl(row, col); }
-    virtual unsigned int numRows() const { return impl.rows(); }
-    virtual unsigned int numCols() const { return impl.cols(); }
-};
-
-#else
-// no EIGEN
-
 /// class for read-only sparse matrices
 template<typename NumT>
 struct SpMatrix: public IMatrix<NumT> {
-    void* impl;  /// implementation details, not to be used directly outside this module
+    using IMatrix<NumT>::rows;
+    using IMatrix<NumT>::cols;
 
-    SpMatrix() : impl(0) {}
-    SpMatrix(const SpMatrix<NumT>&);
-    SpMatrix& operator=(const SpMatrix<NumT>&);
-    virtual ~SpMatrix();
-    
-    /// create a matrix of given size from a list of triplets (row,column,value)
+    /// default (empty) constructor
+    SpMatrix();
+
+    /// create a matrix of given size from a list of triplets (row,column,value);
     SpMatrix(unsigned int nRows, unsigned int nCols,
         const std::vector<Triplet>& values = std::vector<Triplet>());
+    
+    /// copy constructor from a sparse matrix
+    SpMatrix(const SpMatrix<NumT>& src);
+    
+#if __cplusplus >= 201103L
+    // move constructor in C++11
+    SpMatrix(SpMatrix&& src) : SpMatrix() {
+        swap(*this, src);
+    }
+#endif
+
+    /// assignment from a sparse matrix
+    SpMatrix& operator=(SpMatrix<NumT> src) {
+        swap(*this, src);
+        return *this;
+    }
+    
+    /// needed for standard containers and assignment operator
+    friend void swap(SpMatrix<NumT>& first, SpMatrix<NumT>& second) {
+        using std::swap;
+        swap(static_cast<IMatrix<NumT>&>(first), static_cast<IMatrix<NumT>&>(second));
+        swap(first.impl, second.impl);
+    }
+    
+    virtual ~SpMatrix();
 
     /// read-only access to a matrix element
     NumT operator() (unsigned int row, unsigned int col) const;
@@ -241,108 +157,93 @@ struct SpMatrix: public IMatrix<NumT> {
     /// return all non-zero elements in a single array of triplets (row, column, value)
     std::vector<Triplet> values() const;
     
-    /// return the number of matrix rows
-    unsigned int rows() const;
-    
-    /// return the number of matrix columns
-    unsigned int cols() const;
-
     /// return the number of nonzero elements
     virtual unsigned int size() const;
 
     /// return the given nonzero element and store its row and column indices
     virtual NumT elem(const unsigned int index, unsigned int &row, unsigned int &col) const;
     
-    // other virtual functions of IMatrix interface
+    /// return an element from the matrix at the specified position
     virtual NumT at(unsigned int row, unsigned int col) const { return operator()(row, col); }
-    virtual unsigned int numRows() const { return rows(); }
-    virtual unsigned int numCols() const { return cols(); }
+
+    void* impl;  ///< opaque implementation details
 };
 
 /** a simple class for two-dimensional matrices with dense storage */
 template<typename NumT>
 struct Matrix: public IMatrix<NumT> {
-    /// create an empty matrix
-    Matrix() : nRows(0), nCols(0) {};
+    using IMatrix<NumT>::rows;
+    using IMatrix<NumT>::cols;
+    
+    /// default (empty) constructor
+    Matrix();
 
-    /// create a matrix of given size, initialized to the given value (0 by default)
-    Matrix(unsigned int _nRows, unsigned int _nCols, const NumT value=0) :
-        nRows(_nRows), nCols(_nCols), arr(nRows*nCols, value) {};
+    /// create a matrix of given size (values are not initialized!)
+    Matrix(unsigned int nRows, unsigned int nCols);
 
-    /// create a dense matrix from a sparse one
-    explicit Matrix(const SpMatrix<NumT>& src) :
-        nRows(src.rows()), nCols(src.cols()), arr(nRows*nCols) {
-        for(unsigned int k=0; k<src.size(); k++) {
-            unsigned int i, j;
-            NumT v = src.elem(k, i, j);
-            arr[i*nCols+j] = v;
-        }
+    /// create a matrix of given size, initialized to the given value
+    Matrix(unsigned int nRows, unsigned int nCols, const NumT value);
+
+    /// copy constructor from a matrix of the same type
+    Matrix(const Matrix<NumT>& src);
+    
+    /// copy constructor from a sparse matrix
+    explicit Matrix(const SpMatrix<NumT>& src);
+    
+    /// create a matrix from a list of triplets (row,column,value)
+    Matrix(unsigned int nRows, unsigned int nCols, const std::vector<Triplet>& values);
+    
+    /// assignment from the same type of matrix
+    Matrix& operator=(Matrix<NumT> src) {
+        swap(*this, src);
+        return *this;
     }
 
-    /// create a matrix from a list of triplets (row,column,value)
-    Matrix(unsigned int _nRows, unsigned int _nCols, const std::vector<Triplet>& values) :
-        nRows(_nRows), nCols(_nCols), arr(nRows*nCols) {
-        for(unsigned int k=0; k<values.size(); k++)
-            arr[values[k].i*nCols+values[k].j] = static_cast<NumT>(values[k].v);
+#if __cplusplus >= 201103L
+    // move constructor in C++11
+    Matrix(Matrix<NumT>&& src) : Matrix() {
+        swap(*this, src);
+    }
+#endif
+    
+    /// needed for standard containers and assignment operator
+    friend void swap(Matrix<NumT>& first, Matrix<NumT>& second) {
+        using std::swap;
+        swap(static_cast<IMatrix<NumT>&>(first), static_cast<IMatrix<NumT>&>(second));
+        swap(first.impl, second.impl);
     }
     
-    /// fill the matrix with the given value
-    void fill(const NumT value) { arr.assign(arr.size(), value); };
+    virtual ~Matrix();
+    
+    /// access the matrix element for reading
+    const NumT& operator() (unsigned int row, unsigned int col) const;
 
-    /// resize an existing matrix while preserving its existing elements
-    void conservativeResize(unsigned int newRows, unsigned int newCols) {
-        nRows = newRows;
-        nCols = newCols;
-        arr.resize(nRows*nCols);
-    }
+    /// access the matrix element for writing
+    NumT& operator() (unsigned int row, unsigned int col);
 
-    /// resize matrix without preserving its elements
-    void resize(unsigned int newRows, unsigned int newCols) {
-        conservativeResize(newRows, newCols); }
-
-    /// access the matrix element for reading (no bound checks!)
-    const NumT& operator() (unsigned int row, unsigned int column) const {
-        return arr[row*nCols+column]; }
-
-    /// access the matrix element for writing (no bound checks!)
-    NumT& operator() (unsigned int row, unsigned int column) {
-        return arr[row*nCols+column]; }
-
-    /// get the number of matrix rows
-    unsigned int rows() const { return nRows; }
-
-    /// get the number of matrix columns
-    unsigned int cols() const { return nCols; }
-
-    /// access raw data for reading (2d array in row-major order:
-    /// indexing scheme is  `M(row, column) = M.data[ row*M.cols() + column ]` )
-    const NumT* data() const { return &arr.front(); }
-
-    /// access raw data for writing (2d array in row-major order)
-    NumT* data() { return &arr.front(); }
+    /// access the raw data storage (flattened 2d array in row-major order):
+    /// indexing scheme is  `M(row, column) = M.data[ row * M.cols() + column ]`;
+    /// bound checks are the responsibility of the calling code
+    NumT* data();
+    
+    /// access the raw data storage (const overload)
+    const NumT* data() const;
 
     /// get the number of elements
-    virtual unsigned int size() const { return arr.size(); }
+    virtual unsigned int size() const { return cols() * rows(); }
     
     /// return the given nonzero element and store its row and column indices
     virtual NumT elem(const unsigned int index, unsigned int &row, unsigned int &col) const {
-        row = index / nCols;
-        col = index % nCols;
-        return arr[index];
+        row = index / cols();
+        col = index % cols();
+        return operator()(row, col);
     }
     
-    // other virtual functions of IMatrix interface
-    virtual NumT at(unsigned int row, unsigned int col) const { return arr[row*nCols+col]; }
-    virtual unsigned int numRows() const { return nRows; }
-    virtual unsigned int numCols() const { return nCols; }
+    /// return an element from the matrix at the specified position
+    virtual NumT at(unsigned int row, unsigned int col) const { return operator()(row, col); }
     
-private:
-    unsigned int nRows;     ///< number of rows (first index)
-    unsigned int nCols;     ///< number of columns (second index)
-    std::vector<NumT> arr;  ///< flattened data storage
+    void* impl;     ///< opaque implementation details
 };
-
-#endif
 
 ///@}
 /// \name Utility routines
@@ -445,11 +346,19 @@ class LUDecomp {
     void* impl;  ///< opaque implementation details
 public:
     // default constructor and other boilerplate definitions
-    LUDecomp() : sparse(false), impl(0) {}
+    LUDecomp() : sparse(false), impl(NULL) {}
+    LUDecomp(const LUDecomp& src);
+    LUDecomp& operator=(LUDecomp src) {
+        swap(*this, src);
+        return *this;
+    }
+    friend void swap(LUDecomp& first, LUDecomp& second) {
+        using std::swap;
+        swap(first.impl,   second.impl);
+        swap(first.sparse, second.sparse);
+    }
     ~LUDecomp();
-    LUDecomp(const LUDecomp&);
-    LUDecomp& operator=(const LUDecomp&);
-
+    
     /// Construct a decomposition for the given dense matrix M
     explicit LUDecomp(const Matrix<double>& M);
 
@@ -469,9 +378,16 @@ public:
 class CholeskyDecomp {
     void* impl;  ///< opaque implementation details
 public:
-    CholeskyDecomp() : impl(0) {}
-    CholeskyDecomp(const CholeskyDecomp&);
-    CholeskyDecomp& operator=(const CholeskyDecomp&);
+    CholeskyDecomp() : impl(NULL) {}
+    CholeskyDecomp(const CholeskyDecomp& src);
+    CholeskyDecomp& operator=(CholeskyDecomp src) {
+        swap(*this, src);
+        return *this;
+    }
+    friend void swap(CholeskyDecomp& first, CholeskyDecomp& second) {
+        using std::swap;
+        swap(first.impl, second.impl);
+    }
     ~CholeskyDecomp();
     
     /// Construct a decomposition for the given dense matrix M
@@ -485,6 +401,7 @@ public:
     /// Solve the matrix equation `M x = rhs` for x, using the Cholesky decomposition of matrix M
     std::vector<double> solve(const std::vector<double>& rhs) const;
 };
+
 
 /** Singular value decomposition of an arbitrary M-by-N matrix A (M>=N) into a product  U S V^T,
     where U is an orthogonal M-by-N matrix, S is a diagonal N-by-N matrix of singular values,
@@ -501,9 +418,16 @@ public:
 class SVDecomp {
     void* impl;  ///< opaque implementation details
 public:
-    SVDecomp() : impl(0) {}
-    SVDecomp(const SVDecomp&);
-    SVDecomp& operator=(const SVDecomp&);
+    SVDecomp() : impl(NULL) {}
+    SVDecomp(const SVDecomp& src);
+    SVDecomp& operator=(SVDecomp src) {
+        swap(*this, src);
+        return *this;
+    }
+    friend void swap(SVDecomp& first, SVDecomp& second) {
+        using std::swap;
+        swap(first.impl, second.impl);
+    }
     ~SVDecomp();
 
     /// Construct a decomposition for the given matrix M
@@ -525,15 +449,10 @@ public:
 };
 
 
-/** solve a tridiagonal linear system  A x = y,  where elements of A are stored in three vectors
+/** solve a tridiagonal linear system  A x = rhs,  where elements of A are stored in three vectors
     `diag`, `aboveDiag` and `belowDiag` */
-void linearSystemSolveTridiag(const std::vector<double>& diag, const std::vector<double>& aboveDiag,
-    const std::vector<double>& belowDiag, const std::vector<double>& y, std::vector<double>& x);
-
-/** solve a tridiagonal linear system  A x = y,  where elements of symmetric matrix A are stored 
-    in two vectors `diag` and `offDiag` */
-void linearSystemSolveTridiagSymm(const std::vector<double>& diag, const std::vector<double>& offDiag,
-    const std::vector<double>& y, std::vector<double>& x);
+std::vector<double> solveTridiag(const std::vector<double>& diag, const std::vector<double>& aboveDiag,
+    const std::vector<double>& belowDiag, const std::vector<double>& rhs);
 
 ///@}
 

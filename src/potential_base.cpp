@@ -78,8 +78,8 @@ coord::PosCyl unscaleCoords(const double vars[], double* jac)
     const double costheta = vars[1] * 2 - 1;
     const double r = exp( 1/(1-scaledr) - 1/scaledr );
     if(jac)
-        *jac = math::withinReasonableRange(r) ?   // if near r=0 or infinity, set jacobian to zero
-            4*M_PI * pow_3(r) * (1/pow_2(1-scaledr) + 1/pow_2(scaledr)) : 0;
+        *jac = (r<1e-100 || r>1e100) ? 0 :  // if near r=0 or infinity, set jacobian to zero
+            4*M_PI * pow_3(r) * (1/pow_2(1-scaledr) + 1/pow_2(scaledr));
     return coord::PosCyl( r * sqrt(1-pow_2(costheta)), r * costheta, vars[2] * 2*M_PI);
 }
 
@@ -139,7 +139,7 @@ double BaseDensity::totalMass() const
         }
         massEstPrev = massEst>0 ? massEst : mass3;
         massEst = (mass2*mass2-mass1*mass3)/(2*mass2-mass1-mass3);
-        if(!math::isFinite(massEst) || massEst<=0)
+        if(!isFinite(massEst) || massEst<=0)
             numNeg++;  // increase counter of 'bad' attempts (negative means that mass is growing at least logarithmically with radius)
         numIter++;
     } while(numIter<maxNumIter && numNeg<maxNumNeg && mass2!=mass3 &&
@@ -200,7 +200,7 @@ double getInnerDensitySlope(const BaseDensity& dens) {
         if(mass2<=0) rad*=2;
     } while(rad<1 && mass2==0);
     mass3 = dens.enclosedMass(rad*2);
-    if(!math::isFinite(mass2+mass3))
+    if(!isFinite(mass2+mass3))
         return NAN; // apparent error
     double alpha1, alpha2=log(mass3/mass2)/log(2.), gamma1=-1, gamma2=3-alpha2;
     int numIter=0;
@@ -208,7 +208,7 @@ double getInnerDensitySlope(const BaseDensity& dens) {
     do{
         rad /= 2;
         mass1 = dens.enclosedMass(rad);
-        if(!math::isFinite(mass1))
+        if(!isFinite(mass1))
             return gamma2;
         alpha1 = log(mass2/mass1)/log(2.);
         gamma2 = gamma1<0 ? 3-alpha1 : gamma1;  // rough estimate

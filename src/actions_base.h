@@ -68,7 +68,7 @@ public:
 
     /** Evaluate actions and angles for a given position/velocity point in cylindrical coordinates;
         if the output argument freq!=NULL, also store the frequencies */
-    virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=0) const = 0;
+    virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=NULL) const = 0;
 
 private:
     /// disable copy constructor and assignment operator
@@ -84,7 +84,7 @@ public:
 
     /** Map a point in action/angle space to a position/velocity in physical space;
         if the output argument freq!=NULL, also store the frequencies */
-    virtual coord::PosVelCyl map(const ActionAngles& actAng, Frequencies* freq=0) const = 0;
+    virtual coord::PosVelCyl map(const ActionAngles& actAng, Frequencies* freq=NULL) const = 0;
 private:
     /// disable copy constructor and assignment operator
     BaseActionMapper(const BaseActionMapper&);
@@ -127,10 +127,10 @@ public:
     */
     virtual coord::PosVelT<coordSysT> map(
         const ActionAngles& actAng,
-        Frequencies* freq=0,
-        DerivAct<coordSysT>* derivAct=0,
-        DerivAng<coordSysT>* derivAng=0,
-        coord::PosVelT<coordSysT>* derivParam=0) const = 0;
+        Frequencies* freq=NULL,
+        DerivAct<coordSysT>* derivAct=NULL,
+        DerivAng<coordSysT>* derivAng=NULL,
+        coord::PosVelT<coordSysT>* derivParam=NULL) const = 0;
 };
 
 /** Base class for point transformations that map canonically conjugate coordinate/momentum

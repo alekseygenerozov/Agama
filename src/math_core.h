@@ -7,26 +7,9 @@
 #include "math_base.h"
 
 namespace math{
-
-/** maximum magnitude of numbers considered to be 'reasonable' */
-const double UNREASONABLY_LARGE_VALUE = 1e10;
-
+    
 /// \name  ---- Miscellaneous utility functions -----
 ///@{
-
-/** test if a number is neither infinity nor NaN */
-inline bool isFinite(double x) {
-#if 0
-    const volatile double y = x - x;  // 'volatile' prevents it from being optimized away
-    return y == y;  // false for +-INFINITY or NAN
-#else
-    return x==x && 1/x!=0;  // this method works more reliably with aggressively optimizing compilers
-#endif
-}
-
-/** test if a number is not too big or too small (admittedly a subjective definition... TODO-eliminate!) */
-inline bool withinReasonableRange(double x) { 
-    return x<UNREASONABLY_LARGE_VALUE && x>1/UNREASONABLY_LARGE_VALUE; }
 
 /** compare two numbers with a relative accuracy eps: 
     \return -1 if x<y, +1 if x>y, -2 if x==NAN, +2 if y==NAN, or 0 if x and y are approximately equal
@@ -34,10 +17,12 @@ inline bool withinReasonableRange(double x) {
 int fcmp(double x, double y, double eps=1e-15);
 
 /** return sign of a number */
-inline double sign(double x) { return x>0?1.:x<0?-1.:0; }
+template<typename T>
+inline T sign(T x) { return x>0 ? 1 : x<0 ? -1 : 0; }
 
 /** return absolute value of a number */
-inline int abs(int x) { return x<0?-x:x; }
+template<typename T>
+inline T abs(T x) { return x<0 ? -x : x; }
 
 /** return an integer power of a number */
 double powInt(double x, int n);
@@ -154,7 +139,7 @@ public:
 
     virtual void evalDeriv(const double x, double *val, double *der, double *der2) const {
         double v1, v2, d1, d2, dd1, dd2;
-        bool needDer = der!=0 || der2!=0, needDer2 = der2!=0;
+        bool needDer = der!=NULL || der2!=NULL, needDer2 = der2!=NULL;
         f1.evalDeriv(x, &v1, needDer ? &d1 : 0, needDer2 ? &dd1 : 0);
         f2.evalDeriv(x, &v2, needDer ? &d2 : 0, needDer2 ? &dd2 : 0);
         if(val)
@@ -270,8 +255,8 @@ double deriv2(double x0, double x1, double x2, double f0, double f1, double f2,
     \param[out] error - if not NULL, output the error estimate in this variable;
     \param[out] numEval - if not NULL, output the number of function evaluations in this variable.
 */
-double integrate(const IFunction& F, double x1, double x2, double relToler, 
-    double* error=0, int* numEval=0);
+double integrate(const IFunction& F, double x1, double x2, double relToler,
+    double* error=NULL, int* numEval=NULL);
 
 /** integrate a function on a finite interval, using a fully adaptive integration routine 
     to reach the required tolerance; integrable singularities are handled properly. 
@@ -283,7 +268,7 @@ double integrate(const IFunction& F, double x1, double x2, double relToler,
     \param[out] numEval - if not NULL, output the number of function evaluations in this variable.
 */
 double integrateAdaptive(const IFunction& F, double x1, double x2, double relToler, 
-    double* error=0, int* numEval=0);
+    double* error=NULL, int* numEval=NULL);
 
 /** integrate a function on a finite interval, using a fixed-order Gauss-Legendre rule
     without error estimate. 
@@ -362,9 +347,9 @@ private:
     \param[out] numEval  is the actual number of function calls
                 (if set to NULL, this information is not stored).
 */
-void integrateNdim(const IFunctionNdim& F, const double xlower[], const double xupper[], 
-    const double relToler, const unsigned int maxNumEval, 
-    double result[], double error[]=0, int* numEval=0);
+void integrateNdim(const IFunctionNdim& F, const double xlower[], const double xupper[],
+    const double relToler, const unsigned int maxNumEval,
+    double result[], double error[]=NULL, int* numEval=NULL);
 
 ///@}
 

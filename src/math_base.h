@@ -13,7 +13,14 @@ inline unsigned int pow_2(unsigned int x) { return x*x; }
 /// convenience function for raising a number to the 3rd power
 inline double pow_3(double x) { return x*x*x; }
 
+/// test if a number is neither infinity nor NaN
+inline bool isFinite(double x) { return x==x && 1/x!=0; }
+
 // some useful numbers (or even not-a-numbers)
+#ifndef NULL
+#define NULL 0
+#endif
+
 #ifndef INFINITY
 #define INFINITY 1e10000
 #endif
@@ -63,7 +70,8 @@ public:
     /** Compute any combination of function, first and second derivative;
         each one is computed if the corresponding output parameter is not NULL.
         If the computation of a given derivative is not implemented, should return NaN. */
-    virtual void evalDeriv(const double x, double* value=0, double* deriv=0, double* deriv2=0) const=0;
+    virtual void evalDeriv(const double x,
+        double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const=0;
 
     /** Query the number of derivatives implemented by this class */
     virtual unsigned int numDerivs() const=0;
@@ -93,7 +101,7 @@ public:
     virtual double value(const double x) const=0;
 
     /** Compute the value of the function only, by calling 'value()', derivatives are not available */
-    virtual void evalDeriv(const double x, double* val=0, double* der=0, double* der2=0) const {
+    virtual void evalDeriv(const double x, double* val=NULL, double* der=NULL, double* der2=NULL) const {
         if(val)
             *val = value(x);
         if(der)
@@ -153,7 +161,7 @@ public:
                     otherwise it must point to an existing array of sufficient length;
                     the indexing scheme is derivs[m*N+n] = df_m/dx_n.
     */
-    virtual void evalDeriv(const double vars[], double values[], double *derivs=0) const = 0;
+    virtual void evalDeriv(const double vars[], double values[], double *derivs=NULL) const = 0;
 
     /** reimplement the evaluate function without derivatives */
     virtual void eval(const double vars[], double values[]) const {

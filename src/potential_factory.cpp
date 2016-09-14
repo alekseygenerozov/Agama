@@ -222,7 +222,7 @@ coord::SymmetryType getSymmetryTypeByName(const std::string& SymmetryName)
         case 'n': return coord::ST_NONE;
     }
     // otherwise it could be an integer constant representing the numerical value of sym.type
-    int sym = utils::convertToInt(SymmetryName);
+    int sym = utils::toInt(SymmetryName);
     if(sym==0 && SymmetryName!="0")  // it wasn't a valid number either
         sym = coord::ST_DEFAULT;
     return static_cast<coord::SymmetryType>(sym);
@@ -236,7 +236,7 @@ std::string getSymmetryNameByType(coord::SymmetryType type)
         case coord::ST_TRIAXIAL:     return "Triaxial";
         case coord::ST_AXISYMMETRIC: return "Axisymmetric";
         case coord::ST_SPHERICAL:    return "Spherical";
-        default:  return utils::convertToString((int)type);
+        default:  return utils::toString((int)type);
     }
 }
 
@@ -333,14 +333,14 @@ static PtrPotential readPotentialSphHarmExp(
     std::string buffer;
     std::vector<std::string> fields;
     bool ok = std::getline(strm, buffer);
-    utils::splitString(buffer, "# \t", fields);
-    unsigned int ncoefsRadial = utils::convertToInt(fields[0]);
+    fields = utils::splitString(buffer, "# \t");
+    unsigned int ncoefsRadial = utils::toInt(fields[0]);
     ok &= std::getline(strm, buffer).good();
-    utils::splitString(buffer, "# \t", fields);
-    unsigned int ncoefsAngular = utils::convertToInt(fields[0]);
+    fields = utils::splitString(buffer, "# \t");
+    unsigned int ncoefsAngular = utils::toInt(fields[0]);
     ok &= std::getline(strm, buffer).good();
-    utils::splitString(buffer, "# \t", fields);
-    double param = utils::convertToDouble(fields[0]);   // meaning of this parameter depends on potential type
+    fields = utils::splitString(buffer, "# \t");
+    double param = utils::toDouble(fields[0]);   // meaning of this parameter depends on potential type
     if( (potentialType == PT_BSE && param<0.5) || 
         ((potentialType == PT_SPLINE || potentialType == PT_MULTIPOLE) && ncoefsRadial<4) ) 
         ok = false;
@@ -350,8 +350,8 @@ static PtrPotential readPotentialSphHarmExp(
     std::getline(strm, buffer);  // comments, ignored
     for(unsigned int n=0; ok && n<ncoefsRadial; n++) {
         std::getline(strm, buffer);
-        utils::splitString(buffer, "# \t", fields);
-        radii.push_back(utils::convertToDouble(fields[0]));
+        fields = utils::splitString(buffer, "# \t");
+        radii.push_back(utils::toDouble(fields[0]));
         // for BSE this field is basis function index, for spline the radii should be in increasing order
         if( (potentialType == PT_BSE && radii.back()!=n) || 
             (potentialType == PT_SPLINE && n>0 && radii.back()<=radii[n-1]) ) 
@@ -360,7 +360,7 @@ static PtrPotential readPotentialSphHarmExp(
         for(int l=0; l<=static_cast<int>(ncoefsAngular); l++)
             for(int m=-l; m<=l; m++) {
                 unsigned int fi=1+l*(l+1)+m;
-                coefs.back().push_back( fi<fields.size() ? utils::convertToDouble(fields[fi]) : 0);
+                coefs.back().push_back( fi<fields.size() ? utils::toDouble(fields[fi]) : 0);
             }
     }
     if(potentialType == PT_MULTIPOLE) {
@@ -368,10 +368,10 @@ static PtrPotential readPotentialSphHarmExp(
         ok &= std::getline(strm, buffer).good();  // header, ignored
         for(unsigned int n=0; ok && n<ncoefsRadial; n++) {
             std::getline(strm, buffer);
-            utils::splitString(buffer, "# \t", fields);
+            fields = utils::splitString(buffer, "# \t");
             coefs1.push_back( std::vector<double>() );
             for(unsigned int l=1; ok && l<fields.size(); l++)
-                coefs1.back().push_back(utils::convertToDouble(fields[l]));
+                coefs1.back().push_back(utils::toDouble(fields[l]));
         }
     }    
     if(!ok)
@@ -412,33 +412,32 @@ static bool readAzimuthalHarmonics(std::istream& strm,
     while(ok && std::getline(strm, buffer) && !strm.eof()) {
         if(buffer.size()==0 || buffer[0] == '\n' || buffer[0] == '\r')
             return ok;  // end block with an empty line
-        utils::splitString(buffer, "# \t", fields);
-        int m = utils::convertToInt(fields[0]);  // m (azimuthal harmonic index)
+        fields = utils::splitString(buffer, "# \t");
+        int m = utils::toInt(fields[0]);  // m (azimuthal harmonic index)
         if(m < -mmax || m > mmax)
             ok=false;
         std::getline(strm, buffer);  // radii
         if(gridR.size()==0) {  // read values of R only once
-            utils::splitString(buffer, "# \t", fields);
+            fields = utils::splitString(buffer, "# \t");
             for(unsigned int i=1; i<fields.size(); i++) {
-                gridR.push_back(utils::convertToDouble(fields[i]));
+                gridR.push_back(utils::toDouble(fields[i]));
                 if(i>1 && gridR[i-1]<=gridR[i-2])
                     ok=false;  // the values must be in increasing order
             }
         }
         ok &= gridR.size() == size_R;
         gridz.clear();
-        data[m+mmax].resize(size_R, size_z);
-        data[m+mmax].fill(0);
+        data[m+mmax]=math::Matrix<double>(size_R, size_z, 0);
         for(unsigned int iz=0; ok && iz<size_z; iz++) {
             std::getline(strm, buffer);
-            utils::splitString(buffer, "# \t", fields);
-            gridz.push_back(utils::convertToDouble(fields[0]));
+            fields = utils::splitString(buffer, "# \t");
+            gridz.push_back(utils::toDouble(fields[0]));
             if(iz>0 && gridz.back()<=gridz[iz-1]) 
                 ok=false;  // the values of z should be in increasing order
             for(unsigned int iR=0; iR<size_R; iR++) {
                 double val=0;
                 if(iR+1<fields.size())
-                    val = utils::convertToDouble(fields[iR+1]);
+                    val = utils::toDouble(fields[iR+1]);
                 else
                     ok=false;
                 data[m+mmax](iR, iz) = val;
@@ -454,14 +453,14 @@ static PtrPotential readPotentialCylSpline(std::istream& strm, const units::Exte
     std::string buffer;
     std::vector<std::string> fields;
     bool ok = std::getline(strm, buffer);
-    utils::splitString(buffer, "# \t", fields);
-    unsigned int size_R = utils::convertToInt(fields[0]);
+    fields = utils::splitString(buffer, "# \t");
+    unsigned int size_R = utils::toInt(fields[0]);
     ok &= std::getline(strm, buffer).good();
-    utils::splitString(buffer, "# \t", fields);
-    int mmax = utils::convertToInt(fields[0]);
+    fields = utils::splitString(buffer, "# \t");
+    int mmax = utils::toInt(fields[0]);
     ok &= std::getline(strm, buffer).good();
-    utils::splitString(buffer, "# \t", fields);
-    unsigned int size_z = utils::convertToInt(fields[0]);
+    fields = utils::splitString(buffer, "# \t");
+    unsigned int size_z = utils::toInt(fields[0]);
     ok &= size_R>0 && size_z>0 && mmax>=0;
     std::vector<double> gridR, gridz;
     std::vector< math::Matrix<double> > Phi, dPhidR, dPhidz;
@@ -511,7 +510,7 @@ PtrPotential readPotential(const std::string& fileName, const units::ExternalUni
     bool ok = std::getline(strm, buffer);
     if(ok && buffer.size()<256) {  // to avoid parsing a binary file as a text
         std::vector<std::string> fields;
-        utils::splitString(buffer, "# \t", fields);
+        fields = utils::splitString(buffer, "# \t");
         if(fields[0] == BasisSetExp::myName()) {
             return readPotentialSphHarmExp(strm, converter, PT_BSE);
         }
@@ -755,7 +754,7 @@ bool writeDensity(const std::string& fileName, const BaseDensity& dens,
             else
                 dens = compPot->component(i).get();
             assert(dens);
-            std::string fileNameComp = fileName+'_'+utils::convertToString(i);
+            std::string fileNameComp = fileName+'_'+utils::toString(i);
             if(writeDensity(fileNameComp, *dens, converter))
                 strm << fileNameComp << '\n';
         }

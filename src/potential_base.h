@@ -135,13 +135,13 @@ public:
         \param[out] deriv2 - if not NULL, store the Hessian (matrix of second derivatives)
                     of potential in the variable addressed by this pointer.  */
     void eval(const coord::PosCar &pos,
-        double* potential=0, coord::GradCar* deriv=0, coord::HessCar* deriv2=0) const {
+        double* potential=NULL, coord::GradCar* deriv=NULL, coord::HessCar* deriv2=NULL) const {
         return evalCar(pos, potential, deriv, deriv2); }
     void eval(const coord::PosCyl &pos,
-        double* potential=0, coord::GradCyl* deriv=0, coord::HessCyl* deriv2=0) const {
+        double* potential=NULL, coord::GradCyl* deriv=NULL, coord::HessCyl* deriv2=NULL) const {
         return evalCyl(pos, potential, deriv, deriv2); }
     void eval(const coord::PosSph &pos,
-        double* potential=0, coord::GradSph* deriv=0, coord::HessSph* deriv2=0) const {
+        double* potential=NULL, coord::GradSph* deriv=NULL, coord::HessSph* deriv2=NULL) const {
         return evalSph(pos, potential, deriv, deriv2); }
 
     /** Shorthand for evaluating the value of potential at a given point in any coordinate system */
@@ -198,7 +198,7 @@ class BasePotentialCar: public BasePotential, coord::IScalarFunction<coord::Car>
     /** implements the IScalarFunction interface for evaluating the potential and its derivatives 
         in the preferred (Cartesian) coordinate system. */
     virtual void evalScalar(const coord::PosCar& pos,
-        double* val=0, coord::GradCar* deriv=0, coord::HessCar* deriv2=0) const
+        double* val=NULL, coord::GradCar* deriv=NULL, coord::HessCar* deriv2=NULL) const
     { evalCar(pos, val, deriv, deriv2); }
 
     /** redirect density computation to a Laplacian in more suitable coordinates */
@@ -229,7 +229,7 @@ class BasePotentialCyl: public BasePotential, coord::IScalarFunction<coord::Cyl>
     /** implements the IScalarFunction interface for evaluating the potential and its derivatives 
         in the preferred (Cylindrical) coordinate system. */
     virtual void evalScalar(const coord::PosCyl& pos,
-        double* val=0, coord::GradCyl* deriv=0, coord::HessCyl* deriv2=0) const {
+        double* val=NULL, coord::GradCyl* deriv=NULL, coord::HessCyl* deriv2=NULL) const {
         evalCyl(pos, val, deriv, deriv2);
     }
 
@@ -261,7 +261,7 @@ class BasePotentialSph: public BasePotential, coord::IScalarFunction<coord::Sph>
     /** implements the IScalarFunction interface for evaluating the potential and its derivatives 
         in the preferred (Spherical) coordinate system. */
     virtual void evalScalar(const coord::PosSph& pos,
-        double* val=0, coord::GradSph* deriv=0, coord::HessSph* deriv2=0) const { 
+        double* val=NULL, coord::GradSph* deriv=NULL, coord::HessSph* deriv2=NULL) const { 
         evalSph(pos, val, deriv, deriv2); 
     }
 
@@ -404,7 +404,7 @@ double computeRho_m(const BaseDensity& dens, double R, double z, int m);
     \param[out] jac (optional) is the jacobian of transformation (if set to NULL, it is not computed);
     \return  the un-scaled coordinates corresponding to the scaled variables.
 */
-coord::PosCyl unscaleCoords(const double vars[], double* jac=0);
+coord::PosCyl unscaleCoords(const double vars[], double* jac=NULL);
 
 /// helper class for integrating density over volume
 class DensityIntegrandNdim: public math::IFunctionNdim {
@@ -423,7 +423,7 @@ public:
 
     /// convert from scaled variables to the real position;
     /// optionally compute the jacobian of transformation if jac!=NULL
-    inline coord::PosCyl unscaleVars(const double vars[], double* jac=0) const {
+    inline coord::PosCyl unscaleVars(const double vars[], double* jac=NULL) const {
         return unscaleCoords(vars, jac); }
 private:
     const BaseDensity& dens;  ///< the density model to be integrated over

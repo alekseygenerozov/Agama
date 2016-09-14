@@ -487,9 +487,9 @@ public:
     /** Evaluate any combination of value, gradient and hessian of the function at a given point.
         Each of these quantities is computed and stored in the output pointer if it was not NULL. */
     virtual void evalScalar(const PosT<CoordSysT>& x,
-        double* value=0,
-        GradT<CoordSysT>* deriv=0,
-        HessT<CoordSysT>* deriv2=0) const=0;
+        double* value=NULL,
+        GradT<CoordSysT>* deriv=NULL,
+        HessT<CoordSysT>* deriv2=NULL) const=0;
 };
 
 ///@}
@@ -639,12 +639,12 @@ template<> inline PosVelSph toPosVel<Sph,Sph>(const PosVelSph& p) { return p;}
     \return     point in destCS coordinate system. */
 template<typename srcCS, typename destCS>
 PosT<destCS> toPosDeriv(const PosT<srcCS>& from, 
-    PosDerivT<srcCS, destCS>* deriv, PosDeriv2T<srcCS, destCS>* deriv2=0);
+    PosDerivT<srcCS, destCS>* deriv, PosDeriv2T<srcCS, destCS>* deriv2=NULL);
 
 /** templated conversion with derivatives, taking the parameters of coordinate system into account */
 template<typename srcCS, typename destCS>
 PosT<destCS> toPosDeriv(const PosT<srcCS>& from, const destCS& coordsys,
-    PosDerivT<srcCS, destCS>* deriv, PosDeriv2T<srcCS, destCS>* deriv2=0);
+    PosDerivT<srcCS, destCS>* deriv, PosDeriv2T<srcCS, destCS>* deriv2=NULL);
 
 ///@}
 /// \name   Routines for conversion of gradients and hessians between coordinate systems
@@ -664,10 +664,13 @@ HessT<destCS> toHess(const GradT<srcCS>& srcGrad, const HessT<srcCS>& srcHess,
     coordinate system (outputCS). */
 template<typename evalCS, typename outputCS>
 void evalAndConvert(const IScalarFunction<evalCS>& F,
-    const PosT<outputCS>& pos, double* value=0, GradT<outputCS>* deriv=0, HessT<outputCS>* deriv2=0)
+    const PosT<outputCS>& pos,
+    double* value=NULL,
+    GradT<outputCS>* deriv=NULL,
+    HessT<outputCS>* deriv2=NULL)
 {
-    bool needDeriv = deriv!=0 || deriv2!=0;
-    bool needDeriv2= deriv2!=0;
+    bool needDeriv = deriv!=NULL || deriv2!=NULL;
+    bool needDeriv2= deriv2!=NULL;
     GradT<evalCS> evalGrad;
     HessT<evalCS> evalHess;
     PosDerivT <outputCS, evalCS> coordDeriv;
@@ -688,10 +691,10 @@ void evalAndConvert(const IScalarFunction<evalCS>& F,
 template<typename evalCS, typename outputCS>
 void evalAndConvert(const IScalarFunction<evalCS>& F,
     const PosT<outputCS>& pos, const evalCS& coordsys,
-    double* value=0, GradT<outputCS>* deriv=0, HessT<outputCS>* deriv2=0)
+    double* value=NULL, GradT<outputCS>* deriv=NULL, HessT<outputCS>* deriv2=NULL)
 {
-    bool needDeriv = deriv!=0 || deriv2!=0;
-    bool needDeriv2= deriv2!=0;
+    bool needDeriv = deriv!=NULL || deriv2!=NULL;
+    bool needDeriv2= deriv2!=NULL;
     GradT<evalCS> evalGrad;
     HessT<evalCS> evalHess;
     PosDerivT <outputCS, evalCS> coordDeriv;
@@ -720,10 +723,13 @@ void evalAndConvert(const IScalarFunction<CS>& F, const PosT<CS>& pos,
     for the situation when a direct transformation is not available. */
 template<typename evalCS, typename intermedCS, typename outputCS>
 void evalAndConvertTwoStep(const IScalarFunction<evalCS>& F,
-    const PosT<outputCS>& pos, double* value=0, GradT<outputCS>* deriv=0, HessT<outputCS>* deriv2=0)
+    const PosT<outputCS>& pos,
+    double* value=NULL,
+    GradT<outputCS>* deriv=NULL,
+    HessT<outputCS>* deriv2=NULL)
 {
-    bool needDeriv = deriv!=0 || deriv2!=0;
-    bool needDeriv2= deriv2!=0;
+    bool needDeriv = deriv!=NULL || deriv2!=NULL;
+    bool needDeriv2= deriv2!=NULL;
     GradT<evalCS> evalGrad;
     HessT<evalCS> evalHess;
     GradT<intermedCS> intermedGrad;
@@ -754,10 +760,10 @@ void evalAndConvertTwoStep(const IScalarFunction<evalCS>& F,
 template<typename evalCS, typename intermedCS, typename outputCS>
 void evalAndConvertTwoStep(const IScalarFunction<evalCS>& F,
     const PosT<outputCS>& pos, const evalCS& coordsys,
-    double* value=0, GradT<outputCS>* deriv=0, HessT<outputCS>* deriv2=0)
+    double* value=NULL, GradT<outputCS>* deriv=NULL, HessT<outputCS>* deriv2=NULL)
 {
-    bool needDeriv = deriv!=0 || deriv2!=0;
-    bool needDeriv2= deriv2!=0;
+    bool needDeriv = deriv!=NULL || deriv2!=NULL;
+    bool needDeriv2= deriv2!=NULL;
     GradT<evalCS> evalGrad;
     HessT<evalCS> evalHess;
     GradT<intermedCS> intermedGrad;
@@ -789,7 +795,10 @@ void evalAndConvertTwoStep(const IScalarFunction<evalCS>& F,
     into gradients and hessians in a target coordinate system (outputCS). */
 template<typename outputCS>
 void evalAndConvertSph(const math::IFunction& F,
-    const PosT<outputCS>& pos, double* value=0, GradT<outputCS>* deriv=0, HessT<outputCS>* deriv2=0);
+    const PosT<outputCS>& pos,
+    double* value=NULL,
+    GradT<outputCS>* deriv=NULL,
+    HessT<outputCS>* deriv2=NULL);
 
 ///@}
 
@@ -801,6 +810,6 @@ template<typename coordT> double Lz(const PosVelT<coordT> &p);
     optionally also output its derivative w.r.t each coordinate/momentum in the second argument
 */
 template<typename coordT>
-double Ekin(const PosVelT<coordT> &p, coord::GradT<coordT> *dEbyPos=0, coord::VelT<coordT> *dEbyVel=0);
+double Ekin(const PosVelT<coordT> &p, coord::GradT<coordT> *dEbyPos=NULL, coord::VelT<coordT> *dEbyVel=NULL);
     
 }  // namespace coord

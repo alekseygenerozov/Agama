@@ -2,17 +2,12 @@
 #include "math_core.h"
 #include "math_specfunc.h"
 #include "math_sphharm.h"
+#include "utils.h"
 #include <cmath>
 #include <algorithm>
 #include <cassert>
 #include <stdexcept>
 #include <gsl/gsl_sf_legendre.h>
-
-#ifdef VERBOSE_REPORT
-#include <iostream>
-#include <fstream>
-#include "utils.h"
-#endif
 
 namespace potential {
 
@@ -428,7 +423,7 @@ void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin,
     if(Rmin<0 || Rmax<0 || (Rmax>0 && Rmax<=Rmin*Ncoefs_radial))
         throw std::invalid_argument("SplineExp: invalid choice of min/max grid radii");
     double totalmass = srcdensity.totalMass();
-    if(!math::isFinite(totalmass))
+    if(!isFinite(totalmass))
         throw std::invalid_argument("SplineExp: source density model has infinite mass");
     if(Rmax==0) {
         // how far should be the outer node (leave out this fraction of mass)
@@ -440,9 +435,8 @@ void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin,
         double epsin = 5.0/pow(Ncoefs_radial*1.0,3.0);
         Rmin  = getRadiusByMass(srcdensity, totalmass*epsin*0.1);
     }
-#ifdef VERBOSE_REPORT
-    std::cout << "SplineExp: Grid in r=["<<Rmin<<":"<<Rmax<<"]\n";
-#endif
+    utils::msg(utils::VL_DEBUG, "SplineExp",
+        "Grid in r=["+utils::toString(Rmin)+":"+utils::toString(Rmax)+"]");
     std::vector<double> radii = //math::createNonuniformGrid(Ncoefs_radial+1, Rmin, Rmax, true);
     math::createExpGrid(Ncoefs_radial, Rmin, Rmax);
     radii.insert(radii.begin(),0);
@@ -485,16 +479,7 @@ void SplineExp::prepareCoefsAnalytic(const BaseDensity& srcdensity, double Rmin,
             for(size_t c=0; c<=Ncoefs_radial; c++) {
                 coefsArray[c][l*(l+1) + m] = ((c>0 ? coefsInner[c]*pow(radii[c], -l-1.0) : 0) + coefsOuter[c]*pow(radii[c], l*1.0)) *
                     -4*M_PI/(2*l+1) * (m==0 ? 1 : M_SQRT2);
-#if 0 //#ifdef VERBOSE_REPORT
-                std::cout << l<<'\t' << radii[c] << '\t' << 
-                (sqrt(2*l+1)*coefsArray[c][l*(l+1) + m]/(m==0 ? 1 : M_SQRT2)) << '\t' << 
-                (4*M_PI*sqrt(2*l+1)*coefsInner[c]*pow(radii[c],-l-1.0)/(m==0 ? 1 : M_SQRT2)) << '\t' << 
-                (4*M_PI*sqrt(2*l+1)*coefsOuter[c]*pow(radii[c], l*1.0)/(m==0 ? 1 : M_SQRT2)) << '\n';
-#endif
             }
-#ifdef DEBUGPRINT
-            my_message(FUNCNAME, "l="+convertToString(l)+",m="+convertToString(m));
-#endif
         }
     }
     radii.front()=0;
@@ -642,10 +627,9 @@ void SplineExp::prepareCoefsDiscrete(const particles::ParticleArray<coord::PosSp
         outerBinRadius = pointRadii[npointsOuterGrid];
     std::vector<double> radii =     // radii of grid nodes to pass to initspline routine
         math::createNonuniformGrid(Ncoefs_radial+1, innerBinRadius, outerBinRadius, true);
-#ifdef VERBOSE_REPORT
-    std::cout << "Grid in r=["<<innerBinRadius<<":"<<outerBinRadius<<"]\n";
-#endif
-    
+    utils::msg(utils::VL_DEBUG, "SplineExp",
+        "Grid in r=["+utils::toString(innerBinRadius)+":"+utils::toString(outerBinRadius)+"]");
+
     // find index of the inner- and outermost points which are used in b-spline fitting
     size_t npointsInnerSpline = 0;
     while(pointRadii[npointsInnerSpline]<radii[1])
@@ -831,7 +815,7 @@ void SplineExp::initSpline(const std::vector<double> &_radii, const std::vector<
           coefsArray[Ncoefs_radial-1][0] * radii[Ncoefs_radial-1] ) / 
         ( coefsArray[Ncoefs_radial-1][0] * radii[Ncoefs_radial-1] - 
           coefsArray[Ncoefs_radial-2][0] * radii[Ncoefs_radial-2] );
-    if(math::isFinite(Kout)) {
+    if(isFinite(Kout)) {
         FindGammaOut fout(radii[Ncoefs_radial], radii[Ncoefs_radial-1], radii[Ncoefs_radial-2], Kout);
         gammaout = math::findRoot(fout, 3.01, 10., ACCURACY_ROOT);
         if(gammaout != gammaout)
@@ -860,10 +844,8 @@ void SplineExp::initSpline(const std::vector<double> &_radii, const std::vector<
     if(gammain<0) gammain=0; 
     if(gammain>2) gammain=2;
     coefin = (1-coefsArray[1][0]/potcenter) / pow(radii[1], 2-gammain);
-#ifdef VERBOSE_REPORT
-    std::cout << "gammain="<<gammain<<
-        " (uncorr.="<<gammainuncorr<<");  gammaout="<<gammaout<<'\n';
-#endif
+    utils::msg(utils::VL_DEBUG, "SplineExp",
+        "Inner slope="+utils::toString(gammain)+", outer="+utils::toString(gammaout));
 
     potmax  = coefsArray.back()[0];
     potminr = coefsArray[1][0];
@@ -892,31 +874,18 @@ void SplineExp::initSpline(const std::vector<double> &_radii, const std::vector<
             for(size_t i=0; i<Ncoefs_radial; i++)
                 spvalues[i] = coefsArray[i+1][coefind]/coefsArray[i+1][0];
             slopein[coefind] = log(coefsArray[2][coefind]/coefsArray[1][coefind]) / log(gridradii[2]/gridradii[1]);   // estimate power-law slope of Clm(r) at r->0
-            if(!math::isFinite(slopein[coefind]))
+            if(!isFinite(slopein[coefind]))
                 slopein[coefind]=1.0;  // default
             slopein[coefind] = std::max<double>(slopein[coefind], std::min<double>(l, 2-gammain));  // the asymptotic power-law behaviour of the coefficient expected for power-law density profile
             derivLeft = spvalues[0] * (1+ascale/minr) * (slopein[coefind] - minr*C00der/C00val);   // derivative at innermost node
             slopeout[coefind] = log(coefsArray[Ncoefs_radial][coefind]/coefsArray[Ncoefs_radial-1][coefind]) / log(gridradii[Ncoefs_radial]/gridradii[Ncoefs_radial-1]) + 1;   // estimate slope of Clm(r)/C00(r) at r->infinity (+1 is added because C00(r) ~ 1/r at large r)
-            if(!math::isFinite(slopeout[coefind]))
+            if(!isFinite(slopeout[coefind]))
                 slopeout[coefind]=-1.0;  // default
             slopeout[coefind] = std::min<double>(slopeout[coefind], std::max<double>(-l, 3-gammaout));
             derivRight = spvalues[Ncoefs_radial-1] * (1+ascale/maxr) * slopeout[coefind];   // derivative at outermost node
             splines[coefind] = math::CubicSpline(spnodes, spvalues, derivLeft, derivRight);
-#ifdef DEBUGPRINT
-            my_message(FUNCNAME, "l="+convertToString(l)+", m="+convertToString(m)+
-                " - inner="+convertToString(slopein[coefind])+", outer="+convertToString(slopeout[coefind]));
-#endif
         }
     }
-#if 0
-    bool densityNonzero = checkDensityNonzero();
-    bool massMonotonic  = checkMassMonotonic();
-    if(!massMonotonic || !densityNonzero) 
-        my_message(FUNCNAME, "Warning, " + 
-        std::string(!massMonotonic ? "mass does not monotonically increase with radius" : "") +
-        std::string(!massMonotonic && !densityNonzero ? " and " : "") + 
-        std::string(!densityNonzero ? "density drops to zero at a finite radius" : "") + "!");
-#endif
 }
 
 void SplineExp::getCoefs(

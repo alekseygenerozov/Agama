@@ -1,17 +1,12 @@
 #include "potential_multipole.h"
 #include "math_core.h"
 #include "math_specfunc.h"
+#include "utils.h"
 #include <cassert>
 #include <stdexcept>
 #include <cmath>
 #include <cfloat>
 #include <algorithm>
-
-#ifdef VERBOSE_REPORT
-#include <iostream>
-#include <fstream>
-#include "utils.h"
-#endif
 
 namespace potential {
 
@@ -241,16 +236,15 @@ static void chooseGridRadii(const BaseDensity& src, const unsigned int gridSizeR
     if(rmax!=0 && rmin!=0)
         return;
     double rhalf = getRadiusByMass(src, 0.5 * src.totalMass());
-    if(!math::isFinite(rhalf))
+    if(!isFinite(rhalf))
         throw std::invalid_argument("Multipole: failed to automatically determine grid extent");
     double spacing = 1 + sqrt(20./gridSizeR);  // ratio between consecutive grid nodes
     if(rmax==0)
         rmax = rhalf * pow(spacing,  0.5*gridSizeR);
     if(rmin==0)
         rmin = rhalf * pow(spacing, -0.5*gridSizeR);
-#ifdef VERBOSE_REPORT
-    std::cout << "Multipole: Grid in r=["<<rmin<<":"<<rmax<<"]\n";
-#endif
+    utils::msg(utils::VL_DEBUG, "Multipole",
+        "Grid in r=["+utils::toString(rmin)+":"+utils::toString(rmax)+"]");
 }
 
 static void chooseGridRadii(const particles::ParticleArray<coord::PosCyl>& particles,
@@ -260,8 +254,12 @@ static void chooseGridRadii(const particles::ParticleArray<coord::PosCyl>& parti
         return;
     unsigned int Npoints = particles.size();
     std::vector<double> radii(Npoints);
-    for(unsigned int i=0; i<Npoints; i++)
+    double prmin=INFINITY, prmax=0;
+    for(unsigned int i=0; i<Npoints; i++) {
         radii[i] = hypot(particles.point(i).R, particles.point(i).z);
+        prmin = fmin(prmin, radii[i]);
+        prmax = fmax(prmax, radii[i]);
+    }
     std::nth_element(radii.begin(), radii.begin() + Npoints/2, radii.end());
     double rhalf = radii[Npoints/2];   // half-mass radius (if all particles have equal mass)
     double spacing = 1 + sqrt(20./gridSizeR);  // ratio between two adjacent grid nodes
@@ -275,9 +273,9 @@ static void chooseGridRadii(const particles::ParticleArray<coord::PosCyl>& parti
         std::nth_element(radii.begin(), radii.end() - Nmin, radii.end());
         rmax = std::min(radii[Npoints-Nmin], rhalf * pow(spacing, 0.5*gridSizeR));
     }
-#ifdef VERBOSE_REPORT
-    std::cout << "Multipole: Grid in r=["<<rmin<<":"<<rmax<<"]\n";
-#endif
+    utils::msg(utils::VL_DEBUG, "Multipole",
+        "Grid in r=["+utils::toString(rmin)+":"+utils::toString(rmax)+"]"
+        ", particles span r=["+utils::toString(prmin)+":"+utils::toString(prmax)+"]");
 }
 
 /** helper function to determine the coefficients for potential extrapolation:
@@ -294,7 +292,7 @@ static void computeExtrapolationCoefs(double Phi1, double Phi2, double dPhi1,
 {
     double lnr = log(r2/r1);
     double A = lnr * (r1*dPhi1 - v*Phi1) / (Phi1 - Phi2 * exp(-v*lnr));
-    if(!math::isFinite(A) || A >= 0)
+    if(!isFinite(A) || A >= 0)
     {   // no solution - output only the main multipole component (with zero Laplacian)
         U = 0;
         s = 0;
@@ -304,9 +302,9 @@ static void computeExtrapolationCoefs(double Phi1, double Phi2, double dPhi1,
     // find x(A) such that  x = A * (1 - exp(x)),  where  x = (s-v) * ln(r2/r1)
     s = A==-1 ? v : v + (A - math::lambertW(A * exp(A), /*choice of branch*/ A>-1)) / lnr;
     // safeguard against weird slope determination
-    if(v>=0 && (!math::isFinite(s) || s<=-1))
+    if(v>=0 && (!isFinite(s) || s<=-1))
         s = 2;  // results in a constant-density core for the inward extrapolation
-    if(v<0  && (!math::isFinite(s) || s>=0))
+    if(v<0  && (!isFinite(s) || s>=0))
         s = -2; // results in a r^-4 falloff for the outward extrapolation
     if(s != v) {
         U = (r1*dPhi1 - v*Phi1) / (s-v);
@@ -333,18 +331,14 @@ static PtrPotential initAsympt(double r1, double r2,
     for(unsigned int c=0; c<nc; c++) {
         int l = math::SphHarmIndices::index_l(c);
         computeExtrapolationCoefs(Phi1[c], Phi2[c], dPhi1[c], r1, r2, inner ? l : -l-1,
-                /*output*/ S[c], U[c], W[c]);
+            /*output*/ S[c], U[c], W[c]);
         // TODO: may need to constrain the slope of l>0 harmonics so that it doesn't exceed
         // that of the l=0 one; this is enforced in the constructor of PowerLawMultipole,
         // but the slope should already have been adjusted before computing the coefs U and W.
-#ifdef VERBOSE_REPORT
-        if(l==0) {
-            if(inner)
-                std::cout << "Power-law index of density profile: inner= " << S[c]-2;
-            else
-                std::cout << ", outer= " << S[c]-2 <<'\n';
-        }
-#endif
+        if(l==0)
+            utils::msg(utils::VL_VERBOSE, "Multipole",
+                std::string("Power-law index of ")+(inner?"inner":"outer")+
+                " density profile: "+utils::toString(S[c]-2));
     }
     return PtrPotential(new PowerLawMultipole(r1, inner, S, U, W));
 }
@@ -478,7 +472,9 @@ static inline void transformDerivsSphToCyl(const coord::PosCyl& pos,
 // G[ln(r),...] = Phi[ln(r),...] * sqrt(r^2 + R0^2);
 // on output, they are replaced with the value, gradient and hessian of Phi w.r.t. [ln(r),...];
 // grad or hess may be NULL, if they are ultimately not needed.
-static inline void transformAmplitude(double r, double Rscale,
+// template parameter sphsym tells whether we need to handle non-radial components, or they are zero.
+template<bool nonrad>
+inline void transformAmplitude(double r, double Rscale,
     double& pot, coord::GradSph *grad, coord::HessSph *hess)
 {
     // additional scaling factor for the amplitude: 1 / sqrt(r^2 + R0^2)
@@ -490,15 +486,19 @@ static inline void transformAmplitude(double r, double Rscale,
     // d [scaledPhi(scaledCoords) * amp] / d[scaledCoords] to d[scaledPhi] / d[scaledCoords]
     double damp = -r*r*amp;  // d amp[ln(r)] / d[ln(r)] / amp^2
     grad->dr = (grad->dr + pot * damp) * amp;
-    grad->dtheta *= amp;
-    grad->dphi   *= amp;
+    if(nonrad) {
+        grad->dtheta *= amp;
+        grad->dphi   *= amp;
+    }
     if(hess) {
         hess->dr2 = (hess->dr2 + (2 * grad->dr + (2 - pow_2(r * amp)) * pot ) * damp) * amp;
-        hess->drdtheta = (hess->drdtheta + grad->dtheta * damp) * amp;
-        hess->drdphi   = (hess->drdphi   + grad->dphi   * damp) * amp;
-        hess->dtheta2 *= amp;
-        hess->dphi2   *= amp;
-        hess->dthetadphi *= amp;
+        if(nonrad) {
+            hess->drdtheta = (hess->drdtheta + grad->dtheta * damp) * amp;
+            hess->drdphi   = (hess->drdphi   + grad->dphi   * damp) * amp;
+            hess->dtheta2 *= amp;
+            hess->dphi2   *= amp;
+            hess->dthetadphi *= amp;
+        }
     }
 }
 
@@ -561,10 +561,9 @@ void computeDensityCoefsSph(
     outerSlope -= 3;  // which is equal to the true density multiplied by 4 pi r^3
     for(unsigned int k=0; k<gridSizeR; k++)
         coefs[k][0] = exp(spl0(gridLogRadii[k])) / (4*M_PI*pow_3(gridRadii[k]));
-#ifdef VERBOSE_REPORT
-    //std::cout << "Power-law index of density profile: inner= " <<
-    //innerSlope << ", outer= " << outerSlope <<'\n';
-#endif
+    utils::msg(utils::VL_DEBUG, "Multipole",
+        "Power-law index of density profile: inner="+utils::toString(innerSlope)+
+        ", outer="+utils::toString(outerSlope));
     if(ind.size()==1)
         return;
 
@@ -850,9 +849,9 @@ DensitySphericalHarmonic::DensitySphericalHarmonic(const std::vector<double> &gr
             // but the potential tends to a finite limit as long as the slope is less than -2.
             // Both these 'dangerous' semi-infinite regimes are allowed here,
             // but likely may result in problems elsewhere.
-            if(!math::isFinite(innerSlope))
+            if(!isFinite(innerSlope))
                 innerSlope = 0;
-            if(!math::isFinite(outerSlope))
+            if(!isFinite(outerSlope))
                 outerSlope = coefs.back()[0]==0 ? 0 : -4.;
             innerSlope = fmax(innerSlope, -2.8);
             outerSlope = fmin(outerSlope, -2.2);
@@ -1211,25 +1210,38 @@ void MultipoleInterp1d::evalCyl(const coord::PosCyl &pos,
 {
     bool needGrad = grad!=NULL || hess!=NULL;
     bool needHess = hess!=NULL;
-    double   Phi_lm[(LMAX_SPHHARM+1)*(LMAX_SPHHARM+1)];
-    double  dPhi_lm[(LMAX_SPHHARM+1)*(LMAX_SPHHARM+1)];
-    double d2Phi_lm[(LMAX_SPHHARM+1)*(LMAX_SPHHARM+1)];
     double r = hypot(pos.R, pos.z), logr = log(r);
-    // compute spherical-harmonic coefs
-    for(int m=ind.mmin(); m<=ind.mmax; m++)
-        for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
-            unsigned int c = ind.index(l, m);
-            spl[c].evalDeriv(logr, &Phi_lm[c],
-                needGrad?  &dPhi_lm[c] : NULL,
-                needHess? &d2Phi_lm[c] : NULL);
-        }
     double pot;
     coord::GradSph gradSph;
     coord::HessSph hessSph;
-    sphHarmTransformInverseDeriv(ind, pos, Phi_lm, dPhi_lm, d2Phi_lm, &pot,
-        needGrad ? &gradSph : NULL, needHess ? &hessSph : NULL);
-    transformAmplitude(r, Rscale, pot,
-        needGrad ? &gradSph : NULL, needHess ? &hessSph : NULL);
+    if(ind.lmax == 0) {   // fast track in the spherical case
+        spl[0].evalDeriv(logr, &pot,
+            needGrad ? &gradSph.dr  : NULL,
+            needHess ? &hessSph.dr2 : NULL);
+        if(needGrad)
+            gradSph.dtheta = gradSph.dphi = 0;
+        if(needHess)
+            hessSph.dtheta2 = hessSph.dphi2 = hessSph.drdtheta = hessSph.drdphi = hessSph.dthetadphi = 0;
+        transformAmplitude<false>(r, Rscale, pot,
+            needGrad ? &gradSph : NULL, needHess ? &hessSph : NULL);
+
+    } else {
+        double   Phi_lm[(LMAX_SPHHARM+1)*(LMAX_SPHHARM+1)];
+        double  dPhi_lm[(LMAX_SPHHARM+1)*(LMAX_SPHHARM+1)];
+        double d2Phi_lm[(LMAX_SPHHARM+1)*(LMAX_SPHHARM+1)];
+        // compute spherical-harmonic coefs
+        for(int m=ind.mmin(); m<=ind.mmax; m++)
+            for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
+                unsigned int c = ind.index(l, m);
+                spl[c].evalDeriv(logr, &Phi_lm[c],
+                    needGrad?  &dPhi_lm[c] : NULL,
+                    needHess? &d2Phi_lm[c] : NULL);
+            }
+        sphHarmTransformInverseDeriv(ind, pos, Phi_lm, dPhi_lm, d2Phi_lm, &pot,
+            needGrad ? &gradSph : NULL, needHess ? &hessSph : NULL);
+        transformAmplitude<true>(r, Rscale, pot,
+            needGrad ? &gradSph : NULL, needHess ? &hessSph : NULL);
+    }
     if(potential)
         *potential = pot;
     if(needGrad)
@@ -1378,7 +1390,7 @@ void MultipoleInterp2d::evalCyl(const coord::PosCyl &pos,
         numQuantities>=3 ? &trGrad : NULL, numQuantities==6 ? &trHess : NULL);
 
     // scaling transformation for the amplitude of interpolated potential
-    transformAmplitude(r, Rscale, trPot,
+    transformAmplitude<true>(r, Rscale, trPot,
         numQuantities>=3 ? &trGrad : NULL, numQuantities==6 ? &trHess : NULL);
 
     if(potential)
