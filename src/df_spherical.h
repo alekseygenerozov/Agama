@@ -39,7 +39,7 @@ namespace df {
     \f$  h(E) = 16\pi^2/3 \int_0^{r_{max}(E)} r^2 v^3 dr = \int_{\Phi(0)}^E g(E') dE'  \f$;
     its derivative g(E) is called the density of states and is given by
     \f$  g(E) = 16\pi^2 \int_0^{r_{max}(E)} r^2 v dr = 4\pi^2 L_{circ}^2(E) T_{rad}(E)  \f$,
-    where  \f$  v = \sqrt{E-\Phi(r)}  \f$,  L_circ is the angular momentum of a circular orbit,
+    where  \f$  v = \sqrt{2(E-\Phi(r))}  \f$,  L_circ is the angular momentum of a circular orbit,
     and  \f$  T_{rad}(E) = 2 \int_0^{r_{max}(E)} dr/v  \f$  is the radial period.
     These quantities are computed for the given potential Phi(E), which is provided through an
     `IFunction` interface (i.e., may be an instance of `potential::Interpolator`, or

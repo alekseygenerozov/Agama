@@ -85,7 +85,7 @@ void computeMoments(const GalaxyModelType& model,
     \return  the value of projected DF.
 */
 double computeProjectedDF(const GalaxyModel& model,
-    const double R, const double vz, const double vz_error=NULL,
+    const double R, const double vz, const double vz_error=0,
     const double reqRelError=1e-4, const int maxNumEval=1e3,
     double* error=NULL, int* numEval=NULL);
 

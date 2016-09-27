@@ -26,6 +26,10 @@
 #pragma once
 #include <vector>
 
+#ifndef NULL
+#define NULL 0
+#endif
+
 namespace math{
 
 /// \name Matrix-related classes
@@ -70,10 +74,10 @@ struct IMatrix {
     virtual NumT elem(const unsigned int index, unsigned int &row, unsigned int &col) const = 0;
 
     /// get the number of matrix rows
-    unsigned int rows() const { return nRows; }
+    inline unsigned int rows() const { return nRows; }
     
     /// get the number of matrix columns
-    unsigned int cols() const { return nCols; }
+    inline unsigned int cols() const { return nCols; }
 
     friend void swap(IMatrix<NumT>& first, IMatrix<NumT>& second)
     {

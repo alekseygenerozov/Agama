@@ -153,13 +153,14 @@ bool testAverageError(const potential::BaseDensity& p1, const potential::BaseDen
 //#pragma omp parallel for schedule(dynamic,256) reduction(+:weight,weightedDif)
 //#endif
         for(int n=0; n<nptbin; n++) {
-            coord::PosSph point( pow(10., logR+dlogR*n/nptbin),
-                acos(math::random()*2-1), math::random()*2*M_PI);
+            double r     = pow(10., logR+dlogR*n/nptbin);
+            double costh = math::random()*2-1;
+            coord::PosCyl point( r*sqrt(1-pow_2(costh)), r*costh, math::random()*2*M_PI);
             double d1 = p1.density(point);
             double d2 = p2.density(point);
             weightedDif += d1==0 && d2==0 ? 0 :
-                pow_2((d1-d2) / fmax(fabs(d1), fabs(d2))) * pow_2(point.r) * fabs(d2);
-            weight += pow_2(point.r) * fabs(d2);
+                pow_2((d1-d2) / fmax(fabs(d1), fabs(d2))) * pow_2(r) * fabs(d2);
+            weight += pow_2(r) * fabs(d2);
         }
         totWeightedDif += weightedDif;
         totWeight += weight;
@@ -396,7 +397,6 @@ int main() {
     std::cout << (std::clock()-clock)*1.0/CLOCKS_PER_SEC << " seconds to create CylSpline\n";
     PtrPotential test2d = potential::CylSpline::create(  // directly from potential
         test2_Dehnen0Tri, 6, 20, 0., 0., 20, 0., 0.);
-std::cout << "created test2d\n";
     PtrPotential test2c_clone = writeRead(*test2c);
 //    ok &= testAverageError( test2b, test2_Dehnen0Tri, 0.5);
     ok &= testAverageError( test2s, test2_Dehnen0Tri, 0.02);

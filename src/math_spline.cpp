@@ -230,6 +230,157 @@ static void convertToCubicSpline(const std::vector<double> &ampl, const std::vec
     }
 }
 #endif
+
+/// definite integral of x^(m+n)
+class MonomialIntegral: public IFunctionIntegral {
+    const int n;
+public:
+    MonomialIntegral(int _n) : n(_n) {};
+    virtual double integrate(double x1, double x2, int m=0) const {
+        return m+n+1==0 ? log(x2/x1) : (powInt(x2, m+n+1) - powInt(x1, m+n+1)) / (m+n+1);
+    }
+};
+
+//---- spline evaluation routines ----//
+/// compute the value, derivative and 2nd derivative of (possibly several, K>=1) cubic spline(s);
+/// input arguments contain the value(s) and 2nd derivative(s) of these splines
+/// at the boundaries of interval [xl..xh] that contain the point x.
+template<unsigned int K>
+static inline void evalCubicSplines(
+    const double xl,   // input:   lower boundary of the interval
+    const double xh,   // input:   upper boundary of the interval
+    const double x,    // input:   value of x at which the spline is computed (xl <= x <= xu)
+    const double* fl,  // input:   f_k(xl)
+    const double* fh,  // input:   f_k(xh)
+    const double* cl,  // input:   d2f_k(xl)
+    const double* ch,  // input:   d2f_k(xh)
+    double* f,         // output:  f_k(x)      if f   != NULL
+    double* df,        // output:  df_k/dx     if df  != NULL
+    double* d2f)       // output:  d^2f_k/dx^2 if d2f != NULL
+{
+    const double
+        h  = xh - xl,
+        hi = 1 / h,
+        t  = (x-xl) / h,
+        T  = 1-t,
+        b  = -1./6 * h*h * t * T,
+        bh = h * (0.5 * t*t - 1./6),
+        bl = h * (t - 0.5) - bh;
+    for(unsigned int k=0; k<K; k++) {
+        const double c = cl[k] * T + ch[k] * t;
+        if(f)
+            f[k]   = fl[k] * T  +  fh[k] * t  +  (cl[k] + ch[k] + c) * b;
+        if(df)
+            df[k]  = (fh[k] - fl[k]) * hi  +  cl[k] * bl  +  ch[k] * bh;
+        if(d2f)
+            d2f[k] = c;
+    }
+}
+
+/// compute the value, derivative and 2nd derivative of (possibly several, K>=1) Hermite spline(s);
+/// input arguments contain the value(s) and 1st derivative(s) of these splines
+/// at the boundaries of interval [xl..xh] that contain the point x.
+template<unsigned int K>
+static inline void evalHermiteSplines(
+    const double xl,   // input:   lower boundary of the interval
+    const double xh,   // input:   upper boundary of the interval
+    const double x,    // input:   value of x at which the spline is computed (xl <= x <= xu)
+    const double* fl,  // input:   f_k (xl)
+    const double* fh,  // input:   f_k (xh)
+    const double* dl,  // input:   df_k/dx (xl)
+    const double* dh,  // input:   df_k/dx (xh)
+    double* f,         // output:  f_k(x)      if f   != NULL
+    double* df,        // output:  df_k/dx     if df  != NULL
+    double* d2f)       // output:  d^2f_k/dx^2 if d2f != NULL
+{
+    const double
+        h      =  xh - xl,
+        hi     =  1 / h,
+        t      =  (x-xl) / h,  // NOT (x-xl)*hi, because this doesn't always give an exact result if x==xh
+        T      =  1-t,
+        tq     =  t*t,
+        Tq     =  T*T,
+        f_fl   =  Tq * (1+2*t),
+        f_fh   =  tq * (1+2*T),
+        f_dl   =  Tq * (x-xl),
+        f_dh   = -tq * (xh-x),
+        df_dl  =  T  * (1-3*t),
+        df_dh  =  t  * (1-3*T),
+        df_dif =  6  * t*T * hi,
+        d2f_dl =  (6*t-4) * hi,
+        d2f_dh = -(6*T-4) * hi,
+        d2f_dif= -(d2f_dl + d2f_dh) * hi;
+    for(unsigned int k=0; k<K; k++) {
+        const double dif = fh[k] - fl[k];
+        if(f)
+            f[k]   = dl[k] *   f_dl  +  dh[k] *   f_dh  +  fl[k] * f_fl  +  fh[k] * f_fh;
+        if(df)
+            df[k]  = dl[k] *  df_dl  +  dh[k] *  df_dh  +  dif *  df_dif;
+        if(d2f)
+            d2f[k] = dl[k] * d2f_dl  +  dh[k] * d2f_dh  +  dif * d2f_dif;
+    }
+}
+
+/// compute the value, derivative and 2nd derivative of (possibly several, K>=1) quintic spline(s);
+/// input arguments contain the value(s), 1st and 3rd derivative(s) of these splines
+/// at the boundaries of interval [xl..xh] that contain the point x.
+template<unsigned int K>
+static inline void evalQuinticSplines(
+    const double xl,   // input:   lower boundary of the interval
+    const double xh,   // input:   upper boundary of the interval
+    const double x,    // input:   value of x at which the spline is computed (xl <= x <= xu)
+    const double* fl,  // input:   f_k(xl)
+    const double* fh,  // input:   f_k(xh)
+    const double* f1l, // input:   df_k(xl)
+    const double* f1h, // input:   df_k(xh)
+    const double* f3l, // input:   d3f_k(xl)
+    const double* f3h, // input:   d3f_k(xh)
+    double* f,         // output:  f_k(x)      if f   != NULL
+    double* df,        // output:  df_k/dx     if df  != NULL
+    double* d2f,       // output:  d^2f_k/dx^2 if d2f != NULL
+    double* d3f=NULL)  // output:  d^3f_k/dx^3 if d3f != NULL
+{
+    const double
+        h   = xh - xl,
+        hi  = 1 / h,
+        hq  = h * h,
+        hiq6= hi * hi * 6,
+        B   = (x - xl) / h,
+        Bq  = B * B,
+        A   = 1 - B,
+        Aq  = A * A,
+        AB  = A * B,
+        C   = h * Aq * B,
+        D   =-h * Bq * A,
+        E   = hq * C * (2*Aq-A-1) * (1./48),
+        F   = hq * D * (2*Bq-B-1) * (1./48),
+        Cp  = A  * (A - 2*B),
+        Dp  = B  * (B - 2*A),
+        Ep  = hq * AB * (1./24) * (1+A-5*Aq),
+        Fp  = hq * AB * (1./24) * (1+B-5*Bq),
+        Cpp = hi * 2 * (B - 2*A),
+        Dpp =-hi * 2 * (A - 2*B),
+        Epp = h  * (1./12*Aq * (9*B-A) - 1./24),
+        Fpp = h  * (1./12*Bq * (B-9*A) + 1./24);
+    for(unsigned int k=0; k<K; k++) {
+        double
+            d1m = (fh[k] - fl[k]) * hi,
+            d1l = f1l[k] - d1m,
+            d1h = f1h[k] - d1m,
+            d3m = (d1l + d1h) * hiq6,
+            d3l = f3l[k] - d3m,
+            d3h = f3h[k] - d3m;
+        if(f)
+            f[k]   = A * fl[k]  +  B * fh[k]  +  C * d1l  +  D * d1h  +  E * d3l  +  F * d3h;
+        if(df)
+            df[k]  = Cp * f1l[k]  +  Dp * f1h[k]  +  6*AB * d1m  +  Ep * d3l  +  Fp * d3h;
+        if(d2f)
+            d2f[k] = Cpp * d1l  +  Dpp * d1h  +  Epp * d3l  +  Fpp * d3h;
+        if(d3f)
+            d3f[k] = (2.5*Aq-1.5*A) * f3l[k]  +  (2.5*Bq-1.5*B) * f3h[k]  +  5*AB * d3m;
+
+    }
+}
 }  // internal namespace
 
 
@@ -331,49 +482,6 @@ CubicSpline::CubicSpline(const std::vector<double>& _xval,
             (xval[numPoints-1]-xval[numPoints-2]);
 }
 
-namespace {
-// definite integral of x^(m+n)
-class MonomialIntegral: public IFunctionIntegral {
-    const int n;
-public:
-    MonomialIntegral(int _n) : n(_n) {};
-    virtual double integrate(double x1, double x2, int m=0) const {
-        return m+n+1==0 ? log(x2/x1) : (powInt(x2, m+n+1) - powInt(x1, m+n+1)) / (m+n+1);
-    }
-};
-
-// evaluate spline value, derivative and 2nd derivative at once (faster than doing it separately);
-// possibly for several splines (K>=1), k=0,...,K-1);
-// input arguments contain the value(s) and 2nd derivative(s) of these splines
-// at the boundaries of interval [xl..xh] that contain the point x.
-template<unsigned int K>
-static inline void evalCubicSplines(
-    const double xl,   // input:   xl <= x
-    const double xh,   // input:   x  <= xh 
-    const double x,    // input:   x-value where y is wanted
-    const double* yl,  // input:   Y_k(xl)
-    const double* yh,  // input:   Y_k(xh)
-    const double* cl,  // input:   d2Y_k(xl)
-    const double* ch,  // input:   d2Y_k(xh)
-    double* y,         // output:  y_k(x)      if y   != NULL
-    double* dy,        // output:  dy_k/dx     if dy  != NULL
-    double* d2y)       // output:  d^2y_k/d^2x if d2y != NULL
-{
-    const double h = xh - xl, dx = x - xl;
-    for(unsigned int k=0; k<K; k++) {
-        double c = cl[k];
-        double b = (yh[k] - yl[k]) / h - h * (1./6 * ch[k] + 1./3 * c);
-        double d = (ch[k] - c)   / h;
-        if(y)
-            y[k]   = yl[k] + dx * (b + dx * (1./2 * c + dx * 1./6 * d));
-        if(dy)
-            dy[k]  = b + dx * (c + dx * 1./2 * d);
-        if(d2y)
-            d2y[k] = c + dx * d;
-    }
-}
-}  // internal namespace
-
 void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* deriv2) const
 {
     if(xval.size() == 0)
@@ -404,8 +512,9 @@ void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* 
     }
 
     unsigned int index = binSearch(x, &xval.front(), xval.size());
-    evalCubicSplines<1> (xval[index], xval[index+1], x, 
-        &fval[index], &fval[index+1], &fder2[index], &fder2[index+1], val, deriv, deriv2);
+    evalCubicSplines<1> (xval[index], xval[index+1], x,
+        &fval[index], &fval[index+1], &fder2[index], &fder2[index+1],
+        /*output*/ val, deriv, deriv2);
 }
 
 bool CubicSpline::isMonotonic() const
@@ -445,7 +554,7 @@ double CubicSpline::integrate(double x1, double x2, const IFunctionIntegral& f) 
     if(x1>x2)
         return integrate(x2, x1, f);
     double result = 0;
-    if(x1<xval.front()) {    // spline is linearly extrapolated at x<xval[0]
+    if(x1 <= xval.front()) {    // spline is linearly extrapolated at x<xval[0]
         double dx  =  xval[1]-xval[0];
         double der = (fval[1]-fval[0]) / dx - dx * (1./6 * fder2[1] + 1./3 * fder2[0]);
         double X2  = fmin(x2, xval.front());
@@ -456,7 +565,7 @@ double CubicSpline::integrate(double x1, double x2, const IFunctionIntegral& f) 
             return result;
         x1 = xval.front();
     }
-    if(x2>xval.back()) {    // same for x>xval[end]
+    if(x2 >= xval.back()) {    // same for x>xval[end]
         unsigned int size = xval.size();
         double dx  =  xval[size-1]-xval[size-2];
         double der = (fval[size-1]-fval[size-2]) / dx + dx * (1./6 * fder2[size-2] + 1./3 * fder2[size-1]);
@@ -500,6 +609,7 @@ HermiteSpline::HermiteSpline(const std::vector<double>& _xval,
         throw std::invalid_argument("Error in spline initialization: input arrays are not equal in length");
 }
 
+
 void HermiteSpline::evalDeriv(const double x, double* val, double* deriv, double* deriv2) const
 {
     if(xval.size() == 0)
@@ -525,17 +635,9 @@ void HermiteSpline::evalDeriv(const double x, double* val, double* deriv, double
         return;
     }
     unsigned int index = binSearch(x, &xval.front(), xval.size());
-    const double dx = xval[index+1]-xval[index];
-    const double t = (x-xval[index]) / dx;
-    if(val)
-        *val = pow_2(1-t) * ( (1+2*t) * fval[index]   + t     * fder[index]   * dx )
-             + pow_2(t)   * ( (3-2*t) * fval[index+1] + (t-1) * fder[index+1] * dx );
-    if(deriv)
-        *deriv = 6*t*(1-t) * (fval[index+1]-fval[index]) / dx
-               + (1-t)*(1-3*t) * fder[index] + t*(3*t-2) * fder[index+1];
-    if(deriv2)
-        *deriv2 = ( (6-12*t) * (fval[index+1]-fval[index]) / dx
-                + (6*t-4) * fder[index] + (6*t-2) * fder[index+1] ) / dx;
+    evalHermiteSplines<1> (xval[index], xval[index+1], x,
+        &fval[index], &fval[index+1], &fder[index], &fder[index+1],
+        /*output*/ val, deriv, deriv2);
 }
 
 // ------ Quintic spline ------- //
@@ -569,66 +671,6 @@ QuinticSpline::QuinticSpline(const std::vector<double>& _xval,
         fder3[i-1] += v[i-1]*fder3[i];
 }
 
-namespace{
-
-template<unsigned int K>   // K>=1 - number of splines to compute; k=0,...,K-1
-static inline void evalQuinticSplines(
-    const double xl,   // input:   xl <= x
-    const double xh,   // input:   x  <= xh 
-    const double x,    // input:   x-value where y is wanted
-    const double* yl,  // input:   Y_k(xl)
-    const double* yh,  // input:   Y_k(xh)
-    const double* y1l, // input:   dY_k(xl)
-    const double* y1h, // input:   dY_k(xh)
-    const double* y3l, // input:   d3Y_k(xl)
-    const double* y3h, // input:   d3Y_k(xh)
-    double* y,         // output:  y_k(x)      if y   != NULL
-    double* dy,        // output:  dy_k/dx     if dy  != NULL
-    double* d2y,       // output:  d^2y_k/d^2x if d2y != NULL
-    double* d3y=NULL)  // output:  d^3y_k/d^3x if d3y != NULL
-{
-    const double h=xh-xl, hi=1./h, hq=h*h, hf=hq/48.;
-    const double
-        A  = hi*(xh-x),
-        Aq = A*A,
-        B  = 1-A,
-        Bq = B*B,
-        C  = h*Aq*B,
-        D  =-h*Bq*A,
-        E  = hf*C*(2*Aq-A-1),
-        F  = hf*D*(2*Bq-B-1);
-    double Cp=0, Dp=0, Ep=0, Fp=0, Epp=0, Fpp=0;
-    if(dy) {
-        Cp = Aq-2*A*B;
-        Dp = Bq-2*A*B,
-        Ep = 2*A*B*hf * (1+A-5*Aq);
-        Fp = 2*A*B*hf * (1+B-5*Bq);
-    }
-    if(d2y) {
-        Epp = hf * (4*Aq*(9*B-A)-2);
-        Fpp = hf * (4*Bq*(B-9*A)+2);
-    }
-    for(unsigned int k=0; k<K; k++) {
-        double
-            t1 = hi * (yh[k] - yl[k]),
-            C2 = y1l[k] - t1,
-            C3 = y1h[k] - t1,
-            t2 = 6 * (C2 + C3) / hq,
-            C4 = y3l[k] - t2,
-            C5 = y3h[k] - t2;
-        if(y)
-            y[k]   = A*yl[k] + B*yh[k] + C*C2 + D*C3+ E*C4 + F*C5;
-        if(dy)
-            dy[k]  = t1 + Cp*C2 + Dp*C3 + Ep*C4 + Fp*C5;
-        if(d2y)
-            d2y[k] = ((2*B-4*A)*C2 - (2*A-4*B)*C3 + Epp*C4 + Fpp*C5) * hi;
-        if(d3y)
-            d3y[k] = A*(2.5*A-1.5)*y3l[k] + B*(2.5*B-1.5)*y3h[k] + 5*A*B*t2;
-
-    }
-}
-}
-
 void QuinticSpline::evalDeriv(const double x, double* val, double* deriv, double* deriv2) const
 {
     if(xval.size() == 0)
@@ -655,7 +697,7 @@ void QuinticSpline::evalDeriv(const double x, double* val, double* deriv, double
     unsigned int index = binSearch(x, &xval.front(), xval.size());
     evalQuinticSplines<1> (xval[index], xval[index+1], x,
         &fval[index], &fval[index+1], &fder[index], &fder[index+1], &fder3[index], &fder3[index+1],
-        val, deriv, deriv2);
+        /*output*/ val, deriv, deriv2);
 }
 
 double QuinticSpline::deriv3(const double x) const
@@ -668,7 +710,7 @@ double QuinticSpline::deriv3(const double x) const
     double der3;
     evalQuinticSplines<1> (xval[index], xval[index+1], x,
         &fval[index], &fval[index+1], &fder[index], &fder[index+1], &fder3[index], &fder3[index+1],
-        NULL, NULL, NULL, &der3);
+        /*output*/ NULL, NULL, NULL, &der3);
     return der3;
 }
 
@@ -678,7 +720,7 @@ double QuinticSpline::deriv3(const double x) const
 BaseInterpolator2d::BaseInterpolator2d(
     const std::vector<double>& xgrid, const std::vector<double>& ygrid,
     const Matrix<double>& fvalues) :
-    xval(xgrid), yval(ygrid), fval(fvalues)
+    xval(xgrid), yval(ygrid), fval(fvalues.data(), fvalues.data() + fvalues.size())
 {
     const unsigned int xsize = xgrid.size();
     const unsigned int ysize = ygrid.size();
@@ -701,12 +743,14 @@ void LinearInterpolator2d::evalDeriv(const double x, const double y,
 {
     if(isEmpty())
         throw std::range_error("Empty 2d interpolator");
+    // 2nd derivatives are always zero
     if(deriv_xx)
         *deriv_xx = 0;
     if(deriv_xy)
         *deriv_xy = 0;
     if(deriv_yy)
         *deriv_yy = 0;
+    // no interpolation outside the 2d grid
     if(x<xval.front() || x>xval.back() || y<yval.front() || y>yval.back()) {
         if(z)
             *z = NAN;
@@ -716,69 +760,78 @@ void LinearInterpolator2d::evalDeriv(const double x, const double y,
             *deriv_y = NAN;
         return;
     }
-    const unsigned int xi = binSearch(x, &xval.front(), xval.size());
-    const unsigned int yi = binSearch(y, &yval.front(), yval.size());
-    const double zlowlow = fval(xi, yi);
-    const double zlowupp = fval(xi, yi + 1);
-    const double zupplow = fval(xi + 1, yi);
-    const double zuppupp = fval(xi + 1, yi + 1);
-    // Get the width and height of the grid cell
-    const double dx = xval[xi+1] - xval[xi];
-    const double dy = yval[yi+1] - yval[yi];
-    // t and u are the positions within the grid cell at which we are computing
-    // the interpolation, in units of grid cell size
-    const double t = (x - xval[xi]) / dx;
-    const double u = (y - yval[yi]) / dy;
+    const unsigned int
+        nx  = xval.size(),
+        ny  = yval.size(),
+        xi  = binSearch(x, &xval.front(), nx),
+        yi  = binSearch(y, &yval.front(), ny),
+        // indices of corner nodes in the flattened 2d array
+        ill = xi * ny + yi, // xlow,ylow
+        ilu = ill + 1,      // xlow,yupp
+        iul = ill + ny,     // xupp,ylow
+        iuu = iul + 1;      // xupp,yupp
+    const double
+        zlowlow = fval[ill],
+        zlowupp = fval[ilu],
+        zupplow = fval[iul],
+        zuppupp = fval[iuu],
+        // width and height of the grid cell
+        dx = xval[xi+1] - xval[xi],
+        dy = yval[yi+1] - yval[yi],
+        // relative positions within the grid cell [0:1], in units of grid cell size
+        t = (x - xval[xi]) / dx,
+        u = (y - yval[yi]) / dy;
     if(z)
-        *z = (1-t)*(1-u)*zlowlow + t*(1-u)*zupplow + (1-t)*u*zlowupp + t*u*zuppupp;
+        *z = (1-t)*(1-u) * zlowlow + t*(1-u) * zupplow + (1-t)*u * zlowupp + t*u * zuppupp;
     if(deriv_x)
-        *deriv_x = (-(1-u)*zlowlow + (1-u)*zupplow - u*zlowupp + u*zuppupp) / dx;
+        *deriv_x = (-(1-u) * zlowlow + (1-u) * zupplow - u * zlowupp + u * zuppupp) / dx;
     if(deriv_y)
-        *deriv_y = (-(1-t)*zlowlow - t*zupplow + (1-t)*zlowupp + t*zuppupp) / dy;
+        *deriv_y = (-(1-t) * zlowlow - t * zupplow + (1-t) * zlowupp + t * zuppupp) / dy;
 }
 
 
 //------------ 2D CUBIC SPLINE -------------//
-// based on interp2d library by David Zaslavsky
 
 CubicSpline2d::CubicSpline2d(const std::vector<double>& xgrid, const std::vector<double>& ygrid,
     const Matrix<double>& fvalues,
     double deriv_xmin, double deriv_xmax, double deriv_ymin, double deriv_ymax) :
     BaseInterpolator2d(xgrid, ygrid, fvalues),
-    fx(xgrid.size(), ygrid.size()),
-    fy(xgrid.size(), ygrid.size()),
-    fxy(xgrid.size(), ygrid.size())
+    fx (fvalues.size()),
+    fy (fvalues.size()),
+    fxy(fvalues.size())
 {
     const unsigned int xsize = xgrid.size();
     const unsigned int ysize = ygrid.size();
     std::vector<double> tmpvalues(ysize);
+    // step 1. for each x_i, construct cubic splines for f(x_i, y) in y and assign df/dy at grid nodes
     for(unsigned int i=0; i<xsize; i++) {
         for(unsigned int j=0; j<ysize; j++)
-            tmpvalues[j] = fval(i, j);
+            tmpvalues[j] = fval[i * ysize + j];
         CubicSpline spl(yval, tmpvalues, deriv_ymin, deriv_ymax);
         for(unsigned int j=0; j<ysize; j++)
-            spl.evalDeriv(yval[j], NULL, &fy(i, j));
+            spl.evalDeriv(yval[j], NULL, &fy[i * ysize + j]);
     }
     tmpvalues.resize(xsize);
+    // step 1. for each y_j, construct cubic splines for f(x, y_j) in x and assign df/dx at grid nodes
     for(unsigned int j=0; j<ysize; j++) {
         for(unsigned int i=0; i<xsize; i++)
-            tmpvalues[i] = fval(i, j);
+            tmpvalues[i] = fval[i * ysize + j];
         CubicSpline spl(xval, tmpvalues, deriv_xmin, deriv_xmax);
         for(unsigned int i=0; i<xsize; i++)
-            spl.evalDeriv(xval[i], NULL, &fx(i, j));
-    }
-    for(unsigned int j=0; j<ysize; j++) {
-        // if derivs at the boundary are specified, 2nd deriv must be zero
+            spl.evalDeriv(xval[i], NULL, &fx[i * ysize + j]);
+        // step 3. assign the mixed derivative d2f/dxdy:
+        // if derivs at the boundary are specified and constant, 2nd deriv must be zero
         if( (j==0 && isFinite(deriv_ymin)) || (j==ysize-1 && isFinite(deriv_ymax)) ) {
             for(unsigned int i=0; i<xsize; i++)
-                fxy(i, j) = 0.;
+                fxy[i * ysize + j] = 0.;
         } else {
+            // otherwise construct cubic splines for df/dy(x,y_j) in x and assign d2f/dydx
             for(unsigned int i=0; i<xsize; i++)
-                tmpvalues[i] = fy(i, j);
+                tmpvalues[i] = fy[i * ysize + j];
             CubicSpline spl(xval, tmpvalues,
                 isFinite(deriv_xmin) ? 0. : NAN, isFinite(deriv_xmax) ? 0. : NAN);
             for(unsigned int i=0; i<xsize; i++)
-                spl.evalDeriv(xval[i], NULL, &fxy(i, j));
+                spl.evalDeriv(xval[i], NULL, &fxy[i * ysize + j]);
         }
     }
 }
@@ -803,153 +856,45 @@ void CubicSpline2d::evalDeriv(const double x, const double y,
             *z_yy = NAN;
         return;
     }
-    // Get the indices of grid cell in both dimensions
-    const unsigned int xi = binSearch(x, &xval.front(), xval.size());
-    const unsigned int yi = binSearch(y, &yval.front(), yval.size());
+    const unsigned int
+        nx = xval.size(),
+        ny = yval.size(),
+        // indices of grid cell in x and y
+        xi = binSearch(x, &xval.front(), nx),
+        yi = binSearch(y, &yval.front(), ny),
+        // indices in flattened 2d arrays: 
+        ill = xi * ny + yi, // xlow,ylow
+        ilu = ill + 1,      // xlow,yupp
+        iul = ill + ny,     // xupp,ylow
+        iuu = iul + 1;      // xupp,yupp
     const double
-        // Get the values on the corners of the grid cell
+        // coordinates of corner points
         xlow = xval[xi],
         xupp = xval[xi+1],
         ylow = yval[yi],
         yupp = yval[yi+1],
-        zlowlow = fval(xi,   yi),
-        zlowupp = fval(xi,   yi+1),
-        zupplow = fval(xi+1, yi),
-        zuppupp = fval(xi+1, yi+1),
-        // Get the width and height of the grid cell
-        dx = xupp - xlow,
-        dy = yupp - ylow,
-        // t and u are the positions within the grid cell at which we are computing
-        // the interpolation, in units of grid cell size
-        t = (x - xlow) / dx,
-        u = (y - ylow) / dy,
-        dt = 1./dx, // partial t / partial x
-        du = 1./dy, // partial u / partial y
-        dtdu = dt*du,
-        zxlowlow  = fx (xi  , yi  ) / dt,
-        zxlowupp  = fx (xi  , yi+1) / dt,
-        zxupplow  = fx (xi+1, yi  ) / dt,
-        zxuppupp  = fx (xi+1, yi+1) / dt,
-        zylowlow  = fy (xi  , yi  ) / du,
-        zylowupp  = fy (xi  , yi+1) / du,
-        zyupplow  = fy (xi+1, yi  ) / du,
-        zyuppupp  = fy (xi+1, yi+1) / du,
-        zxylowlow = fxy(xi  , yi  ) / dtdu,
-        zxylowupp = fxy(xi  , yi+1) / dtdu,
-        zxyupplow = fxy(xi+1, yi  ) / dtdu,
-        zxyuppupp = fxy(xi+1, yi+1) / dtdu,
-        t0 = 1,
-        t1 = t,
-        t2 = t*t,
-        t3 = t*t2,
-        u0 = 1,
-        u1 = u,
-        u2 = u*u,
-        u3 = u*u2,
-        t0u0 = t0*u0, t0u1=t0*u1, t0u2=t0*u2, t0u3=t0*u3,
-        t1u0 = t1*u0, t1u1=t1*u1, t1u2=t1*u2, t1u3=t1*u3,
-        t2u0 = t2*u0, t2u1=t2*u1, t2u2=t2*u2, t2u3=t2*u3,
-        t3u0 = t3*u0, t3u1=t3*u1, t3u2=t3*u2, t3u3=t3*u3,
-        sum0 = zlowlow - zupplow - zlowupp + zuppupp,
-        sum1 = 2*sum0 +   zxlowlow + zxupplow -   zxlowupp - zxuppupp,
-        sum2 = 3*sum0 + 2*zxlowlow + zxupplow - 2*zxlowupp - zxuppupp,
-        sum3 = zylowlow   -   zyupplow + zylowupp - zyuppupp,
-        sum4 = 2*zylowlow - 2*zyupplow + zylowupp - zyuppupp;
-    double
-        zvalue= 0,
-        zderx = 0,
-        zdery = 0,
-        zd_xx = 0,
-        zd_xy = 0,
-        zd_yy = 0;
-    double v = zlowlow;
-    zvalue += v*t0u0;
-    v = zylowlow;
-    zvalue += v*t0u1;
-    zdery  += v*t0u0;
-    v = -3*zlowlow + 3*zlowupp - 2*zylowlow - zylowupp;
-    zvalue += v*t0u2;
-    zdery  += 2*v*t0u1;
-    zd_yy  += 2*v*t0u0;
-    v = 2*zlowlow - 2*zlowupp + zylowlow + zylowupp;
-    zvalue += v*t0u3;
-    zdery  += 3*v*t0u2;
-    zd_yy  += 6*v*t0u1;
-    v = zxlowlow;
-    zvalue += v*t1u0;
-    zderx  += v*t0u0;
-    v = zxylowlow;
-    zvalue += v*t1u1;
-    zderx  += v*t0u1;
-    zdery  += v*t1u0;
-    zd_xy  += v*t0u0;
-    v = -3*zxlowlow + 3*zxlowupp - 2*zxylowlow - zxylowupp;
-    zvalue += v*t1u2;
-    zderx  += v*t0u2;
-    zdery  += 2*v*t1u1;
-    zd_xy  += 2*v*t0u1;
-    zd_yy  += 2*v*t1u0;
-    v = 2*zxlowlow - 2*zxlowupp + zxylowlow + zxylowupp;
-    zvalue += v*t1u3;
-    zderx  += v*t0u3;
-    zdery  += 3*v*t1u2;
-    zd_xy  += 3*v*t0u2;
-    zd_yy  += 6*v*t1u1;
-    v = -3*zlowlow + 3*zupplow - 2*zxlowlow - zxupplow;
-    zvalue += v*t2u0;
-    zderx  += 2*v*t1u0;
-    zd_xx  += 2*v*t0u0;
-    v = -3*zylowlow + 3*zyupplow - 2*zxylowlow - zxyupplow;
-    zvalue += v*t2u1;
-    zderx  += 2*v*t1u1;
-    zdery  += v*t2u0;
-    zd_xx  += 2*v*t0u1;
-    zd_xy  += 2*v*t1u0;
-    v = 4*zxylowlow + 2*zxyupplow + 2*zxylowupp + zxyuppupp + 3*sum2 + 3*sum4;
-    zvalue += v*t2u2;
-    zderx  += 2*v*t1u2;
-    zdery  += 2*v*t2u1;
-    zd_xx  += 2*v*t0u2;
-    zd_xy  += 4*v*t1u1;
-    zd_yy  += 2*v*t2u0;
-    v =  -2*zxylowlow - zxyupplow - 2*zxylowupp - zxyuppupp - 2*sum2 - 3*sum3;
-    zvalue += v*t2u3;
-    zderx  += 2*v*t1u3;
-    zdery  += 3*v*t2u2;
-    zd_xx  += 2*v*t0u3;
-    zd_xy  += 6*v*t1u2;
-    zd_yy  += 6*v*t2u1;
-    v = 2*zlowlow - 2*zupplow + zxlowlow + zxupplow;
-    zvalue += v*t3u0;
-    zderx  += 3*v*t2u0;
-    zd_xx  += 6*v*t1u0;
-    v = 2*zylowlow - 2*zyupplow + zxylowlow + zxyupplow;
-    zvalue += v*t3u1;
-    zderx  += 3*v*t2u1;
-    zdery  += v*t3u0;
-    zd_xx  += 6*v*t1u1;
-    zd_xy  += 3*v*t2u0;
-    v = -2*zxylowlow - 2*zxyupplow - zxylowupp - zxyuppupp - 3*sum1 - 2*sum4;
-    zvalue += v*t3u2;
-    zderx  += 3*v*t2u2;
-    zdery  += 2*v*t3u1;
-    zd_xx  += 6*v*t1u2;
-    zd_xy  += 6*v*t2u1;
-    zd_yy  += 2*v*t3u0;
-    v = zxylowlow + zxyupplow + zxylowupp + zxyuppupp + 2*sum1 + 2*sum3;
-    zvalue += v*t3u3;
-    zderx  += 3*v*t2u3;
-    zdery  += 3*v*t3u2;
-    zd_xx  += 6*v*t1u3;
-    zd_xy  += 9*v*t2u2;
-    zd_yy  += 6*v*t3u1;
-
-    if(z   !=NULL) *z    = zvalue;
-    if(z_x !=NULL) *z_x  = zderx*dt;
-    if(z_y !=NULL) *z_y  = zdery*du;
-    if(z_xx!=NULL) *z_xx = zd_xx*dt*dt;
-    if(z_xy!=NULL) *z_xy = zd_xy*dt*du;
-    if(z_yy!=NULL) *z_yy = zd_yy*du*du;
+        // values and derivatives for the intermediate Hermite splines
+        flow  [4] = { fval[ill], fval[iul], fx [ill], fx [iul] },
+        fupp  [4] = { fval[ilu], fval[iuu], fx [ilu], fx [iuu] },
+        dflow [4] = { fy  [ill], fy  [iul], fxy[ill], fxy[iul] },
+        dfupp [4] = { fy  [ilu], fy  [iuu], fxy[ilu], fxy[iuu] };
+    double F  [4];  // {   f    (xlow, y),   f    (xupp, y),  df/dx   (xlow, y),  df/dx   (xupp, y) }
+    double dF [4];  // {  df/dy (xlow, y),  df/dy (xupp, y), d2f/dxdy (xlow, y), d2f/dxdy (xupp, y) }
+    double d2F[4];  // { d2f/dy2(xlow, y), d2f/dy2(xupp, y), d3f/dxdy2(xlow, y), d3f/dxdy2(xupp, y) }
+    bool der  = z_y!=NULL || z_xy!=NULL;
+    bool der2 = z_yy!=NULL;
+    // intermediate interpolation along y direction
+    evalHermiteSplines<4> (ylow, yupp, y,  flow, fupp, dflow, dfupp,
+        /*output*/ F, der? dF : NULL, der2? d2F : NULL);
+    // final interpolation along x direction
+    evalHermiteSplines<1> (xlow, xupp, x,  &F[0], &F[1], &F[2], &F[3],
+        /*output*/ z, z_x, z_xx);
+    if(der)
+        evalHermiteSplines<1> (xlow, xupp, x,  &dF[0], &dF[1], &dF[2], &dF[3],
+            /*output*/ z_y, z_xy, NULL);
+    if(der2)
+        evalHermiteSplines<1> (xlow, xupp, x,  &d2F[0], &d2F[1], &d2F[2], &d2F[3],
+            /*output*/ z_yy, NULL, NULL);
 }
 
 
@@ -957,44 +902,46 @@ void CubicSpline2d::evalDeriv(const double x, const double y,
 
 QuinticSpline2d::QuinticSpline2d(const std::vector<double>& xgrid, const std::vector<double>& ygrid,
     const Matrix<double>& fvalues, const Matrix<double>& dfdx, const Matrix<double>& dfdy) :
-    BaseInterpolator2d(xgrid, ygrid, fvalues), fx(dfdx), fy(dfdy),
-    fxxx(xgrid.size(), ygrid.size()),
-    fyyy(xgrid.size(), ygrid.size()),
-    fxyy(xgrid.size(), ygrid.size()),
-    fxxxyy(xgrid.size(), ygrid.size())
+    BaseInterpolator2d(xgrid, ygrid, fvalues),
+    fx    (dfdx.data(), dfdx.data() + dfdx.size()),
+    fy    (dfdy.data(), dfdy.data() + dfdy.size()),
+    fxxx  (fvalues.size()),
+    fyyy  (fvalues.size()),
+    fxyy  (fvalues.size()),
+    fxxxyy(fvalues.size())
 {
     const unsigned int xsize = xgrid.size();
     const unsigned int ysize = ygrid.size();
-    // 1. for each y do 1d quintic spline for z in x, and record d^3z/dx^3
+    // step 1. for each y_j construct 1d quintic spline for f in x, and record d^3f/dx^3
     std::vector<double> t(xsize), t1(xsize);
     for(unsigned int j=0; j<ysize; j++) {
         for(unsigned int i=0; i<xsize; i++) {
-            t[i]  = fval(i, j);
-            t1[i] = dfdx(i, j);
+            t[i]  = fval[i * ysize + j];
+            t1[i] = fx  [i * ysize + j];
         }
         QuinticSpline s(xval, t, t1);
         for(unsigned int i=0; i<xsize; i++)
-            fxxx(i, j) = s.deriv3(xval[i]);
+            fxxx[i * ysize + j] = s.deriv3(xval[i]);
     }
-    // 2. for each x do 1d quintic spline for z and splines for dz/dx, d^3z/dx^3 in y
+    // 2. for each x_i construct 1d quintic spline for f and cubic splines for df/dx, d^3f/dx^3 in y
     t.resize(ysize);
     t1.resize(ysize);
     for(unsigned int i=0; i<xsize; i++) {
         for(unsigned int j=0; j<ysize; j++) {
-            t[j]  = fval(i, j);
-            t1[j] = dfdy(i, j);
+            t[j]  = fval[i * ysize + j];
+            t1[j] = fy  [i * ysize + j];
         }
         QuinticSpline s(yval, t, t1);
-        for(unsigned int j=0; j<ysize; j++)
-            t1[j] = dfdx(i, j);
-        CubicSpline u(yval, t1, 0, 0);
-        for(unsigned int j=0; j<ysize; j++)
-            t1[j] = fxxx(i, j);
+        for(unsigned int j=0; j<ysize; j++) {
+            t [j] = fx  [i * ysize + j];
+            t1[j] = fxxx[i * ysize + j];
+        }
+        CubicSpline u(yval, t);
         CubicSpline v(yval, t1);
         for(unsigned int j=0; j<ysize; j++) {
-            fyyy(i, j) = s.deriv3(yval[j]);
-            u.evalDeriv(yval[j], NULL, NULL, &fxyy(i, j));
-            v.evalDeriv(yval[j], NULL, NULL, &fxxxyy(i, j));
+            fyyy[i * ysize + j] = s.deriv3(yval[j]);
+            u.evalDeriv(yval[j], NULL, NULL, &fxyy  [i * ysize + j]);
+            v.evalDeriv(yval[j], NULL, NULL, &fxxxyy[i * ysize + j]);
         }
     }
 }
@@ -1007,11 +954,11 @@ void QuinticSpline2d::evalDeriv(const double x, const double y,
         throw std::range_error("Empty 2d spline");
     if(x<xval.front() || x>xval.back() || y<yval.front() || y>yval.back()) {
         if(z)
-            *z = NAN;
+            *z    = NAN;
         if(z_x)
-            *z_x = NAN;
+            *z_x  = NAN;
         if(z_y)
-            *z_y = NAN;
+            *z_y  = NAN;
         if(z_xx)
             *z_xx = NAN;
         if(z_xy)
@@ -1020,39 +967,59 @@ void QuinticSpline2d::evalDeriv(const double x, const double y,
             *z_yy = NAN;
         return;
     }
-    // get the indices of grid cell
-    const unsigned int xl = binSearch(x, &xval.front(), xval.size()), xu = xl+1;
-    const unsigned int yl = binSearch(y, &yval.front(), yval.size()), yu = yl+1;
-
-    // obtain values of various derivatives at the boundaries of intervals for intermediate splines
+    const unsigned int
+        nx = xval.size(),
+        ny = yval.size(),
+        // indices of grid cell in x and y
+        xi = binSearch(x, &xval.front(), nx),
+        yi = binSearch(y, &yval.front(), ny),
+        // indices in flattened 2d arrays: 
+        ill = xi * ny + yi, // xlow,ylow
+        ilu = ill + 1,      // xlow,yupp
+        iul = ill + ny,     // xupp,ylow
+        iuu = iul + 1;      // xupp,yupp
     const double
-        fl[2]  = { fval(xl, yl), fval(xu, yl) },
-        fh[2]  = { fval(xl, yu), fval(xu, yu) },
-        f1l[2] = { fy  (xl, yl), fy  (xu, yl) },
-        f1h[2] = { fy  (xl, yu), fy  (xu, yu) },
-        f3l[2] = { fyyy(xl, yl), fyyy(xu, yl) },
-        f3h[2] = { fyyy(xl, yu), fyyy(xu, yu) },
-        flo[4] = { fx  (xl, yl), fx  (xu, yl), fxxx(xl, yl),   fxxx(xu, yl) },
-        fhi[4] = { fx  (xl, yu), fx  (xu, yu), fxxx(xl, yu),   fxxx(xu, yu) },
-        f2l[4] = { fxyy(xl, yl), fxyy(xu, yl), fxxxyy(xl, yl), fxxxyy(xu, yl) },
-        f2h[4] = { fxyy(xl, yu), fxyy(xu, yu), fxxxyy(xl, yu), fxxxyy(xu, yu) };
+        // coordinates of corner points
+        xlow = xval[xi],
+        xupp = xval[xi+1],
+        ylow = yval[yi],
+        yupp = yval[yi+1],
+        // values and derivatives for the intermediate splines
+        fl [2] = { fval[ill], fval[iul] },
+        fh [2] = { fval[ilu], fval[iuu] },
+        f1l[2] = { fy  [ill], fy  [iul] },
+        f1h[2] = { fy  [ilu], fy  [iuu] },
+        f3l[2] = { fyyy[ill], fyyy[iul] },
+        f3h[2] = { fyyy[ilu], fyyy[iuu] },
+        gl [4] = { fx  [ill], fx  [iul], fxxx  [ill], fxxx  [iul] },
+        gh [4] = { fx  [ilu], fx  [iuu], fxxx  [ilu], fxxx  [iuu] },
+        g2l[4] = { fxyy[ill], fxyy[iul], fxxxyy[ill], fxxxyy[iul] },
+        g2h[4] = { fxyy[ilu], fxyy[iuu], fxxxyy[ilu], fxxxyy[iuu] };
     bool der  = z_y!=NULL || z_xy!=NULL;
     bool der2 = z_yy!=NULL;
     // compute intermediate splines
-    double F[2], G[4], dF[2], dG[4], d2F[2], d2G[4];
-    evalQuinticSplines<2> (yval[yl], yval[yu], y, 
-        fl, fh, f1l, f1h, f3l, f3h,  F, der? dF : NULL, der2? d2F : NULL);
-    evalCubicSplines<4>   (yval[yl], yval[yu], y, 
-        flo, fhi, f2l, f2h,  G, der? dG : NULL, der2? d2G : NULL);
+    double
+        F  [2],  // {   f      (xlow, y),   f      (xupp, y) }
+        dF [2],  // {  df/dy   (xlow, y),  df/dy   (xupp, y) }
+        d2F[2],  // { d2f/dy2  (xlow, y), d2f/dy2  (xupp, y) }
+        G  [4],  // {  df/dx   (xlow, y),  df/dx   (xupp, y), d3f/dx3   (xlow, y), d3f/dx3   (xupp, y) }
+        dG [4],  // { d2f/dxdy (xlow, y), d2f/dxdy (xupp, y), d4f/dx3dy (xlow, y), d4f/dx3dy (xupp, y) }
+        d2G[4];  // { d3f/dxdy2(xlow, y), d3f/dxdy2(xupp, y), d5f/dx3dy2(xlow, y), d5f/dx3dy2(xupp, y) }
+    evalQuinticSplines<2> (ylow, yupp, y,  fl, fh, f1l, f1h, f3l, f3h,
+        /*output*/ F, der? dF : NULL, der2? d2F : NULL);
+    evalCubicSplines<4>   (ylow, yupp, y,  gl, gh, g2l, g2h,
+        /*output*/ G, der? dG : NULL, der2? d2G : NULL);
     // compute and output requested values and derivatives
-    evalQuinticSplines<1> (xval[xl], xval[xu], x,
-        &F[0], &F[1], &G[0], &G[1], &G[2], &G[3],  z, z_x, z_xx);
+    evalQuinticSplines<1> (xlow, xupp, x,  &F[0], &F[1], &G[0], &G[1], &G[2], &G[3],
+        /*output*/ z, z_x, z_xx);
     if(z_y || z_xy)
-        evalQuinticSplines<1> (xval[xl], xval[xu], x,
-            &dF[0], &dF[1], &dG[0], &dG[1], &dG[2], &dG[3],  z_y, z_xy, NULL);
+        evalQuinticSplines<1> (xlow, xupp, x,
+            &dF[0], &dF[1], &dG[0], &dG[1], &dG[2], &dG[3],
+            /*output*/ z_y, z_xy, NULL);
     if(z_yy)
-        evalQuinticSplines<1> (xval[xl], xval[xu], x,
-            &d2F[0], &d2F[1], &d2G[0], &d2G[1], &d2G[2], &d2G[3],  z_yy, NULL, NULL);
+        evalQuinticSplines<1> (xlow, xupp, x,
+            &d2F[0], &d2F[1], &d2G[0], &d2G[1], &d2G[2], &d2G[3],
+            /*output*/ z_yy, NULL, NULL);
 }
 
 
@@ -1459,7 +1426,7 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_knots, const std:
 
     // compute the roughness matrix R (integrals over products of second derivatives of basis functions)
     Matrix<double> RMatrix(computeOverlapMatrix<3,2>(knots));
-    
+
     // initialize b-spline matrix C
     std::vector<Triplet> Cvalues;
     Cvalues.reserve(numDataPoints * 4);
@@ -1482,7 +1449,7 @@ SplineApproxImpl::SplineApproxImpl(const std::vector<double> &_knots, const std:
     // to prevent a failure of Cholesky decomposition in the case if A is not positive definite,
     // we add a small multiple of R to A (following the recommendation in Ruppert,Wand&Carroll)
     blas_daxpy(1e-10, RMatrix, AMatrix);  // TODO: make it scale-invariant (proportional to norm(A)?)
-        
+
     // pre-compute matrix L which is the Cholesky decomposition of matrix of normal equations A
     CholeskyDecomp CholA(AMatrix);
     LMatrix = CholA.L();
@@ -1830,7 +1797,7 @@ SplineLogDensityFitter<N>::SplineLogDensityFitter(
     // sanity check    
     if(sumWeights==0)
         throw std::invalid_argument("splineLogDensity: sum of sample weights should be positive");
-    
+
     // sanity check: all of basis functions must have a contribution from sample points,
     // otherwise the problem is singular and the max-likelihood solution is unattainable
     bool isSingular = false;
@@ -1879,7 +1846,7 @@ SplineLogDensityFitter<N>::SplineLogDensityFitter(
     if((options & FO_INFINITE_RIGHT) == FO_INFINITE_RIGHT)
         params.ampl[numBasisFnc-1] = fmin(params.ampl[numBasisFnc-1],
             params.ampl[numBasisFnc-2] - (grid[numNodes-1]-grid[numNodes-2]));
-    
+
     // now shift all amplitudes by the value of the rightmost one, which is always kept equal to zero
     for(unsigned int k=0; k<numAmpl; k++)
         params.ampl[k] -= params.ampl.back();
@@ -2183,14 +2150,14 @@ std::vector<double> splineLogDensity(const std::vector<double> &grid,
             "#iter="+utils::toString(numIter)+", logL="+utils::toString(fitter.logL(result))+
             ", CV="+utils::toString(fitter.logLcv(result))+(numIter<=0 ? " did not converge" : ""));
     } else {
-        // find the value of lambda and corresponding amplitudes that maximize the cross-validation score.
-        // normally lambda is a small number ( << 1), but it ranges from 0 to infinity,
+        // Find the value of lambda and corresponding amplitudes that maximize the cross-validation score.
+        // Normally lambda is a small number ( << 1), but it ranges from 0 to infinity,
         // so the root-finder uses a scaling transformation, such that scaledLambda=1
         // corresponds to lambda=0 and scaledLambda=0 -- to lambda=infinity.
-        // we don't use the entire interval from 0 to infinity, though, to avoid singularities:
+        // However, we don't use the entire interval from 0 to infinity, to avoid singularities:
         const double MINSCALEDLAMBDA = 0.12422966;  // corresponds to lambda = 1000, rather arbitrary
         const double MAXSCALEDLAMBDA = 0.971884607; // corresponds to lambda = 1e-15
-        // since the minimizer first computes the function at the left endpoint of the interval
+        // Since the minimizer first computes the function at the left endpoint of the interval
         // and then at the right endpoint, this leads to first performing an oversmoothed fit
         // (large lambda), which should yield a reasonable 'gaussian' first approximation,
         // then a fit with almost no smoothing, which starts with an already more reasonable

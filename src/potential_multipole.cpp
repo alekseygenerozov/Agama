@@ -1331,9 +1331,9 @@ MultipoleInterp2d::MultipoleInterp2d(
                 double val=0, dR=0, dT=0;
                 for(int l=lmin; l<=ind.lmax; l+=ind.step) {
                     unsigned int c = ind.index(l, m);
-                    val += Phi [k][c] *  Plm[l-absm];   // Phi_{l,m}(r)
+                    val +=  Phi[k][c] *  Plm[l-absm];   // Phi_{l,m}(r)
                     dR  += dPhi[k][c] *  Plm[l-absm];   // d Phi / d r
-                    dT  += Phi [k][c] * dPlm[l-absm];   // d Phi / d theta
+                    dT  +=  Phi[k][c] * dPlm[l-absm];   // d Phi / d theta
                 }
                 double amp = sqrt(pow_2(Rscale) + pow_2(radii[k]));   // additional scaling multiplier
                 Phi_val(k, j) = mul *  amp * val;
@@ -1383,6 +1383,10 @@ void MultipoleInterp2d::evalCyl(const coord::PosCyl &pos,
             numQuantities==6 ? &C_m[mm+nm*3] : NULL,
             numQuantities==6 ? &C_m[mm+nm*4] : NULL,
             numQuantities==6 ? &C_m[mm+nm*5] : NULL);
+        if(pos.R==0) {  // zero out the derivatives w.r.t. tau that are pure roundoff errors
+            C_m[mm+nm*2] = 0;  //  d / dtau
+            C_m[mm+nm*4] = 0;  // d2 / dr dtau
+        }
     }
 
     // Fourier synthesis from azimuthal harmonics to actual quantities, still in scaled coords

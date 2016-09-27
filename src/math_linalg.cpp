@@ -186,13 +186,21 @@ Matrix<NumT>::~Matrix()
 template<typename NumT>
 const NumT& Matrix<NumT>::operator() (unsigned int row, unsigned int col) const
 {
+#ifdef DEBUG_RANGE_CHECK
     return mat(*this)(row, col);
+#else
+    return mat(*this).data()[row * cols() + col];
+#endif
 }
 
 template<typename NumT>
 NumT& Matrix<NumT>::operator() (unsigned int row, unsigned int col)
 {
+#ifdef DEBUG_RANGE_CHECK
     return mat(*this)(row, col);
+#else
+    return mat(*this).data()[row * cols() + col];
+#endif
 }
 
 /// access the raw data storage
@@ -644,8 +652,10 @@ Matrix<NumT>::~Matrix()
 template<typename NumT>
 const NumT& Matrix<NumT>::operator() (unsigned int row, unsigned int col) const
 {
+#ifdef DEBUG_RANGE_CHECK
     if(row >= rows() || col >= cols())
         throw std::range_error("Matrix: index out of range");
+#endif
     return static_cast<const NumT*>(impl)[row * cols() + col];
 }
 
@@ -653,8 +663,10 @@ const NumT& Matrix<NumT>::operator() (unsigned int row, unsigned int col) const
 template<typename NumT>
 NumT& Matrix<NumT>::operator() (unsigned int row, unsigned int col)
 {
+#ifdef DEBUG_RANGE_CHECK
     if(row >= rows() || col >= cols())
         throw std::range_error("Matrix: index out of range");
+#endif
     return static_cast<NumT*>(impl)[row * cols() + col];
 }
 

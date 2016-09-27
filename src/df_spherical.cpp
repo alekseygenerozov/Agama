@@ -34,7 +34,7 @@ public:
     }
     virtual unsigned int numDerivs() const { return fnc.numDerivs(); }
 };
-    
+
 /// integrand for computing phase volume and density of states:
 /// int_0^{rmax} dr r^2 v^n(E,r)  is transformed into
 /// rmax^3 * int_0^1 ds rs(s)^2 v^n(E,rmax*rs) drs/ds, where rs=(3-2s)s^2;
@@ -119,17 +119,6 @@ static inline void unscaleDeltaE(const double scaledE1, const double scaledE2, c
     E2           = 1 / (invPhi0 - exp2);
     E1minusE2    = (exp1 - exp2) * E1 * E2;
     dE1dscaledE1 = E1 * E1 * exp1;
-}
-
-/// linearly extrapolate a two-dimensional spline (or just compute it if the point is inside its domain)
-static inline double evalExtrapolate(const math::BaseInterpolator2d& interp, double x, double y)
-{
-    double xx = fmin(fmax(x, interp.xmin()), interp.xmax());
-    double yy = fmin(fmax(y, interp.ymin()), interp.ymax());
-    if(x<xx)
-        utils::msg(utils::VL_WARNING, "DiffusionCoefs", "Extrapolating to small h");
-    // in the present implementation, derivatives are assumed to be zero at endpoints
-    return interp.value(xx, yy);
 }
 
 }  // internal namespace
@@ -369,7 +358,7 @@ DiffusionCoefs::DiffusionCoefs(const PhaseVolume& _phasevol, const math::IFuncti
     const unsigned int npointsY  = 100;
     const double mindeltaY       = fmin(0.1, (logHmax-logHmin)/npointsY);
     std::vector<double> gridY    = math::createNonuniformGrid(npointsY, mindeltaY, logHmax-logHmin, true);
-    
+
     // 2. store the values of f, g, h at grid nodes
     std::vector<double> gridF(npoints), gridG(npoints), gridH(npoints);
     std::vector<double> gridFint(npoints), gridFGint(npoints), gridFHint(npoints);
@@ -421,7 +410,7 @@ DiffusionCoefs::DiffusionCoefs(const PhaseVolume& _phasevol, const math::IFuncti
     for(int i=npoints-1; i>=1; i--) {
         gridFint[i-1] = gridFint[i] + math::integrate(dfint, gridLogH[i-1], gridLogH[i], ACCURACY);
     }
-    
+
     // 4b. integrands of f*g dE  and  f*h dE;  note that g = dh/dE.
     // compute from inside out, summing contributions from all previous intervals of h
     DFIntegrand<MODE_INTFG> dfgint(df, phasevol);
@@ -544,8 +533,9 @@ DiffusionCoefs::DiffusionCoefs(const PhaseVolume& _phasevol, const math::IFuncti
             double Phi = phasevol.E(gridH[i]);
             for(unsigned int j=0; j<npointsY; j++) {
                 double E = phasevol.E(exp(gridLogH[i] + gridY[j]));
-                strm << gridLogH[i] << ' ' << gridY[j] << '\t' << Phi << ' ' << E << '\t' <<
-                exp(gridv2par(i, j)) << ' ' << exp(gridv2per(i, j)) << '\n';
+                strm << utils::pp(gridLogH[i],10) +' '+ utils::pp(gridY[j],10) +'\t'+
+                utils::pp(Phi,14) +' '+ utils::pp(E,14) +'\t'+
+                utils::pp(exp(gridv2par(i, j)),10) +' '+ utils::pp(exp(gridv2per(i, j)),10)+'\n';
             }
             strm << '\n';
         }
@@ -571,17 +561,21 @@ void DiffusionCoefs::evalOrbitAvg(double E, double &DE, double &DEE) const
 
 void DiffusionCoefs::evalLocal(double Phi, double E, double &dvpar, double &dv2par, double &dv2per) const
 {
-    double Ei   = fmin(E, 0);   // if E>0, evaluate the interpolants for E=0, and then apply a correction
-    double hPhi = phasevol(Phi), loghPhi = log(hPhi);
-    double hEi  = phasevol(Ei),  loghEi  = log(hEi);
-    if(!(Phi<0 && loghEi >= loghPhi))
+    double loghPhi = log(phasevol(Phi));
+    double loghE   = log(phasevol(E));
+    if(!(Phi<0 && loghE >= loghPhi))
         throw std::invalid_argument("DiffusionCoefs: incompatible values of E and Phi");
-    
-    double I0 = exp(intf(loghEi));
+
+    // compute the 1d interpolators for I0, J0
+    double I0 = exp(intf(loghE));
     double J0 = fmax(exp(intf(loghPhi)) - I0, 0);
-    double v2par = exp(evalExtrapolate(intv2par, loghPhi, loghEi-loghPhi)) * J0;
-    double v2per = exp(evalExtrapolate(intv2per, loghPhi, loghEi-loghPhi)) * J0;
-    if(E>0) {  // in this case, the coefficients were computed for Ei=0, need to scale them to E>0
+    // restrict the arguments of 2d interpolators to the range covered by their grids
+    double X = fmin(fmax(loghPhi, intv2par.xmin()), intv2par.xmax());
+    double Y = fmin(fmax(loghE-loghPhi, intv2par.ymin()), intv2par.ymax());
+    // compute the 2d interpolators for J1, J3
+    double v2par = exp(intv2par.value(X, Y)) * J0;
+    double v2per = exp(intv2per.value(X, Y)) * J0;
+    if(E>=0) {  // in this case, the coefficients were computed for E=0, need to scale them to E>0
         double J1 = (v2par + v2per) / 3;
         double corr = 1 / sqrt(1 - E / Phi);  // correction factor <1
         J1    *= corr;
@@ -592,6 +586,11 @@ void DiffusionCoefs::evalLocal(double Phi, double E, double &dvpar, double &dv2p
     dvpar  = -mult * (v2par + v2per);
     dv2par =  mult * (v2par + I0);
     dv2per =  mult * (v2per + I0 * 2);
+    /*if(loghPhi<X)
+        utils::msg(utils::VL_WARNING, "DiffusionCoefs",
+        "Extrapolating to small h: log(h(Phi))="+utils::toString(loghPhi)+
+        ", log(h(E))="+utils::toString(loghE)+
+        ", I0="+utils::toString(I0)+", J0="+utils::toString(J0));*/
 }
 
 double DiffusionCoefs::cumulMass(const double h) const

@@ -1,7 +1,7 @@
 /** \file    utils.h
     \brief   several string formatting and error reporting routines
     \author  EV
-    \date    2009-2015
+    \date    2009-2016
 */
 #pragma once
 #include <string>

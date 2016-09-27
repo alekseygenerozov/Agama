@@ -137,10 +137,10 @@ public:
     /// index of coefficient with the given l and m
     /// (0<=l<=lmax, -l<=m<=l, no range check performed!)
     static unsigned int index(int l, int m) { return l*(l+1)+m; }
-    
+
     /// decode the l-index from the combined index of a coefficient
     static int index_l(unsigned int c);
-    
+
     /// decode the m-index from the combined index of a coefficient
     static int index_m(unsigned int c);
 

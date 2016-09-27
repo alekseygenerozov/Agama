@@ -13,6 +13,7 @@
 /// analytic expressions for rmax(E) in the Plummer and Hernquist models
 class RmaxPlummer: public math::IFunction {
 public:
+    RmaxPlummer(){}
     virtual void evalDeriv(double E, double* Rmax, double* dRmaxdE, double* =NULL) const {
         if(Rmax)
             *Rmax = -sqrt(1-E*E)/E;
@@ -24,6 +25,7 @@ public:
 
 class RmaxHernquist: public math::IFunction {
 public:
+    RmaxHernquist(){}
     virtual void evalDeriv(double E, double* Rmax, double* dRmaxdE, double* =NULL) const {
         if(Rmax)
             *Rmax = -1/E-1;
@@ -36,6 +38,7 @@ public:
 /// analytic expressions for phase volume and density of states in the Plummer model
 class PhasevolPlummer: public math::IFunction {
 public:
+    PhasevolPlummer(){}
     virtual void evalDeriv(double E, double* h, double* g, double* =NULL) const {
         if(E<-0.999) {  // asymptotic expressions for E -> -1
             double x = E+1;
@@ -62,6 +65,7 @@ public:
 /// analytic expressions for phase volume and density of states in the Hernquist model
 class PhasevolHernquist: public math::IFunction {
 public:
+    PhasevolHernquist(){}
     virtual void evalDeriv(double E, double* h, double* g, double* =NULL) const {
         if(E<-0.99) {  // asymptotic expressions for E -> -1
             double x = E+1;

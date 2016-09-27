@@ -287,7 +287,7 @@ public:
 
 protected:
     std::vector<double> xval, yval;  ///< grid nodes in x and y directions
-    Matrix<double> fval;             ///< 2d array of f values
+    std::vector<double> fval;        ///< flattened row-major 2d array of f values
 };
 
 
@@ -335,7 +335,7 @@ public:
 
 private:
     /// flattened 2d arrays of derivatives in x and y directions, and mixed 2nd derivatives
-    Matrix<double> fx, fy, fxy;
+    std::vector<double> fx, fy, fxy;
 };
 
 
@@ -358,7 +358,8 @@ public:
         double* deriv_xx=NULL, double* deriv_xy=NULL, double* deriv_yy=NULL) const;
 
 private:
-    Matrix<double> fx, fy, fxxx, fyyy, fxyy, fxxxyy;
+    /// flattened 2d arrays of various derivatives
+    std::vector<double> fx, fy, fxxx, fyyy, fxyy, fxxxyy;
 };
 
 
@@ -623,7 +624,7 @@ public:
         the constructor of CubicSpline class that will provide the interpolated function;
         the length of this array is numKnots+2.
     */
-    std::vector<double> fit(const std::vector<double> &yvalues, const double edf=NULL, 
+    std::vector<double> fit(const std::vector<double> &yvalues, const double edf=0, 
         double *rmserror=NULL) const;
 
     /** perform fitting with adaptive choice of smoothing parameter that minimizes
