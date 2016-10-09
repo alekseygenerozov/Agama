@@ -1,9 +1,13 @@
-/** Test conversion between spherical, cylindrical and cartesian coordinates
+/** \name   test_coord.cpp
+    \author Eugene Vasiliev
+    \date   2015
+
+    Test conversion between spherical, cylindrical and cartesian coordinates
     1) positions/velocities,
     2) gradients and hessians.
     In both cases take a value in one coordinate system (source), convert to another (destination),
     then convert back and compare.
-    In the second case, also check that two-staged conversion involving a third (intermediate) 
+    In the second case, also check that two-staged conversion involving a third (intermediate)
     coordinate system gives the identical result to a direct conversion.
 */
 #include "coord.h"
@@ -134,13 +138,8 @@ bool test_conv_posvel(const coord::PosVelT<srcCS>& srcpoint)
     if(!sameV2) std::cout << "v^2  ";
     std::cout<<srcCS::name()<<" => "<<
         destCS::name()<<" => "<<srcCS::name();
-    if(!ok) {
-        for(int i=0; i<6; i++) std::cout<<" "<<src[i];
-        std::cout << " => ";
-        for(int i=0; i<6; i++) std::cout<<" "<<dest[i];
-        std::cout << " => ";
-        for(int i=0; i<6; i++) std::cout<<" "<<inv[i];
-    }
+    if(!ok)
+        std::cout << srcpoint << " => " << destpoint << " => " << invpoint;
     std::cout << "\n";
     return ok;
 }
@@ -192,17 +191,17 @@ bool test_conv_deriv(const coord::PosT<srcCS>& srcpoint)
     bool samehess2step = coord::equalHess(desthess, desthess2step, eps);
     bool ok=samepos && samegrad && samehess && samevalue2step && samegrad2step && samehess2step;
     std::cout << (ok?"OK  ": isSingular(srcpoint)?"EXPECTEDLY FAILED  ":"FAILED  ");
-    if(!samepos) 
+    if(!samepos)
         std::cout << "pos  ";
-    if(!samegrad) 
+    if(!samegrad)
         std::cout << "gradient  ";
-    if(!samehess) 
+    if(!samehess)
         std::cout << "hessian  ";
-    if(!samevalue2step) 
+    if(!samevalue2step)
         std::cout << "2-step conversion value  ";
-    if(!samegrad2step) 
+    if(!samegrad2step)
         std::cout << "2-step gradient  ";
-    if(!samehess2step) 
+    if(!samehess2step)
         std::cout << "2-step hessian  ";
     std::cout<<srcCS::name()<<" => "<<" [=> "<<intermedCS::name()<<"] => "<<
         destCS::name()<<" => "<<srcCS::name()<<"\n";
@@ -326,27 +325,33 @@ int main() {
 
     std::cout << " ======= Testing conversion of position/velocity points =======\n";
     for(int n=0; n<numtestpoints; n++) {
-        std::cout << " :::Cartesian point::: ";     for(int d=0; d<6; d++) std::cout << posvel_car[n][d]<<" ";  std::cout<<"\n";
-        passed &= test_conv_posvel<coord::Car, coord::Cyl>(coord::PosVelCar(posvel_car[n]));
-        passed &= test_conv_posvel<coord::Car, coord::Sph>(coord::PosVelCar(posvel_car[n]));
-        std::cout << " :::Cylindrical point::: ";   for(int d=0; d<6; d++) std::cout << posvel_cyl[n][d]<<" ";  std::cout<<"\n";
-        passed &= test_conv_posvel<coord::Cyl, coord::Car>(coord::PosVelCyl(posvel_cyl[n]));
-        passed &= test_conv_posvel<coord::Cyl, coord::Sph>(coord::PosVelCyl(posvel_cyl[n]));
-        std::cout << " :::Spherical point::: ";     for(int d=0; d<6; d++) std::cout << posvel_sph[n][d]<<" ";  std::cout<<"\n";
-        passed &= test_conv_posvel<coord::Sph, coord::Car>(coord::PosVelSph(posvel_sph[n]));
-        passed &= test_conv_posvel<coord::Sph, coord::Cyl>(coord::PosVelSph(posvel_sph[n]));
+        coord::PosVelCar pvcar(posvel_car[n]);
+        std::cout << " :::Cartesian point::: " << pvcar << "\n";
+        passed &= test_conv_posvel<coord::Car, coord::Cyl>(pvcar);
+        passed &= test_conv_posvel<coord::Car, coord::Sph>(pvcar);
+        coord::PosVelCyl pvcyl(posvel_cyl[n]);
+        std::cout << " :::Cylindrical point::: " << pvcyl << "\n";
+        passed &= test_conv_posvel<coord::Cyl, coord::Car>(pvcyl);
+        passed &= test_conv_posvel<coord::Cyl, coord::Sph>(pvcyl);
+        coord::PosVelSph pvsph(posvel_sph[n]);
+        std::cout << " :::Spherical point::: " << pvsph << "\n";
+        passed &= test_conv_posvel<coord::Sph, coord::Car>(pvsph);
+        passed &= test_conv_posvel<coord::Sph, coord::Cyl>(pvsph);
     }
     std::cout << " ======= Testing conversion of gradients and hessians =======\n";
     for(int n=0; n<numtestpoints; n++) {
-        std::cout << " :::Cartesian point::: ";     for(int d=0; d<6; d++) std::cout << posvel_car[n][d]<<" ";  std::cout<<"\n";
-        passed &= test_conv_deriv<coord::Car, coord::Cyl, coord::Sph>(coord::PosCar(posvel_car[n][0], posvel_car[n][1], posvel_car[n][2]));
-        passed &= test_conv_deriv<coord::Car, coord::Sph, coord::Cyl>(coord::PosCar(posvel_car[n][0], posvel_car[n][1], posvel_car[n][2]));
-        std::cout << " :::Cylindrical point::: ";   for(int d=0; d<6; d++) std::cout << posvel_cyl[n][d]<<" ";  std::cout<<"\n";
-        passed &= test_conv_deriv<coord::Cyl, coord::Car, coord::Sph>(coord::PosCyl(posvel_cyl[n][0], posvel_cyl[n][1], posvel_cyl[n][2]));
-        passed &= test_conv_deriv<coord::Cyl, coord::Sph, coord::Car>(coord::PosCyl(posvel_cyl[n][0], posvel_cyl[n][1], posvel_cyl[n][2]));
-        std::cout << " :::Spherical point::: ";     for(int d=0; d<6; d++) std::cout << posvel_sph[n][d]<<" ";  std::cout<<"\n";
-        passed &= test_conv_deriv<coord::Sph, coord::Car, coord::Cyl>(coord::PosSph(posvel_sph[n][0], posvel_sph[n][1], posvel_sph[n][2]));
-        passed &= test_conv_deriv<coord::Sph, coord::Cyl, coord::Car>(coord::PosSph(posvel_sph[n][0], posvel_sph[n][1], posvel_sph[n][2]));
+        coord::PosCar pcar = coord::PosVelCar(posvel_car[n]);
+        std::cout << " :::Cartesian point::: " << pcar << "\n";
+        passed &= test_conv_deriv<coord::Car, coord::Cyl, coord::Sph>(pcar);
+        passed &= test_conv_deriv<coord::Car, coord::Sph, coord::Cyl>(pcar);
+        coord::PosCyl pcyl = coord::PosVelCyl(posvel_cyl[n]);
+        std::cout << " :::Cylindrical point::: " << pcyl << "\n";
+        passed &= test_conv_deriv<coord::Cyl, coord::Car, coord::Sph>(pcyl);
+        passed &= test_conv_deriv<coord::Cyl, coord::Sph, coord::Car>(pcyl);
+        coord::PosSph psph = coord::PosVelSph(posvel_sph[n]);
+        std::cout << " :::Spherical point::: " << psph << "\n";
+        passed &= test_conv_deriv<coord::Sph, coord::Car, coord::Cyl>(psph);
+        passed &= test_conv_deriv<coord::Sph, coord::Cyl, coord::Car>(psph);
     }
     if(passed)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";

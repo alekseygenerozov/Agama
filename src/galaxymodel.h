@@ -48,9 +48,8 @@ public:
     potential(pot), actFinder(af), distrFunc(df) {}
 };
 
-/** Compute density, first-order, and second-order moments of velocity 
-    in polar cyclindrical coordinates; if some of them are not needed,
-    pass NULL as the corresponding argument, and it will not be computed.
+/** Compute density, first-order, and second-order moments of velocity in cylindrical coordinates;
+    if some of them are not needed, pass NULL as the corresponding argument, and it will not be computed.
     \tparam     GalaxyModelType  is either GalaxyModel or GalaxyModelMulticomponent,
     in the latter case all non-NULL output arguments must point to arrays of length equal to the
     number of components of the DF, which will be filled with separate values for each DF component.

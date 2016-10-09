@@ -13,6 +13,9 @@ namespace{  // internal routines
 /// relative accuracy of root-finders for radius
 static const double ACCURACY = 1e-10;
 
+/// a number that is considered nearly infinity in log-scaled root-finders
+static const double HUGE_NUMBER = 1e100;
+
 // -------- routines for conversion between energy, radius and angular momentum --------- //
 
 /** helper class to find the root of  Phi(R) = E */
@@ -21,17 +24,18 @@ class RmaxRootFinder: public math::IFunction {
     const double E;
 public:
     RmaxRootFinder(const BasePotential& _poten, double _E) : poten(_poten), E(_E) {};
-    virtual void evalDeriv(const double R, double* val=0, double* deriv=0, double* =0) const {
+    virtual void evalDeriv(const double logR, double* val=0, double* deriv=0, double* =0) const {
         double Phi;
         coord::GradCyl grad;
+        double R = exp(logR);
         poten.eval(coord::PosCyl(R,0,0), &Phi, &grad);
         if(val) {
-            if(R==INFINITY && !isFinite(Phi))
+            if(R>=HUGE_NUMBER && !isFinite(Phi))
                 Phi=0;
             *val = Phi-E;
         }
         if(deriv)
-            *deriv = grad.dR;
+            *deriv = grad.dR * R;
     }
     virtual unsigned int numDerivs() const { return 1; }
 };
@@ -44,19 +48,20 @@ class RcircRootFinder: public math::IFunction {
     const double E;
 public:
     RcircRootFinder(const BasePotential& _poten, double _E) : poten(_poten), E(_E) {};
-    virtual void evalDeriv(const double R, double* val=0, double* deriv=0, double* deriv2=0) const {
+    virtual void evalDeriv(const double logR, double* val=0, double* deriv=0, double* deriv2=0) const {
         double Phi;
         coord::GradCyl grad;
         coord::HessCyl hess;
+        double R = exp(logR);
         poten.eval(coord::PosCyl(R,0,0), &Phi, &grad, &hess);
         if(val) {
-            if(R==INFINITY && !isFinite(Phi))
+            if(R>=HUGE_NUMBER && !isFinite(Phi))
                 *val = -1-fabs(E);  // safely negative value
             else
-                *val = 2*(E-Phi) - (R>0 && R!=INFINITY ? R*grad.dR : 0);
+                *val = 2*(E-Phi) - (R>1./HUGE_NUMBER && R<HUGE_NUMBER ? R*grad.dR : 0);
         }
         if(deriv)
-            *deriv = -3*grad.dR - R*hess.dR2;
+            *deriv = (-3*grad.dR - R*hess.dR2) * R;
         if(deriv2)
             *deriv2 = NAN;
     }
@@ -76,7 +81,8 @@ public:
     virtual void evalDeriv(const double R, double* val=0, double* deriv=0, double* deriv2=0) const {
         coord::GradCyl grad;
         coord::HessCyl hess;
-        static const double UNREASONABLY_LARGE_VALUE = 1e10;  // TODO: this is unsatisfactory
+        // TODO: this is unsatisfactory, need to convert to log-scaling
+        static const double UNREASONABLY_LARGE_VALUE = 1e10;
         if(R < UNREASONABLY_LARGE_VALUE) {
             poten.eval(coord::PosCyl(R,0,0), NULL, &grad, &hess);
             if(val)
@@ -178,7 +184,7 @@ double R_circ(const BasePotential& potential, double energy) {
     if(!isZRotSymmetric(potential))
         throw std::invalid_argument("Potential is not axisymmetric, "
             "no meaningful definition of circular orbit is possible");
-    return math::findRoot(RcircRootFinder(potential, energy), 0, INFINITY, ACCURACY);
+    return exp(math::findRoot(RcircRootFinder(potential, energy), -INFINITY, INFINITY, ACCURACY));
 }
 
 double L_circ(const BasePotential& potential, double energy) {
@@ -196,7 +202,7 @@ double R_from_Lz(const BasePotential& potential, double Lz) {
 }
 
 double R_max(const BasePotential& potential, double energy) {
-    return math::findRoot(RmaxRootFinder(potential, energy), 0, INFINITY, ACCURACY);
+    return exp(math::findRoot(RmaxRootFinder(potential, energy), -INFINITY, INFINITY, ACCURACY));
 }
 
 void epicycleFreqs(const BasePotential& potential, const double R,
@@ -273,8 +279,10 @@ void findPlanarOrbitExtent(const BasePotential& potential, double E, double L, d
         if(Lrel2<1+1e-8) {  // assuming a roundoff error and not an intentional foul
             R1 = R2 = Rcirc;
             return;
-        } else 
-            throw std::invalid_argument("Error in findPlanarOrbitExtent: E and L have incompatible values");
+        } else
+            throw std::invalid_argument("Error in findPlanarOrbitExtent: E="+
+                utils::toString(E,16)+" and L="+utils::toString(L,16)+
+                " have incompatible values (Lcirc="+utils::toString(sqrt(Lcirc2),16)+")");
     }
     if(asympt) {
         RPeriApoRootFinderPowerLaw fnc(slope, Lrel2);
@@ -297,7 +305,7 @@ Interpolator::Interpolator(const BasePotential& potential)
 {
     if(!isZRotSymmetric(potential))
         throw std::invalid_argument("Interpolator: can only work with axisymmetric potentials");
-    double Phiinf = potential.value(coord::PosCyl(INFINITY,0,0));
+    double Phiinf = potential.value(coord::PosCyl(INFINITY,1.,1.));
     // not every potential returns a valid value at infinity, but if it does, make sure that it's zero
     if(Phiinf==Phiinf && Phiinf!=0)  
         throw std::runtime_error("Interpolator: can only work with potentials "

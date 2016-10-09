@@ -55,8 +55,10 @@ bool testActionSpaceScaling(const df::BaseActionSpaceScaling& s)
             return false;
         actions::Actions J1 = s.toActions(w);
         if( J1.Jr!=J1.Jr || J1.Jz!=J1.Jz || J1.Jphi!=J1.Jphi ||
-            (isFinite(J1.Jr+J1.Jz+fabs(J1.Jphi) && math::fcmp(J.Jr, J1.Jr, 1e-10)!=0) ||
-            math::fcmp(J.Jz, J1.Jz, 1e-10)!=0 || math::fcmp(J.Jphi, J1.Jphi, 1e-10)!=0) )
+            (isFinite(J1.Jr+J1.Jz+fabs(J1.Jphi)) && (
+            math::fcmp(J.Jr, J1.Jr, 1e-10)!=0 ||
+            math::fcmp(J.Jz, J1.Jz, 1e-10)!=0 ||
+            math::fcmp(J.Jphi, J1.Jphi, 1e-10)!=0) ) )
             return false;
     }
     return true;
@@ -91,17 +93,17 @@ bool testDFmoments(const galaxymodel::GalaxyModel& galmod, const coord::PosVelCy
     std::cout << 
         "density=" << density << " +- " << densityErr << 
         "  compared to analytic value " << densExact << (densok?"":errmsg) <<"\n"
-        "velocity"
-        "  vR=" << velocityFirstMoment.vR << " +- " << velocityFirstMomentErr.vR <<
-        ", vz=" << velocityFirstMoment.vz << " +- " << velocityFirstMomentErr.vz <<
-        ", vphi=" << velocityFirstMoment.vphi << " +- " << velocityFirstMomentErr.vphi << "\n"
+        //"velocity"
+        //"  vR=" << velocityFirstMoment.vR << " +- " << velocityFirstMomentErr.vR <<
+        //", vz=" << velocityFirstMoment.vz << " +- " << velocityFirstMomentErr.vz <<
+        //", vphi=" << velocityFirstMoment.vphi << " +- " << velocityFirstMomentErr.vphi << "\n"
         "2nd moment of velocity"
         "  vR2="    << velocitySecondMoment.vR2    << " +- " << velocitySecondMomentErr.vR2 <<
         ", vz2="    << velocitySecondMoment.vz2    << " +- " << velocitySecondMomentErr.vz2 <<
         ", vphi2="  << velocitySecondMoment.vphi2  << " +- " << velocitySecondMomentErr.vphi2 <<
-        ", vRvz="   << velocitySecondMoment.vRvz   << " +- " << velocitySecondMomentErr.vRvz <<
-        ", vRvphi=" << velocitySecondMoment.vRvphi << " +- " << velocitySecondMomentErr.vRvphi <<
-        ", vzvphi=" << velocitySecondMoment.vzvphi << " +- " << velocitySecondMomentErr.vzvphi <<
+        //", vRvz="   << velocitySecondMoment.vRvz   << " +- " << velocitySecondMomentErr.vRvz <<
+        //", vRvphi=" << velocitySecondMoment.vRvphi << " +- " << velocitySecondMomentErr.vRvphi <<
+        //", vzvphi=" << velocitySecondMoment.vzvphi << " +- " << velocitySecondMomentErr.vzvphi <<
         "   compared to analytic value " << sigmaExact << (sigmaok?"":errmsg) <<"\n";
     return dfok && densok && sigmaok;
 }
@@ -138,18 +140,15 @@ int main(){
     // test double-power-law distribution function in a spherical Hernquist potential
     // NB: parameters obtained by fitting (test_df_fit.cpp)
     df::DoublePowerLawParam paramDPL;
-    paramDPL.alpha = 1.407;
-    paramDPL.beta  = 5.628;
-    paramDPL.j0    = 1.745;
-    paramDPL.jcore = 0.;
-    paramDPL.ar    = 1.614;
-    paramDPL.az    = (3-paramDPL.ar)/2;
-    paramDPL.aphi  = paramDPL.az;
-    paramDPL.br    = 1.0;
-    paramDPL.bz    = 1.0;
-    paramDPL.bphi  = 1.0;
-    paramDPL.norm  = 0.956 * math::gamma(paramDPL.beta-paramDPL.alpha)
-        / math::gamma(3-paramDPL.alpha) / math::gamma(paramDPL.beta-3);
+    paramDPL.slopeIn   = 1.5;
+    paramDPL.slopeOut  = 5.0;
+    paramDPL.steepness = 1.3;
+    paramDPL.J0        = 1.25;
+    paramDPL.coefJrIn  = 1.4;
+    paramDPL.coefJzIn  = (3-paramDPL.coefJrIn)/2;
+    paramDPL.coefJrOut = 1.0;
+    paramDPL.coefJzOut = 1.0;
+    paramDPL.norm = 2.328;
     potential::PtrPotential potH(new potential::Dehnen(1., 1., 1., 1., 1.));  // potential
     const actions::ActionFinderAxisymFudge actH(potH);        // action finder
     const df::DoublePowerLaw dfH(paramDPL);                   // distribution function
@@ -164,9 +163,6 @@ int main(){
         double sigmaExact = sigmaHernquist(1, 1, coord::toPosSph(point).r);  // analytical value of sigma^2
         ok &= testDFmoments(galmodH, point, dfExact, densExact, sigmaExact);
     }
-
-    // create an N-body model by sampling from DF
-    writeSnapshot("sampled_model.txt", generatePosVelSamples(galmodH, 1e5), "Text");
 
     if(ok)
         std::cout << "\033[1;32mALL TESTS PASSED\033[0m\n";

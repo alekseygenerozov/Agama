@@ -72,18 +72,21 @@ inline bool toBool(const std::string& val)
 inline static std::string toString(bool val)
 { return val?"true":"false"; }
 
-/// convert a number to a string with a given precision
+/// convert a number to a string with a given precision (number of significant digits)
 std::string toString(double val, unsigned int width=6);
 std::string toString(float val, unsigned int width=6);
 std::string toString(int val);
 std::string toString(unsigned int val);
+/// convert a pointer to a string
 std::string toString(const void* val);
-
+/// convert any typed pointer to a string
 template<typename T> inline std::string toString(const T* val) {
     return toString(static_cast<const void*>(val));
 }
 
 /// Pretty-print: convert floating-point or integer numbers to a string of exactly fixed length.
+/// Choose fixed-point or exponential format depending on which one is more accurate;
+/// if the number does not fit into the given width, return a string with # symbols.
 std::string pp(double num, unsigned int width);
 
 /** routine that splits one line from a text file into several items.

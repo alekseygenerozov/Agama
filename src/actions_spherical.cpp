@@ -338,16 +338,16 @@ static math::CubicSpline2d makeActionInterpolator(const potential::Interpolator2
     // for computing the asymptotic values at E=Phi(0), we assume a power-law behavior of potential:
     // Phi = Phi0 + coef * r^s
     double Phi0, slope = interp.pot.innerSlope(&Phi0);
-    const unsigned int sizeE = 50;
-    const unsigned int sizeL = 40;
+    const int sizeE = 50;
+    const int sizeL = 40;
     
     // create grids in energy and L/Lcirc(E), same as in Interpolator2d
     std::vector<double> gridE(sizeE), gridL(sizeL);
-    for(unsigned int i=0; i<sizeE; i++) {
+    for(int i=0; i<sizeE; i++) {
         double x = 1.*i/(sizeE-1);
         gridE[i] = (1 - pow_3(x) * (10+x*(-15+x*6))) * Phi0;
     }
-    for(unsigned int i=0; i<sizeL; i++) {
+    for(int i=0; i<sizeL; i++) {
         double x = 1.*i/(sizeL-1);
         gridL[i] = pow_3(x) * (10+x*(-15+x*6));
     }
@@ -356,10 +356,13 @@ static math::CubicSpline2d makeActionInterpolator(const potential::Interpolator2
 
     // loop over values of energy strictly inside the interval [Phi0:0];
     // the boundary values will be treated separately
-    for(unsigned int iE=1; iE<sizeE-1; iE++) {
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+    for(int iE=1; iE<sizeE-1; iE++) {
         double E = gridE[iE];
         double dLcdE, Lc = interp.pot.L_circ(E, &dLcdE);
-        for(unsigned int iL=0; iL<sizeL-1; iL++) {
+        for(int iL=0; iL<sizeL-1; iL++) {
             double L = gridL[iL] * Lc;
             double R1, R2;
             interp.findPlanarOrbitExtent(E, L, R1, R2);
@@ -378,7 +381,7 @@ static math::CubicSpline2d makeActionInterpolator(const potential::Interpolator2
     }
     
     // asymptotic expressions for E -> Phi(0) assuming a power-law potential near origin
-    for(unsigned int iL=0; iL<sizeL-1; iL++) {
+    for(int iL=0; iL<sizeL-1; iL++) {
         double R1, R2;   // these are scaled values, normalized to Rcirc
         interp.findScaledOrbitExtent(Phi0, gridL[iL], R1, R2);
         // integrations return the scaled value Jr/Lcirc and its derivative w.r.t. (L/Lcirc)
@@ -390,14 +393,14 @@ static math::CubicSpline2d makeActionInterpolator(const potential::Interpolator2
     gridJr(0, sizeL-1) = sqrt(1/(slope+2));
 
     // asymptotic expressions for E -> 0 assuming Newtonian potential at infinity
-    for(unsigned int iL=0; iL<sizeL; iL++) {
+    for(int iL=0; iL<sizeL; iL++) {
         gridJr  (sizeE-1, iL) = 1;
         gridJrdL(sizeE-1, iL) = 0;
     }
     
     // derivs wrt E for circular orbits cannot be obtained directly (involve 3rd deriv of potential),
     // thus they are computed by finite-differences (2nd order for interior nodes, 1st order at boundaries)
-    for(unsigned int iE=1; iE<sizeE-1; iE++) {
+    for(int iE=1; iE<sizeE-1; iE++) {
         double difp = (gridJr(iE+1, sizeL-1) - gridJr(iE  , sizeL-1)) / (gridE[iE+1] - gridE[iE  ]);
         double difm = (gridJr(iE  , sizeL-1) - gridJr(iE-1, sizeL-1)) / (gridE[iE  ] - gridE[iE-1]);
         gridJrdE(iE, sizeL-1) = (difp * (gridE[iE] - gridE[iE-1]) + difm * (gridE[iE+1] - gridE[iE])) /
@@ -410,14 +413,14 @@ static math::CubicSpline2d makeActionInterpolator(const potential::Interpolator2
 
     // derivs wrt E at E=0 and E=Phi0 computed by quardatic interpolation of finite-differences,
     // using value at the boundary node, and value+deriv at the next-to-boundary node
-    for(unsigned int iL=0; iL<sizeL-1; iL++) {
+    for(int iL=0; iL<sizeL-1; iL++) {
         gridJrdE(0, iL) = 2 * (gridJr(1, iL) - gridJr(0, iL)) / (gridE[1]-gridE[0]) - gridJrdE(1, iL);
         gridJrdE(sizeE-1, iL) = -gridJrdE(sizeE-2, iL) +
             2 * (gridJr(sizeE-1, iL) - gridJr(sizeE-2, iL)) / (gridE[sizeE-1]-gridE[sizeE-2]);
     }
 
     // same for derivs wrt (L/Lcirc) at L=Lcirc
-    for(unsigned int iE=0; iE<sizeE; iE++)
+    for(int iE=0; iE<sizeE; iE++)
         gridJrdL(iE, sizeL-1) = -gridJrdL(iE, sizeL-2) +
             2 * (gridJr(iE, sizeL-1) - gridJr(iE, sizeL-2)) / (gridL[sizeL-1]-gridL[sizeL-2]);
 

@@ -15,7 +15,7 @@ public:
     Plummer(double _mass, double _scaleRadius) :
         mass(_mass), scaleRadius(_scaleRadius) {}
     virtual const char* name() const { return myName(); }
-    static const char* myName() { return "Plummer"; }
+    static const char* myName() { static const char* text = "Plummer"; return text; }
     virtual double enclosedMass(const double radius) const;
     virtual double totalMass() const { return mass; }
 private:
@@ -34,7 +34,7 @@ public:
     Isochrone(double _mass, double _scaleRadius) :
         mass(_mass), scaleRadius(_scaleRadius) {}
     virtual const char* name() const { return myName(); }
-    static const char* myName() { return "Isochrone"; }
+    static const char* myName() { static const char* text = "Isochrone"; return text; }
     virtual double totalMass() const { return mass; }
 private:
     const double mass;         ///< total mass  (M)
@@ -50,7 +50,7 @@ public:
     NFW(double _mass, double _scaleRadius) :
         mass(_mass), scaleRadius(_scaleRadius) {}
     virtual const char* name() const { return myName(); }
-    static const char* myName() { return "NFW"; }
+    static const char* myName() { static const char* text = "NFW"; return text; }
     virtual double totalMass() const { return INFINITY; }
 private:
     const double mass;         ///< normalization factor  (M);  equals to mass enclosed within ~5.3r_s
@@ -67,8 +67,8 @@ public:
     MiyamotoNagai(double _mass, double _scaleRadiusA, double _scaleRadiusB) :
         mass(_mass), scaleRadiusA(_scaleRadiusA), scaleRadiusB(_scaleRadiusB) {};
     virtual coord::SymmetryType symmetry() const { return coord::ST_AXISYMMETRIC; }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "MiyamotoNagai"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "MiyamotoNagai"; return text; }
     virtual double totalMass() const { return mass; }
 private:
     const double mass;         ///< total mass  (M)
@@ -85,11 +85,11 @@ class Logarithmic: public BasePotentialCar{
 public:
     Logarithmic(double sigma, double coreRadius=0, double axisRatioYtoX=1, double axisRatioZtoX=1) :
         sigma2(pow_2(sigma)), coreRadius2(pow_2(coreRadius)),
-        q2(pow_2(axisRatioYtoX)), p2(pow_2(axisRatioZtoX)) {};
+        q2(pow_2(axisRatioYtoX)), p2(pow_2(axisRatioZtoX)) {}
     virtual coord::SymmetryType symmetry() const { 
         return p2==1 ? (q2==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC) : coord::ST_TRIAXIAL; }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "Logarithmic"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "Logarithmic"; return text; }
     virtual double totalMass() const { return INFINITY; }
 private:
     const double sigma2;       ///< squared asymptotic circular velocity (sigma)
@@ -106,11 +106,11 @@ private:
 class Harmonic: public BasePotentialCar{
 public:
     Harmonic(double Omega, double axisRatioYtoX=1, double axisRatioZtoX=1) :
-        Omega2(pow_2(Omega)), q2(pow_2(axisRatioYtoX)), p2(pow_2(axisRatioZtoX)) {};
+        Omega2(pow_2(Omega)), q2(pow_2(axisRatioYtoX)), p2(pow_2(axisRatioZtoX)) {}
     virtual coord::SymmetryType symmetry() const { 
         return p2==1 ? (q2==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC) : coord::ST_TRIAXIAL; }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "Harmonic"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "Harmonic"; return text; }
     virtual double totalMass() const { return INFINITY; }
 private:
     const double Omega2;       ///< squared oscillation frequency (Omega)

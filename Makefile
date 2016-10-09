@@ -73,7 +73,7 @@ TORUSSRC  = CHB.cc \
 # disable several warnings - shouldn't be taken as an endorsement to ignore them, but as a sign of negligence for code maintenance
 TORUSFLAGS = -Wreorder -Wno-unused-variable
 
-# test programs
+# test and example programs
 TESTSRCS  = test_math_core.cpp \
             test_math_linalg.cpp \
             test_math_spline.cpp \
@@ -84,20 +84,16 @@ TESTSRCS  = test_math_core.cpp \
             test_potential_expansions.cpp \
             test_isochrone.cpp \
             test_staeckel.cpp \
-            test_actionfinder.cpp \
-            test_actions_nbody.cpp \
+            test_action_finder.cpp \
             test_torus.cpp \
-            test_torus_new.cpp \
-            test_newtorus.cpp \
-            test_df_disk.cpp \
             test_df_halo.cpp \
             test_df_interpolated.cpp \
             test_df_spherical.cpp \
-            test_df_fit.cpp \
-            test_df_fit_spher.cpp \
-            test_selfconsistentmodel.cpp \
+            example_actions_nbody.cpp \
+            example_df_fit.cpp \
+            example_self_consistent_model.cpp \
 
-TESTFORTRAN = test_fortran_wrapper.f
+TESTFORTRAN = example_fortran.f
 
 LIBNAME_A  = $(LIBDIR)/libagama.a
 LIBNAME_SO = $(LIBDIR)/agama.so

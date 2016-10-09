@@ -12,11 +12,11 @@ namespace potential {
 class Dehnen: public BasePotentialCar {
 public:
     Dehnen(double _mass, double _scalerad, double _gamma, double _axisRatioY=1., double _axisRatioZ=1.);
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "Dehnen"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "Dehnen"; return text; }
     virtual coord::SymmetryType symmetry() const { 
         return (axisRatioY==1 ?
-            (axisRatioZ==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC) : coord::ST_TRIAXIAL); };
+            (axisRatioZ==1 ? coord::ST_SPHERICAL : coord::ST_AXISYMMETRIC) : coord::ST_TRIAXIAL); }
     virtual double totalMass() const { return mass; }
 private:
     const double mass;       ///< total mass of the model

@@ -78,6 +78,8 @@ namespace potential{
     They are used by both DiskAnsatz potential and DiskDensity density classes.
     In the present implementation they are the same as in GalPot:
 
+    \f$  \rho = f(R) h(z)  \f$,
+
     \f$  f(R) = \Sigma_0  \exp [ -R_0/R - R/R_d + \epsilon \cos(R/R_d) ]  \f$,
 
     \f$  h(z) = \delta(z)                 \f$  for  h=0, or 
@@ -117,10 +119,10 @@ public:
         verticalFnc(createVerticalDiskFnc(_params)) {};
     /// construct a generic profile with user-specified radial and vertical functions
     DiskDensity(const math::PtrFunction& _radialFnc, const math::PtrFunction& _verticalFnc) :
-        radialFnc(_radialFnc), verticalFnc(_verticalFnc) {};
+        radialFnc(_radialFnc), verticalFnc(_verticalFnc) {}
     virtual coord::SymmetryType symmetry() const { return coord::ST_AXISYMMETRIC; }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "DiskDensity"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "DiskDensity"; return text; }
 private:
     math::PtrFunction radialFnc;     ///< function describing radial dependence of surface density
     math::PtrFunction verticalFnc;   ///< function describing vertical density profile
@@ -140,8 +142,8 @@ public:
     DiskAnsatz(const math::PtrFunction& _radialFnc, const math::PtrFunction& _verticalFnc) :
         radialFnc(_radialFnc), verticalFnc(_verticalFnc) {};
     virtual coord::SymmetryType symmetry() const { return coord::ST_AXISYMMETRIC; }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "DiskAnsatz"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "DiskAnsatz"; return text; }
 private:
     math::PtrFunction radialFnc;     ///< function describing radial dependence of surface density
     math::PtrFunction verticalFnc;   ///< function describing vertical density profile
@@ -157,9 +159,9 @@ private:
 
 /** Parameters describing a spheroidal component with a Zhao(1996) alpha-beta-gamma
     density profile and an optional exponential cutoff:
-    \f$  \rho(R,z) = \rho_0  (r/r_0)^{-\gamma} ( 1 + (r/r_0)^\alpha )^{(\gamma-\beta) / \alpha}
-    \exp[ -(r/r_{cut})^2],
-    r = \sqrt{ x^2 + y^2/p^2 + z^2/q^2 }  \f$.
+    \f$  \rho = \rho_0  (r/r_0)^{-\gamma} ( 1 + (r/r_0)^\alpha )^{(\gamma-\beta) / \alpha}
+    \exp[ -(r/r_{cut})^2], \f$,
+    where  \f$ r = \sqrt{ x^2 + y^2/p^2 + z^2/q^2 } \f$  is the ellipsoidal radius.
 */
 struct SphrParam{
     double densityNorm;         ///< density normalization rho_0
@@ -186,8 +188,8 @@ public:
     virtual coord::SymmetryType symmetry() const { 
         return params.axisRatioY!=1 ? coord::ST_TRIAXIAL :
             params.axisRatioZ!=1 ? coord::ST_AXISYMMETRIC : coord::ST_SPHERICAL; }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "SpheroidDensity"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "SpheroidDensity"; return text; }
 private:
     SphrParam params;
     virtual double densityCyl(const coord::PosCyl &pos) const;

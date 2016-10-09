@@ -4,72 +4,43 @@
 
 namespace df{
 
-BaseDoublePowerLaw::BaseDoublePowerLaw(const DoublePowerLawParam &inparams) :
+DoublePowerLaw::DoublePowerLaw(const DoublePowerLawParam &inparams) :
     par(inparams)
 {
     // sanity checks on parameters
-    if(par.j0<=0)
-        throw std::invalid_argument("DoublePowerLaw DF: break action j0 must be positive");
-    if(par.jcore<0)
-        throw std::invalid_argument("DoublePowerLaw DF: core action jcore must be non-negative");
-    if(par.jmax<0)
-        throw std::invalid_argument("DoublePowerLaw DF: cutoff action jmax must be non-negative");
-    if(par.beta<=3 && par.jmax==0)
+    if(par.norm<=0)
+        throw std::invalid_argument("DoublePowerLaw DF: normalization should be positive");
+    if(par.J0<=0)
+        throw std::invalid_argument("DoublePowerLaw DF: break action J0 must be positive");
+    if(par.Jcutoff<0)
+        throw std::invalid_argument("DoublePowerLaw DF: cutoff action Jcutoff must be non-negative");
+    if(par.slopeOut<=3 && par.Jcutoff==0)
         throw std::invalid_argument(
-            "DoublePowerLaw DF: mass diverges at large J (outer slope beta must be > 3)");
-    if(par.jcore==0 && par.alpha>=3)
+            "DoublePowerLaw DF: mass diverges at large J (outer slope must be > 3)");
+    if(par.slopeIn>=3)
         throw std::invalid_argument(
-            "DoublePowerLaw DF: mass diverges at J->0 (inner slope alpha must be < 3)");
-    par.norm /= pow_3(2*M_PI); 
+            "DoublePowerLaw DF: mass diverges at J->0 (inner slope must be < 3)");
+    if(par.steepness<=0)
+        throw std::invalid_argument("DoublePowerLaw DF: invalid transition steepness parameter");
+    if( par.coefJrIn <=0 || par.coefJzIn <=0 || par.coefJrIn + par.coefJzIn>=3 || 
+        par.coefJrOut<=0 || par.coefJzOut<=0 || par.coefJrOut+par.coefJzOut>=3 )
+        throw std::invalid_argument(
+            "DoublePowerLaw DF: invalid weights in the linear combination of actions");
 }
-
-double BaseDoublePowerLaw::value(const actions::Actions &J) const {
+        
+double DoublePowerLaw::value(const actions::Actions &J) const {
     // linear combination of actions in the inner part of the model (for J<J0)
-    double hJ  = h(J);
+    double hJ  = par.coefJrIn * J.Jr + par.coefJzIn * J.Jz +
+        (3-par.coefJrIn -par.coefJzIn) * fabs(J.Jphi);
     // linear combination of actions in the outer part of the model (for J>J0)
-    double gJ  = g(J);
-    double val = par.norm / pow_3(par.j0) *                // overall normalization factor
-        pow(1. + par.j0 / (hJ + par.jcore), par.alpha) *   // numerator
-        pow(1. + (gJ + par.jcore) / par.j0, -par.beta);    // denominator
-    if(par.jmax>0)
-        val *= exp(-pow_2(gJ / par.jmax));                 // exponential cutoff at large J
+    double gJ  = par.coefJrOut* J.Jr + par.coefJzOut* J.Jz +
+        (3-par.coefJrOut-par.coefJzOut)* fabs(J.Jphi);
+    double val = par.norm / pow_3(2*M_PI * par.J0) *
+        pow(hJ / par.J0, -par.slopeIn) *
+        pow(1 + pow(gJ / par.J0, par.steepness), (par.slopeIn - par.slopeOut) / par.steepness);
+    if(par.Jcutoff>0)    // exponential cutoff at large J
+        val *= exp(-pow_2(gJ / par.Jcutoff));
     return val;
-}
-
-// ------------ Posti et al. ----------- //
-DoublePowerLaw::DoublePowerLaw(const DoublePowerLawParam &inparams) :
-    BaseDoublePowerLaw(inparams)
-{
-    if( par.ar<=0 || par.az<=0 || par.aphi<=0 ||
-        par.br<=0 || par.bz<=0 || par.bphi<=0 )
-        throw std::invalid_argument(
-            "DoublePowerLaw DF: coefficients in the linear combination of actions must be positive");
-}
-
-double DoublePowerLaw::h(const actions::Actions &J) const {
-    return par.ar*J.Jr + par.az*J.Jz + par.aphi*fabs(J.Jphi);
-}
-
-double DoublePowerLaw::g(const actions::Actions &J) const {
-    return par.br*J.Jr + par.bz*J.Jz + par.bphi*fabs(J.Jphi);
-}
-
-DoublePowerLawSph::DoublePowerLawSph(const DoublePowerLawParam &inparams,
-    const potential::Interpolator& freqs) :
-    BaseDoublePowerLaw(inparams), freq(freqs)
-{
-    if( par.b<=0 )
-        throw std::invalid_argument(
-        "DoublePowerLaw DF: anisotropy coefficient 'b' should be positive");
-}
-
-double DoublePowerLawSph::h(const actions::Actions &J) const {
-    double Jsum = J.Jr + J.Jz + fabs(J.Jphi);
-    double kappa, nu, Omega;   // characteristic epicyclic freqs
-    freq.epicycleFreqs(freq.R_from_Lz(Jsum), kappa, nu, Omega);
-    double s = par.b==1 ? 0 : (par.b-1)/2 * pow_2(tanh(1 - J.Jr/Jsum));
-    double A = (par.b+1)/2 + s, B = (par.b+1)/2 - s;
-    return J.Jr / A + Omega/kappa * (Jsum-J.Jr) / B;
 }
 
 

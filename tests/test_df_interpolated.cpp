@@ -20,17 +20,14 @@ int main()
 {
     bool ok = true;
     df::DoublePowerLawParam paramDPL;
-    paramDPL.alpha = 0;
-    paramDPL.beta  = 7.5;
-    paramDPL.j0    = 1;
-    paramDPL.jcore = 0;
-    paramDPL.ar    = 0.1;
-    paramDPL.az    = (3-paramDPL.ar)/2;
-    paramDPL.aphi  = paramDPL.az;
-    paramDPL.br    = 1.2;
-    paramDPL.bz    = 0.9;
-    paramDPL.bphi  = 0.9;
-    paramDPL.norm  = 78.19;
+    paramDPL.slopeIn   = 0;
+    paramDPL.slopeOut  = 7.5;
+    paramDPL.J0        = 1;
+    paramDPL.coefJrIn  = 0.1;
+    paramDPL.coefJzIn  = (3-paramDPL.coefJrIn)/2;
+    paramDPL.coefJrOut = 1.2;
+    paramDPL.coefJzOut = 0.9;
+    paramDPL.norm = 78.19;
     potential::Plummer pot(1., 1.);
     const actions::ActionFinderSpherical af(pot);
     const df::DoublePowerLaw dfO(paramDPL);    // original distribution function
@@ -42,7 +39,7 @@ int main()
     double totalMass = pot.totalMass();
     for(unsigned int i=0; i<gridSize[0]; i++) {
         double r = getRadiusByMass(pot, totalMass * (1 - cos(M_PI * i / gridSize[0])) / 2);
-        std::cout << r << ' ';
+        //std::cout << r << ' ';
         double J = r * v_circ(pot, r);  // r^2*Omega
         double v[3];
         scaling->toScaled(actions::Actions(0,0,J), v);
@@ -53,7 +50,9 @@ int main()
     std::vector<double> amplC = df::createInterpolatedDFAmplitudes<3>(dfO, *scaling, gridU, gridV, gridW);
     const df::InterpolatedDF<3> dfC(scaling, gridU, gridV, gridW, amplC); // cubic-interpolated DF
     std::cout << "Constructed interpolated DFs\n";
-    std::ofstream strm("test_df_interpolated.dfval");
+    std::ofstream strm, strmL, strmC;
+    if(utils::verbosityLevel >= utils::VL_VERBOSE)
+        strm.open("test_df_interpolated.dfval");
     for(unsigned int i=0; i<gridSize[0]; i++) {
         for(unsigned int j=0; j<gridSize[1]; j++) {
             for(unsigned int k=0; k<gridSize[2]; k++) {
@@ -69,7 +68,8 @@ int main()
     strm.close();
 
     double sumLin=0;
-    strm.open("test_df_interpolated.phasevolL");
+    if(utils::verbosityLevel >= utils::VL_VERBOSE)
+        strm.open("test_df_interpolated.phasevolL");
     for(unsigned int i=0; i<amplL.size(); i++) {
         double phasevol = dfL.computePhaseVolume(i);
         strm << amplL[i] << ' ' << phasevol << '\n';
@@ -78,7 +78,8 @@ int main()
     strm.close();
 
     double sumCub=0;
-    strm.open("test_df_interpolated.phasevolC");
+    if(utils::verbosityLevel >= utils::VL_VERBOSE)
+        strm.open("test_df_interpolated.phasevolC");
     for(unsigned int i=0; i<amplC.size(); i++) {
         double phasevol = dfC.computePhaseVolume(i);
         strm << amplC[i] << ' ' << phasevol << '\n';
@@ -95,9 +96,11 @@ int main()
     ok &= math::fcmp(massOrig, massLin, 2e-2)==0 && math::fcmp(sumLin, massLin, 1e-3)==0 &&
           math::fcmp(massOrig, massCub, 2e-2)==0 && math::fcmp(sumCub, massCub, 1e-3)==0;
 
-    strm.open("test_df_interpolated.densval");
-    std::ofstream strmL("test_df_interpolated.denscompL");
-    std::ofstream strmC("test_df_interpolated.denscompC");
+    if(utils::verbosityLevel >= utils::VL_VERBOSE) {
+        strm.open ("test_df_interpolated.densval");
+        strmL.open("test_df_interpolated.denscompL");
+        strmC.open("test_df_interpolated.denscompC");
+    }
     for(double r=0; r<20; r<1 ? r+=0.1 : r*=1.1) {
         coord::PosCyl point(r, 0, 0);
         std::vector<double> densArrL(dfL.size()), densArrC(dfC.size());

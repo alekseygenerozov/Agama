@@ -191,10 +191,19 @@ bool testDensSH()
     bool ok = true;
     // check that the two sets of coefs are identical at equal radii
     for(unsigned int c=0; c<coefs2[0].size(); c++)
-        for(unsigned int k=0; k<radii1.size(); k++)
-            if( (c<coefs1[0].size() && fabs(coefs1[k][c] - coefs2[k*2][c]) > 1e-12) ||
-                (c>=coefs1[0].size() && coefs2[k*2][c] != 0) )
+        for(unsigned int k=0; k<radii1.size(); k++) {
+            if(c<coefs1[0].size() && fabs(coefs1[k][c] - coefs2[k*2][c]) > 1e-12) {
+                std::cout << "r=" << radii1[k]      << ", C1["<<c<<"]=" <<
+                utils::toString(coefs1[k  ][c], 15) << ", C2["<<c<<"]=" <<
+                utils::toString(coefs2[k*2][c], 15) << "\033[1;31m **\033[0m\n";
                 ok = false;
+            }
+            if(c>=coefs1[0].size() && coefs2[k*2][c] != 0) {
+                std::cout << "r=" << radii1[k] << ", C1["<<c<<"] is 0, C2["<<c<<"]=" <<
+                utils::toString(coefs2[k*2][c], 15) << "\033[1;31m **\033[0m\n";
+                ok = false;
+            }
+        }
 
     // test the accuracy at grid radii
     for(unsigned int k=0; k<radii1.size(); k++)
@@ -203,8 +212,11 @@ bool testDensSH()
                 coord::PosSph point(radii1[k], theta, phi);
                 double d1 = dens1.density(point);
                 double d2 = dens2.density(point);
-                if(fabs(d1-d2) / fabs(d1) > 1e-12)  // two SH expansions should give the same result
+                if(fabs(d1-d2) / fabs(d1) > 1e-12) { // two SH expansions should give the same result
+                    std::cout << point << "dens1=" << utils::toString(d1, 15) <<
+                    "dens2=" << utils::toString(d2, 15) << "\033[1;31m **\033[0m\n";
                     ok = false;
+                }
             }
     return ok;
 }

@@ -1,30 +1,37 @@
-This is the action-based galaxy modelling framework. To get it working on your computer:
+This is the AGAMA galaxy modelling framework. To get it working on your computer:
 
 1.  Download the repository.
 2a. Install the required libraries (presently only GSL).
 2b. Although not compulsory, you may want to download and install optional libraries:
-    - Eigen library for highly optimized linear algebra routines (in its absense the ones from GSL will be used);
+    - Eigen library for highly optimized linear algebra routines
+    (in its absense the ones from GSL will be used);
     its use slows down compilation quite dramatically, but this more than pays off at runtime.
     http://eigen.tuxfamily.org/
-    - GLPK for solving linear optimization problems: http://www.gnu.org/software/glpk/
-    - CVXOPT for solving linear and quadratic optimization problems: http://cvxopt.org/ - requires Python;
+    - GLPK for solving linear optimization problems:
+    http://www.gnu.org/software/glpk/
+    - CVXOPT for solving linear and quadratic optimization problems (requires Python):
+    http://cvxopt.org/
     either GLPK or (preferrably) CVXOPT are required for non-parametric DF modelling.
-    - UNSIO library for reading/writing N-body snapshots in various formats: http://projets.lam.fr/projects/unsio
+    - UNSIO library for reading/writing N-body snapshots in various formats:
+    http://projets.lam.fr/projects/unsio
     (without it only the text format is supported).
-    - Cuba library for multidimensional integration (the alternative is Cubature library that is bundled with this 
-    distribution): http://www.feynarts.de/cuba/
-    - galpy - this distribution contains a module for galpy, that can be used instead of its built-in potentials,
-    orbit integration and action-finding routines.
-Note: to use the Python extension, any external libraries to be statically linked with it need to be compiled with
-    -fPIC flag.
-3.  You need to create a file called Makefile.local, which is included by the Makefile and contains path names
-    and compiler flags specific to your own computer.
+    - Cuba library for multidimensional integration (the alternative is Cubature library
+    that is bundled with this distribution):
+    http://www.feynarts.de/cuba/
+    - galpy - this distribution contains a module for galpy, that can be used instead of
+    its built-in potentials, orbit integration and action-finding routines.
+Note: to use the Python extension, any external libraries to be statically linked with it
+    need to be compiled with -fPIC flag.
+3.  You need to create a file called Makefile.local, which is included by the Makefile
+    and contains path names and compiler flags specific to your own computer.
     An example is given below (you will need to change the pathnames).
-4.  In order to make the Python extension available for import, it should be either copied to its site-packages 
-    folder, or the path to it be added to PYTHONPATH environment variable, as shown in the example below.
+4.  In order to make the Python extension available for import, it should be either copied
+    to its site-packages folder, or the path to it be added to PYTHONPATH environment variable,
+    as shown in the example below.
     To make it permanently available, you may add this line to .bashrc or its analog.
 5.  Typing make compiles everything.
-    First the library itself is built and placed into lib/agama.so (shared library) and lib/libagama.a (static library).
+    First the library itself is built and placed into lib/agama.so (shared library) and
+    lib/libagama.a (static library).
     The former one may be used as the python extension module, if it is found in PYTHONPATH.
     Then the test and example programs are compiled and placed into exe folder.
 
@@ -46,8 +53,9 @@ LINK = $(CXX)
 # DEFINES  are only relevant  for the compilation of the AGAMA library, and determine the available features;
 # INCLUDES are also used only for the compilation of the AGAMA library, should match the DEFINES;
 # LIBS     list the external libraries for the compilation of the AGAMA shared library only.
-CXXFLAGS += -fPIC -fopenmp -Wall -Wno-overflow -O3 -m64 -march=core2 -I$(SRCDIR)
+CXXFLAGS += -fPIC -fopenmp -Wall -Wno-overflow -O3 -march=native -I$(SRCDIR)
 LFLAGS   += -fPIC -fopenmp
+
 # uncomment if you have a C++11-compatible compiler (it is not required but may be more efficient)
 CXXFLAGS += -std=c++11
 

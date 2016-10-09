@@ -13,19 +13,16 @@ static DoublePowerLawParam parseDoublePowerLawParams(
     const units::ExternalUnits& conv)
 {
     DoublePowerLawParam par;
-    par.norm  = kvmap.getDouble("norm")  * conv.massUnit;
-    par.j0    = kvmap.getDouble("j0")    * conv.lengthUnit * conv.velocityUnit;
-    par.jcore = kvmap.getDouble("jcore") * conv.lengthUnit * conv.velocityUnit;
-    par.jmax  = kvmap.getDouble("jmax")  * conv.lengthUnit * conv.velocityUnit;
-    par.alpha = kvmap.getDouble("alpha", par.alpha);
-    par.beta  = kvmap.getDouble("beta",  par.beta);
-    par.ar    = kvmap.getDouble("ar",    par.ar);
-    par.az    = kvmap.getDouble("az",    par.az);
-    par.aphi  = kvmap.getDouble("aphi",  par.aphi);
-    par.br    = kvmap.getDouble("br",    par.br);
-    par.bz    = kvmap.getDouble("bz",    par.bz);
-    par.bphi  = kvmap.getDouble("bphi",  par.bphi);
-    par.b     = kvmap.getDouble("b",     par.b);
+    par.norm      = kvmap.getDouble("norm")    * conv.massUnit;
+    par.J0        = kvmap.getDouble("J0")      * conv.lengthUnit * conv.velocityUnit;
+    par.Jcutoff   = kvmap.getDouble("Jcutoff") * conv.lengthUnit * conv.velocityUnit;
+    par.slopeIn   = kvmap.getDouble("slopeIn",   par.slopeIn);
+    par.slopeOut  = kvmap.getDouble("slopeOut",  par.slopeOut);
+    par.steepness = kvmap.getDouble("steepness", par.steepness);
+    par.coefJrIn  = kvmap.getDouble("coefJrIn",  par.coefJrIn);
+    par.coefJzIn  = kvmap.getDouble("coefJzIn",  par.coefJzIn);
+    par.coefJrOut = kvmap.getDouble("coefJrOut", par.coefJrOut);
+    par.coefJzOut = kvmap.getDouble("coefJzOut", par.coefJzOut);
     return par;
 }
 
@@ -64,12 +61,6 @@ PtrDistributionFunction createDistributionFunction(
     if(utils::stringsEqual(type, "DoublePowerLaw")) {
         DoublePowerLawParam params = parseDoublePowerLawParams(kvmap, converter);
         return PtrDistributionFunction(new DoublePowerLaw(params));
-    }
-    else if(utils::stringsEqual(type, "DoublePowerLawSph")) {
-        checkNonzero(potential, type);
-        DoublePowerLawParam params = parseDoublePowerLawParams(kvmap, converter);
-        return PtrDistributionFunction(new DoublePowerLawSph(
-            params, potential::Interpolator(*potential)));
     }
     else if(utils::stringsEqual(type, "PseudoIsothermal")) {
         checkNonzero(potential, type);

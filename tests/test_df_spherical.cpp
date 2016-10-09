@@ -1,14 +1,26 @@
+/** \name   test_df_spherical.cpp
+    \author Eugene Vasiliev
+    \date   Sep 2016
+
+    This program tests the accuracy of computation of phase volume 'h(E)',
+    density of states 'g(E)', distribution function 'f(h)', and diffusion coefficients,
+    for Plummer and Hernquist spherical isotropic models.
+*/
 #include "potential_analytic.h"
 #include "potential_dehnen.h"
 #include "potential_utils.h"
 #include "math_core.h"
 #include "math_specfunc.h"
 #include "df_spherical.h"
+#include "utils.h"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
 #include <cmath>
 #include <stdexcept>
+
+/// whether to produce output files
+const bool output = utils::verbosityLevel >= utils::VL_VERBOSE;
 
 /// analytic expressions for rmax(E) in the Plummer and Hernquist models
 class RmaxPlummer: public math::IFunction {
@@ -150,7 +162,7 @@ template<class RmaxFnc, class PhasevolFnc, class DistrFnc>
 bool test(const potential::BasePotential& pot)
 {
     bool ok=true;
-    
+
     potential::Interpolator interp(pot);
     df::PhaseVolume phasevol((potential::PotentialWrapper(pot)));
     const RmaxFnc trueRmax;
@@ -164,8 +176,11 @@ bool test(const potential::BasePotential& pot)
     std::vector<double> particle_m(npoints, dc.cumulMass()/npoints);
     df::SphericalIsotropic fitDF = df::fitSphericalDF(particle_h, particle_m, 25);
 
-    std::ofstream strm (("test_pot_"+std::string(pot.name())).c_str());
-    std::ofstream strmd(("test_pot_"+std::string(pot.name())+"_dc").c_str());
+    std::ofstream strm, strmd;
+    if(output) {
+        strm. open(("test_pot_"+std::string(pot.name())).c_str());
+        strmd.open(("test_pot_"+std::string(pot.name())+"_dc").c_str());
+    }
     strm << std::setprecision(15) << "E\t"
     "Rcirc(E),true Rcirc,root Rcirc,interp\t"
     "Lcirc(E),true Lcirc,root Lcirc,interp\t"
@@ -208,7 +223,7 @@ bool test(const potential::BasePotential& pot)
         double truef    = trueDF(trueh);
         double intf     = intDF(trueh);
         double fitf     = fitDF(trueh);
-        
+
         // density-weighted error: integrate |x-x_true|^2 r^3 d log(r)
         double weight= pow_3(r) * pot.density(coord::PosCyl(r,0,0));
         sumw    += weight;

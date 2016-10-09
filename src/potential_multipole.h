@@ -80,8 +80,8 @@ public:
         const std::vector< std::vector<double> > &coefs, double innerSlope=NAN, double outerSlope=NAN);
 
     virtual coord::SymmetryType symmetry() const { return ind.symmetry(); }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "DensitySphericalHarmonic"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "DensitySphericalHarmonic"; return text; }
 
     /** return the radii of spline nodes and the array of density expansion coefficients,
         together with power-law indices of extrapolation to small and large radii */
@@ -134,8 +134,8 @@ public:
         const std::vector<double>& U,
         const std::vector<double>& W);
     virtual coord::SymmetryType symmetry() const { return ind.symmetry(); }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "PowerLaw"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "PowerLaw"; return text; }
 private:
     const math::SphHarmIndices ind; ///< indexing scheme for sph.-harm.coefficients
     double r0sq;                    ///< reference radius, squared
@@ -208,8 +208,8 @@ public:
         std::vector<std::vector<double> > &dPhi) const;
 
     virtual coord::SymmetryType symmetry() const { return ind.symmetry(); }
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "Multipole"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "Multipole"; return text; }
     virtual double enclosedMass(const double radius) const;
 
 private:

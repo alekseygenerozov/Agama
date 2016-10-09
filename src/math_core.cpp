@@ -332,11 +332,17 @@ double deriv2(double x0, double x1, double x2, double f0, double f1, double f2,
 
 // ------ root finder routines ------//
 
-/// used in hybrid root-finder to predict the root location by Hermite interpolation
-inline double interpHermiteMonotonic(double x, double x1, double f1, double dfdx1, 
+/// used in hybrid root-finder to predict the root location by Hermite interpolation:
+/// compute the value of f(x) given its values and derivatives at two points x1,x2
+/// (x1<=x<=x2 or x1>=x>=x2 is implied but not checked), if the function is expected to be
+/// monotonic on this interval (i.e. its derivative does not have roots on x1..x2),
+/// otherwise return NAN
+inline double interpHermiteMonotonic(double x, double x1, double f1, double dfdx1,
     double x2, double f2, double dfdx2)
 {
-    if(!gsl_finite(dfdx1+dfdx2) || dfdx1*dfdx2<0)  // derivatives must exist and have the same sign
+    // derivatives must exist and have the same sign
+    // (but shouldn't bee too large, otherwise we have an overflow -- apparently a bug in gsl_poly_solve)
+    if(!gsl_finite(dfdx1+dfdx2) || dfdx1*dfdx2<0 || dfdx1*dfdx1>1e100)
         return NAN;
     const double dx = x2-x1, sixdf = 6*(f2-f1);
     const double t = (x-x1)/dx;
@@ -480,8 +486,10 @@ static double findRootHybrid(const IFunction& fnc,
                 b += offset;        // final Newton step
             }
         }
-        if(numIter >= MAXITER)
+        if(numIter >= MAXITER) {
             converged = true;  // not quite ready, but can't loop forever
+            utils::msg(utils::VL_WARNING, "findRoot", "max # of iterations exceeded");
+        }
     } while(!converged);
     return b;  // best approximation
 }
@@ -806,7 +814,7 @@ static int integrandNdimWrapperCuba(const int *ndim, const double xscaled[],
             for(int n=0; n< *ndim; n++)
                 param->error += " "+utils::toString(param->xvalue[n], 15);
             return -1;
-        }        
+        }
         return 0;   // success
     }
     catch(std::exception& e) {

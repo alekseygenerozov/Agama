@@ -1,6 +1,6 @@
 /** \file    potential_factory.h
     \brief   Creation and input/output of Potential instances
-    \author  EV
+    \author  Eugene Vasiliev
     \date    2010-2015
 
     This file provides several utility function to manage instances of BaseDensity and BasePotential: 

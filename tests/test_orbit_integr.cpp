@@ -1,17 +1,19 @@
 /** \file    test_orbit_integr.cpp
-    \date    2015
-    \author  EV
+    \date    2015-2016
+    \author  Eugene Vasiliev
 
     Test orbit integration in various potentials and coordinate systems.
     Note: not all tests pass at the moment.
 */
 #include "orbit.h"
 #include "potential_analytic.h"
-#include "potential_factory.h"
+#include "potential_composite.h"
 #include "potential_dehnen.h"
+#include "potential_factory.h"
 #include "potential_ferrers.h"
 #include "units.h"
 #include "utils.h"
+#include "debug_utils.h"
 #include <cstdio>
 #include <iostream>
 #include <iomanip>
@@ -27,11 +29,9 @@ bool test_potential(const potential::BasePotential& potential,
     const coord::PosVelT<coordSysT>& initial_conditions,
     const double total_time, const double timestep)
 {
-    std::cout << potential.name()<<"  "<<coordSysT::name()<<" (";
+    std::cout << potential.name()<<"  "<<coordSysT::name()<<" ("<<initial_conditions<<")\n";
     double ic[6];
     initial_conditions.unpack_to(ic);
-    for(int k=0; k<6; k++) std::cout<<" "<<ic[k];
-    std::cout << "):  "<<std::flush;
     std::vector<coord::PosVelT<coordSysT> > traj;
     int numsteps = orbit::integrate(potential, initial_conditions, total_time, timestep, traj, integr_eps);
     double avgH=0, avgLz=0, dispH=0, dispLz=0;
@@ -54,15 +54,27 @@ bool test_potential(const potential::BasePotential& potential,
     dispH= sqrt(std::max<double>(0, dispH -pow_2(avgH)));
     dispLz=sqrt(std::max<double>(0, dispLz-pow_2(avgLz)));
     bool completed = traj.size()>0.99*total_time/timestep;
+    bool ok = dispH<eps && (dispLz<eps || !isAxisymmetric(potential));
     if(completed)
         std::cout <<numsteps<<" steps,  ";
-    else if(numsteps>0)
+    else if(numsteps>0) {
         std::cout <<"\033[1;33mCRASHED\033[0m after "<<numsteps<<" steps,  ";
-    else 
-        std::cout <<"\033[1;31mFAILED\033[0m,  ";
-    std::cout << "E=" <<avgH <<" +- "<<dispH<<",  Lz="<<avgLz<<" +- "<<dispLz<<"\n";
-    return completed && dispH<eps && 
-        (dispLz<eps || !isAxisymmetric(potential));
+        // this may naturally happen in the degenerate case when an orbit with zero angular momentum
+        // approaches the origin -- not all combinations of potential and coordinate system
+        // can cope with this. If that happens for a non-degenerate case, this is an error.
+        if(avgLz!=0) ok=false;
+    }
+    else {
+        // this may happen for an orbit started at r==0 in some potentials where the force is singular,
+        // otherwise it's an error
+        if(toPosSph(initial_conditions).r != 0) {
+            std::cout <<"\033[1;31mFAILED\033[0m,  ";
+            ok = false;
+        }
+    }
+    std::cout << "E=" <<avgH <<" +- "<<dispH<<",  Lz="<<avgLz<<" +- "<<dispLz<<
+        (ok? "" : " \033[1;31m**\033[0m") << "\n";
+    return ok;
 }
 
 potential::PtrPotential make_galpot(const char* params)
@@ -92,12 +104,6 @@ const char* test_galpot_params[] = {
 "1\n"
 "1e12 0.8 1 2 0.04 10\n"  };// log density profile with cutoff
 
-/*const int numtestpoints=3;
-const double init_cond[numtestpoints][6] = {
-  {1, 0.5, 0.2, 0.1, 0.2, 0.3},
-  {2, 0, 0, 0, 0, 0},
-  {0, 0, 1, 0, 0, 0} };
-*/
 /// define test suite in terms of points for various coord systems
 const int numtestpoints=5;
 const double posvel_car[numtestpoints][6] = {
@@ -133,7 +139,7 @@ int main() {
     pots.push_back(make_galpot(test_galpot_params[0]));
     pots.push_back(make_galpot(test_galpot_params[1]));
     std::cout<<std::setprecision(10);
-    const double total_time=1000.;
+    const double total_time=100.;
     const double timestep=1.;
     bool allok = true;
     for(unsigned int ip=0; ip<pots.size(); ip++) {

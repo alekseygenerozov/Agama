@@ -1,4 +1,18 @@
 #!/usr/bin/python
+"""
+This example demonstrates the machinery for constructing multicomponent self-consistent models
+specified by distribution functions in terms of actions.
+We create a two-component galaxy with disk and halo components, using a two-stage approach:
+first, we take a static potential/density profile for the disk, and find a self-consistent
+density profile of the halo component in the presence of the disk potential;
+second, we replace the static disk with a DF-based component and find the overall self-consistent
+model for both components. The rationale is that a reasonable guess for the total potential
+is already needed before constructing the DF for the disk component, since the latter relies
+upon plausible radially-varying epicyclic frequencies.
+Both stages require a few iterations to converge.
+Finally, we create N-body representations of both components.
+This example is the Python counterpart of tests/example_self_consistent_model.cpp
+"""
 
 import agama, numpy, ConfigParser
 
@@ -39,7 +53,7 @@ def printoutInfo(model, iteration):
         "Halo total mass=%g Msun," % densHalo.totalMass(), \
         "rho(Rsolar,z=0)=%g, rho(Rsolar,z=1kpc)=%g Msun/pc^3" % \
         (densHalo.density(pt0)*1e-9, densHalo.density(pt1)*1e-9)
-    print "Potential at origin=-(%g km/s)^2," % (-model.pot(0,0,0))**0.5, \
+    print "Potential at origin=-(%g km/s)^2," % (-model.pot.potential(0,0,0))**0.5, \
         "total mass=%g Msun" % model.pot.totalMass()
     densDisc.export("dens_disc_iter"+str(iteration));
     densHalo.export("dens_halo_iter"+str(iteration));

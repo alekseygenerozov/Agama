@@ -1,4 +1,5 @@
-### This module allows to use potentials from agama C++ library as regular galpy potentials
+#!/usr/bin/python
+### This module allows to use potentials from the AGAMA C++ library as regular galpy potentials
 
 import math
 import agama, galpy
@@ -11,9 +12,12 @@ class CPotential(galpy.potential.Potential):
         NAME:
            __init__
         PURPOSE:
-           initialize a potential from parameters provided in an INI file or as named arguments to the constructor (see below)
+           initialize a potential from parameters provided in an INI file
+           or as named arguments to the constructor (see below).
         INPUT:
-           normalize - if True, normalize such that vc(1.,0.)=1., or, if given as a number, such that the force is this fraction of the force necessary to make vc(1.,0.)=1.
+           normalize - if True, normalize such that vc(1.,0.)=1., or,
+           if given as a number, such that the force is this fraction of the force
+           necessary to make vc(1.,0.)=1.
         HISTORY:
            2014-12-05 EV
         """
@@ -48,7 +52,7 @@ class CPotential(galpy.potential.Potential):
         HISTORY:
            2014-12-05 EV
         """
-        return self._pot(R*math.cos(phi), R*math.sin(phi), z)
+        return self._pot.potential(R*math.cos(phi), R*math.sin(phi), z)
 
     def _Rforce(self,R,z,phi=0.,t=0.):
         """

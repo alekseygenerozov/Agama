@@ -49,19 +49,21 @@ static const double GALPOT_RMIN = 1e-4,  GALPOT_RMAX = 1e4;
 /** simple exponential radial density profile without inner hole or wiggles */
 class DiskDensityRadialExp: public math::IFunction {
 public:
-    DiskDensityRadialExp(double _surfaceDensity, double _scaleRadius): 
-        surfaceDensity(_surfaceDensity), scaleRadius(_scaleRadius) {};
+    DiskDensityRadialExp(const DiskParam& params): 
+        surfaceDensity(params.surfaceDensity),
+        invScaleRadius(1./params.scaleRadius)
+    {};
 private:
-    const double surfaceDensity, scaleRadius;
+    const double surfaceDensity, invScaleRadius;
     /**  evaluate  f(R) and optionally its two derivatives, if these arguments are not NULL  */
     virtual void evalDeriv(double R, double* f=NULL, double* fprime=NULL, double* fpprime=NULL) const {
-        double val = surfaceDensity * exp(-R/scaleRadius);
+        double val = surfaceDensity * exp(-R * invScaleRadius);
         if(f)
             *f = val;
         if(fprime)
-            *fprime = -val/scaleRadius;
+            *fprime = -val * invScaleRadius;
         if(fpprime)
-            *fpprime = val/pow_2(scaleRadius);
+            *fpprime = val * pow_2(invScaleRadius);
     }
     virtual unsigned int numDerivs() const { return 2; }
 };
@@ -69,27 +71,33 @@ private:
 /** more convoluted radial density profile - exponential with possible inner hole and modulation */
 class DiskDensityRadialRichExp: public math::IFunction {
 public:
-    DiskDensityRadialRichExp(const DiskParam& _params): params(_params) {};
+    DiskDensityRadialRichExp(const DiskParam& params):
+        surfaceDensity     (params.surfaceDensity),
+        invScaleRadius  (1./params.scaleRadius),
+        innerCutoffRadius  (params.innerCutoffRadius),
+        modulationAmplitude(params.modulationAmplitude)
+    {};
 private:
-    const DiskParam params;
+    const double surfaceDensity, invScaleRadius, innerCutoffRadius, modulationAmplitude;
     /**  evaluate  f(R) and optionally its two derivatives, if these arguments are not NULL  */
     virtual void evalDeriv(double R, double* f=NULL, double* fprime=NULL, double* fpprime=NULL) const {
-        if(params.innerCutoffRadius && R==0.) {
+        if(innerCutoffRadius && R==0.) {
             if(f) *f=0;
             if(fprime)  *fprime=0;
             if(fpprime) *fpprime=0;
             return;
         }
-        const double Rrel = R/params.scaleRadius;
-        const double cr = params.modulationAmplitude ? params.modulationAmplitude*cos(Rrel) : 0;
-        const double sr = params.modulationAmplitude ? params.modulationAmplitude*sin(Rrel) : 0;
-        if(R==0 && params.innerCutoffRadius==0)
-            R = 1e-100;  // avoid 0/0 indeterminacy
-        double val = params.surfaceDensity * exp(-params.innerCutoffRadius/R - Rrel + cr);
-        double fp  = params.innerCutoffRadius/(R*R) - (1+sr)/params.scaleRadius;
+        const double
+            Rinv = 1 / R,
+            Rrel = R * invScaleRadius,
+            Rcut = innerCutoffRadius ? innerCutoffRadius * Rinv : 0,
+            cr   = modulationAmplitude ? modulationAmplitude * cos(Rrel) : 0,
+            sr   = modulationAmplitude ? modulationAmplitude * sin(Rrel) : 0,
+            val  = surfaceDensity * exp(-Rcut - Rrel + cr),
+            fp   = Rcut * Rinv - (1+sr) * invScaleRadius;
         if(fpprime)
-            *fpprime = val ? (fp*fp - 2*params.innerCutoffRadius/(R*R*R)
-                - cr/pow_2(params.scaleRadius)) * val : 0;  // if val==0, the bracket could be NaN
+            *fpprime = val ? (fp*fp - 2*Rcut*pow_2(Rinv)
+                - cr * pow_2(invScaleRadius)) * val : 0;  // if val==0, the bracket could be NaN
         if(fprime)
             *fprime  = val ? fp*val : 0;
         if(f) 
@@ -116,16 +124,16 @@ private:
 /** exponential vertical disk density profile */
 class DiskDensityVerticalExp: public math::IFunction {
 public:
-    DiskDensityVerticalExp(double _scaleHeight): scaleHeight(_scaleHeight) {};
+    DiskDensityVerticalExp(double scaleHeight): invScaleHeight(1./scaleHeight) {};
 private:
-    const double scaleHeight;
+    const double invScaleHeight;
     /**  evaluate  H(z) and optionally its two derivatives, if these arguments are not NULL  */
     virtual void evalDeriv(double z, double* H=NULL, double* Hprime=NULL, double* Hpprime=NULL) const {
-        double      x        = fabs(z/scaleHeight);
+        double      x        = fabs(z * invScaleHeight);
         double      h        = exp(-x);
-        if(H)       *H       = 0.5 * scaleHeight * (h-1+x);
+        if(H)       *H       = 0.5 / invScaleHeight * (h-1+x);
         if(Hprime)  *Hprime  = 0.5 * math::sign(z) * (1.-h);
-        if(Hpprime) *Hpprime = h / (2*scaleHeight);
+        if(Hpprime) *Hpprime = 0.5 * h * invScaleHeight;
     }
     virtual unsigned int numDerivs() const { return 2; }
 };
@@ -133,17 +141,17 @@ private:
 /** isothermal (sech^2) vertical disk density profile */
 class DiskDensityVerticalIsothermal: public math::IFunction {
 public:
-    DiskDensityVerticalIsothermal(double _scaleHeight): scaleHeight(_scaleHeight) {};
+    DiskDensityVerticalIsothermal(double scaleHeight): invScaleHeight(1./scaleHeight) {};
 private:
-    const double scaleHeight;
+    const double invScaleHeight;
     /**  evaluate  H(z) and optionally its two derivatives, if these arguments are not NULL  */
     virtual void evalDeriv(double z, double* H=NULL, double* Hprime=NULL, double* Hpprime=NULL) const {
-        double      x        = fabs(z/scaleHeight);
+        double      x        = fabs(z * invScaleHeight);
         double      h        = exp(-x);
-        double      sh1      = 1 + h;
-        if(H)       *H       = scaleHeight * (0.5*x + log(0.5*sh1));
-        if(Hprime)  *Hprime  = 0.5 * math::sign(z) * (1.-h) / sh1;
-        if(Hpprime) *Hpprime = h / (sh1*sh1*scaleHeight);
+        double      sh1      = 1 + h,  invsh1 = 1./sh1;
+        if(H)       *H       = 1./invScaleHeight * (0.5*x + log(0.5*sh1));
+        if(Hprime)  *Hprime  = 0.5 * math::sign(z) * (1.-h) * invsh1;
+        if(Hpprime) *Hpprime = h * invScaleHeight * pow_2(invsh1);
     }
     virtual unsigned int numDerivs() const { return 2; }
 };
@@ -155,8 +163,8 @@ public:
 private:
     /**  evaluate  H(z) and optionally its two derivatives, if these arguments are not NULL  */
     virtual void evalDeriv(double z, double* H=NULL, double* Hprime=NULL, double* Hpprime=NULL) const {
-        if(H)       *H       = fabs(z)/2;
-        if(Hprime)  *Hprime  = math::sign(z)/2;
+        if(H)       *H       = 0.5 * fabs(z);
+        if(Hprime)  *Hprime  = 0.5 * math::sign(z);
         if(Hpprime) *Hpprime = 0;
     }
     virtual unsigned int numDerivs() const { return 2; }
@@ -169,7 +177,7 @@ math::PtrFunction createRadialDiskFnc(const DiskParam& params) {
     if(params.innerCutoffRadius<0)
         throw std::invalid_argument("Disk inner cutoff radius cannot be <0");
     if(params.innerCutoffRadius==0 && params.modulationAmplitude==0)
-        return math::PtrFunction(new DiskDensityRadialExp(params.surfaceDensity, params.scaleRadius));
+        return math::PtrFunction(new DiskDensityRadialExp(params));
     else
         return math::PtrFunction(new DiskDensityRadialRichExp(params));
 }
@@ -208,7 +216,7 @@ double DiskDensity::densityCyl(const coord::PosCyl &pos) const
 
 double DiskAnsatz::densityCyl(const coord::PosCyl &pos) const
 {
-    double h, H, Hp, f, fp, fpp, r=hypot(pos.R, pos.z);
+    double h, H, Hp, f, fp, fpp, r=sqrt(pow_2(pos.R) + pow_2(pos.z));
     verticalFnc->evalDeriv(pos.z, &H, &Hp, &h);
     radialFnc  ->evalDeriv(r, &f, &fp, &fpp);
     return f*h + (pos.z!=0 ? 2*fp*(H+pos.z*Hp)/r : 0) + fpp*H;
@@ -217,26 +225,29 @@ double DiskAnsatz::densityCyl(const coord::PosCyl &pos) const
 void DiskAnsatz::evalCyl(const coord::PosCyl &pos,
     double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const
 {
-    double r=hypot(pos.R, pos.z);
+    double r    = sqrt(pow_2(pos.R) + pow_2(pos.z));
     double h, H, Hp, f, fp, fpp;
     bool deriv1 = deriv!=NULL || deriv2!=NULL;  // compute 1st derivative of f and H only if necessary
     verticalFnc->evalDeriv(pos.z, &H, deriv1? &Hp : NULL, deriv2? &h : NULL);
     radialFnc  ->evalDeriv(r,     &f, deriv1? &fp : NULL, deriv2? &fpp : NULL);
-    f*=4*M_PI; fp*=4*M_PI; fpp*=4*M_PI;
-    double Rr=pos.R/r, zr=pos.z/r;
-    if(r==0) { Rr=0; zr=0; r=1e-100; }
+    f  *= 4*M_PI;
+    fp *= 4*M_PI;
+    fpp*= 4*M_PI;
+    double rinv = r>0 ? 1./r : 1.;  // if r==0, avoid indeterminacy in 0/0
+    double Rr   = pos.R * rinv;
+    double zr   = pos.z * rinv;
     if(potential) {
-        *potential = f*H;
+        *potential = f * H;
     }
     if(deriv) {
-        deriv->dR = H*fp*Rr;
-        deriv->dz = H*fp*zr + Hp*f;
+        deriv->dR = H * Rr * fp;
+        deriv->dz = H * zr * fp + Hp * f;
         deriv->dphi=0;
     }
     if(deriv2) {
-        deriv2->dR2 = H*(fpp*Rr*Rr + fp*zr*zr/r);
-        deriv2->dz2 = H*(fpp*zr*zr + fp*Rr*Rr/r) + 2*fp*Hp*zr + f*h;
-        deriv2->dRdz= H*Rr*zr*(fpp - fp/r) + fp*Hp*Rr;
+        deriv2->dR2 = H * (fpp * pow_2(Rr) + fp * rinv * pow_2(zr));
+        deriv2->dz2 = H * (fpp * pow_2(zr) + fp * rinv * pow_2(Rr)) + fp * Hp * zr * 2 + f * h;
+        deriv2->dRdz= H * Rr * zr * (fpp - fp * rinv) + fp * Hp * Rr;
         deriv2->dRdphi=deriv2->dzdphi=deriv2->dphi2=0;
     }
 }

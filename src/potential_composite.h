@@ -19,8 +19,8 @@ public:
     /** provides the 'least common denominator' for the symmetry degree */
     virtual coord::SymmetryType symmetry() const;
 
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "CompositeDensity"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "CompositeDensity"; return text; }
 
     unsigned int size() const { return components.size(); }
     PtrDensity component(unsigned int index) const { return components.at(index); }
@@ -41,7 +41,7 @@ public:
     virtual coord::SymmetryType symmetry() const;
 
     virtual const char* name() const { return myName(); };
-    static const char* myName() { return "CompositePotential"; };
+    static const char* myName() { static const char* text = "CompositePotential"; return text; }
 
     unsigned int size() const { return components.size(); }
     PtrPotential component(unsigned int index) const { return components.at(index); }

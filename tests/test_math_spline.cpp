@@ -365,11 +365,18 @@ bool test1dSpline()
         yderivs.front(), yderivs.back());         // cubic, clamped -- specify derivs at the boundaries
     math::HermiteSpline fhermi(xnodes, yvalues, yderivs);  // hermite cubic spline -- specify derivs at all nodes
     math::QuinticSpline fquint(xnodes, yvalues, yderivs);  // quintic spline -- specify derivs at all nodes
+    // collect the derivatives from cubic spline and construct an equivalent Hermite spline
+    std::vector<double> yderivscubcl(NNODES);
+    for(int i=0; i<NNODES; i++) {
+        fcubcl.evalDeriv(xnodes[i], NULL, &yderivscubcl[i]);
+    }
+    math::HermiteSpline fhercu(xnodes, yvalues, yderivscubcl);  // should be the same as fcubcl +- eps
     std::ofstream strm;
     if(OUTPUT)
         strm.open("test_math_spline1d.dat");
     double sumerrv3n = 0, sumerrv3 = 0, sumerrv5 = 0, sumerrvh = 0,
-        sumerrd3 = 0, sumerrd5 = 0, sumerrdh = 0, sumerrs3 = 0, sumerrs5 = 0, sumerrsh = 0;
+        sumerrd3 = 0, sumerrd5 = 0, sumerrdh = 0, sumerrs3 = 0, sumerrs5 = 0, sumerrsh = 0,
+        maxdifhercu = 0;
     for(int i=0; i<=(NNODES-1)*NSUBINT; i++) {
         double xa = xnodes[i/NSUBINT];
         double xb = i<(NNODES-1)*NSUBINT ? xnodes[i/NSUBINT+1] : xa;
@@ -381,6 +388,8 @@ bool test1dSpline()
         fcubcl.evalDeriv(x, &y3, &y3p, &y3pp);
         double yh, yhp, yhpp;
         fhermi.evalDeriv(x, &yh, &yhp, &yhpp);
+        double yc, ycp, ycpp;
+        fhercu.evalDeriv(x, &yc, &ycp, &ycpp);
         double y5, y5p, y5pp, y5ppp=fquint.deriv3(x);
         fquint.evalDeriv(x, &y5, &y5p, &y5pp);
         sumerrv3n += pow_2(y0-y3n);
@@ -397,9 +406,11 @@ bool test1dSpline()
             int k = i/NSUBINT;
             ok &= y3n == yvalues[k];  // this should be exact to machine precision by construction
             ok &= y3  == yvalues[k];
-            ok &= yh  == yvalues[k];
+            ok &= yh  == yvalues[k] && yhp == yderivs[k];
+            ok &= yc  == yvalues[k];
             ok &= y5  == yvalues[k] && y5p == yderivs[k];
         }
+        maxdifhercu = fmax(maxdifhercu, fabs(yc-y3)+fabs(ycp-y3p)+fabs(ycpp-y3pp));
         if(OUTPUT)
             strm << x << '\t' << y0 << ' ' << 
             y3n << ' ' << y3  << ' ' << yh  << ' ' << y5  << '\t' <<
@@ -420,8 +431,9 @@ bool test1dSpline()
     std::cout << "RMS error in cubic spline: " << sumerrv3n <<
         ", in clamped cubic spline: " << sumerrv3 <<
         ", in hermite cubic spline: " << sumerrvh <<
-        ", in quintic spline: " << sumerrv5 << "\n";
-    ok &= sumerrv3n<5e-3 &&
+        ", in quintic spline: " << sumerrv5 << 
+        ", max|cubic-hermite|=" << maxdifhercu << "\n";
+    ok &= maxdifhercu < 1e-13 && sumerrv3n<5e-3 &&
         sumerrv3<2.7e-4 && sumerrvh<2.3e-4 && sumerrv5<3.4e-5 &&
         sumerrd3<1.8e-3 && sumerrdh<1.3e-3 && sumerrd5<9e-4   &&
         sumerrs3<0.04   && sumerrsh<0.04   && sumerrs5<0.05;

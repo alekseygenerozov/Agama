@@ -61,12 +61,15 @@ public:
     /// returns the symmetry type of this density or potential
     virtual coord::SymmetryType symmetry() const = 0;
 
-    /// return the name of density or potential model
+    /** return the name of density or potential model;
+        this also serves as a unique pointer that distinguishes between different classes,
+        so the derived classes should return a pointer to a static const char* variable.
+    */
     virtual const char* name() const = 0;
 
     /** estimate the mass enclosed within a given spherical radius;
         default implementation integrates density over volume, but derived classes
-        may provide a cheaper alternative (not necessarily a very precise one)
+        may provide a cheaper alternative (not necessarily a very precise one).
     */
     virtual double enclosedMass(const double radius) const;
 

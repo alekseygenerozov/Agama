@@ -4,6 +4,7 @@
 #include "potential_ferrers.h"
 #include "potential_utils.h"
 #include "units.h"
+#include "utils.h"
 #include "math_core.h"
 #include "debug_utils.h"
 #include "actions_spherical.h"
@@ -14,6 +15,7 @@
 #include <stdexcept>
 
 const double eps=1e-6;  // accuracy of comparison
+const bool output = utils::verbosityLevel >= utils::VL_VERBOSE;
 
 bool testPotential(const potential::BasePotential& potential)
 {
@@ -34,8 +36,11 @@ bool testPotential(const potential::BasePotential& potential)
     try{
         potential::Interpolator2d interp(potential);
         actions::ActionFinderSpherical af(potential);
-        std::ofstream strm ((std::string("test_pot_" )+potential.name()).c_str());
-        std::ofstream strmr((std::string("testr_pot_")+potential.name()).c_str());
+        std::ofstream strm, strmr;
+        if(output) {
+            strm. open((std::string("test_pot_" )+potential.name()).c_str());
+            strmr.open((std::string("testr_pot_")+potential.name()).c_str());
+        }
         strm << std::setprecision(15) << "E R Rc_root(E) Rc_interp(E) Lc Lc_root(E) Lc_interp(E)\n";
         strmr<< std::setprecision(15);
         for(double lr=-16; lr<=24; lr+=.25) {

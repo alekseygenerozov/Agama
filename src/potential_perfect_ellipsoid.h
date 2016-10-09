@@ -26,8 +26,8 @@ public:
 
     const coord::ProlSph& coordsys() const { return coordSys; }
     
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "OblatePerfectEllipsoid"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "OblatePerfectEllipsoid"; return text; }
     virtual double totalMass() const { return mass; }
 
     /** evaluates the function G(tau) and up to two its derivatives,

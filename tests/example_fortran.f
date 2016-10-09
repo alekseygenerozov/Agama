@@ -38,6 +38,7 @@ C  the second one is a string encoding all parameters.
 C  Example 2:  constructing a potential approximation from the user-provided
 C  density profile (which is equivalent to the one specified above, but uses
 C  somewhat different parameters for the potential expansion)
+      print*, 'Create a potential from the user-provided density'
       call agama_initfromdens(c_obj2,
 c     &    'type=Multipole symmetry=Axisymmetric',
      &    'type=CylSpline symmetry=Axisym',
@@ -60,8 +61,10 @@ C  Compute potential and density at some location
       print*, 'original    density=', den0
 
 C  Check the accuracy
-      if(abs(den1-den0) + abs(den2-den0) > den0 * 1.d-3)
-     &    success = .false.
+      if(abs(den1-den0) + abs(den2-den0) > den0 * 1.d-3) then
+          print*, '**FAILED**'
+          success = .false.
+      endif
 
 C  Compute force and force derivatives (potential is also returned)
       pot1 = agama_potforce(c_obj1, xyz, force1)
@@ -74,6 +77,7 @@ C  Compute force and force derivatives (potential is also returned)
 C  Example 3:  construct two different potential approximations from
 C  the user-provided function that computes potential and force
 C  (useful if this is an expensive operation)
+      print*, 'Create approximations for the user-provided potential'
       call agama_initfrompot(c_obj3,
      &    'type=Multipole symmetry=Triaxial lmax=8 rmin=0.01 rmax=100',
      &     user_potential)
@@ -94,8 +98,10 @@ C  check the accuracy
      &    .or.  abs(force1(2)-force0(2)) > abs(force0(2)) * 1.d-3
      &    .or.  abs(force2(2)-force0(2)) > abs(force0(2)) * 1.d-3
      &    .or.  abs(force1(3)-force0(3)) > abs(force0(3)) * 1.d-3
-     &    .or.  abs(force2(3)-force0(3)) > abs(force0(3)) * 1.d-3)
-     &    success = .false.
+     &    .or.  abs(force2(3)-force0(3)) > abs(force0(3)) * 1.d-3) then
+          print*, '**FAILED**'
+          success = .false.
+      endif
 
 C  Example 4:  constructing a potential from parameters stored in an INI file
       call agama_initfromfile(c_obj5, '../data/BT08.ini')

@@ -28,7 +28,7 @@ ActionAngles actionAnglesIsochrone(
 {
     coord::PosVelSph point(toPosVelSph(pointCyl));
     ActionAngles aa;
-    double rb   = hypot(b, point.r);
+    double rb   = sqrt(b*b +pow_2(point.r));
     double L    = Ltotal(point);
     double L1   = sqrt(L*L + 4*M*b);
     double J0   = M / sqrt(2*M / (b+rb) - pow_2(point.vr) - pow_2(point.vtheta) - pow_2(point.vphi));    
@@ -44,7 +44,7 @@ ActionAngles actionAnglesIsochrone(
     double k1   = point.r * point.vr;
     double k2   = J0 - M * rb / J0;
     double eta  = atan2(k1, k2);                         // eccentric anomaly
-    double sineta     = k1 / hypot(k1, k2);              // sin(eta)
+    double sineta     = k1 / sqrt(k1*k1 + k2*k2);        // sin(eta)
     double tanhalfeta = eta==0 ? 0 : -k2/k1 + 1/sineta;  // tan(eta/2)
     double psi  = atan2(pointCyl.z * L,  -pointCyl.R * point.vtheta * point.r);
     double chi  = atan2(pointCyl.z * point.vphi, -point.vtheta * point.r);

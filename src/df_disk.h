@@ -34,8 +34,8 @@ PseudoIsothermalParam() :  ///< set default values for all fields
 
 /** Distribution function for quasi-isothermal disk, used in Binney&McMillan 2011, Binney&Piffl 2015.
     \f$  f(J) = f_r(J_r, J_\phi)  f_z(J_z, J_\phi)  f_\phi(J_\phi)  \f$, where
-    \f$  f_r  = \Omega(R_c) \Sigma(R_c) / (\pi \kappa(R_c \sigma_r^2(R_c) )  \f$,
-    \f$  f_z  = \nu / (2\pi \sigma_z^2(R_c) )  \f$,
+    \f$  f_r  = \Omega(R_c) \Sigma(R_c) / (\pi \kappa(R_c) \sigma_r^2(R_c) )  \f$,
+    \f$  f_z  = \nu(R_c) / (2\pi \sigma_z^2(R_c) )  \f$,
     \f$  f_\phi = 1 + \tanh( J_\phi / J_{\phi,0} )  \f$,
     \f$  \Sigma(R_c)   = \Sigma_0 \exp( -R_c / R_{disk} )  \f$,
     \f$  \sigma_r(R_c) = \sigma_{r,0} \exp( -R_c / R_{sigma,r} )  \f$,

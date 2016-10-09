@@ -951,7 +951,7 @@ static PyObject* createDensityObject(const potential::PtrDensity& dens)
 }
 
 /// Helper class for providing a BaseDensity interface
-/// to a Python function that returns density at a point
+/// to a Python function that returns density at one or several point
 class DensityWrapper: public potential::BaseDensity{
     OmpDisabler ompDisabler;
     PyObject* fnc;
@@ -980,11 +980,24 @@ public:
     virtual double densityCar(const coord::PosCar &pos) const {
         double xyz[3];
         unconvertPos(pos, xyz);
-        PyObject* args = Py_BuildValue("(ddd)", xyz[0], xyz[1], xyz[2]);
-        PyObject* result = PyObject_CallObject(fnc, args);
+        npy_intp dims[]  = {1, 3};
+        PyObject* args   = PyArray_SimpleNewFromData(2, dims, NPY_DOUBLE, xyz);
+        PyObject* result = PyObject_CallFunctionObjArgs(fnc, args, NULL);
         Py_DECREF(args);
-        double value = PyFloat_AsDouble(result);
-        Py_XDECREF(result);
+        double value;
+        if(result == NULL) {
+            PyErr_Print();
+            throw std::runtime_error("Call to user-defined density function failed");
+        }
+        if(PyArray_Check(result))
+            value = static_cast<double*>(PyArray_GETPTR1((PyArrayObject*)result, 0))[0];
+        else if(PyNumber_Check(result))
+            value = PyFloat_AsDouble(result);
+        else {
+            Py_DECREF(result);
+            throw std::runtime_error("Invalid data type returned from user-defined density function");
+        }
+        Py_DECREF(result);
         return value * conv->massUnit / pow_3(conv->lengthUnit);
     }
 };
@@ -1042,7 +1055,8 @@ static const char* docstringPotential =
     "in addition, there are other density models without a corresponding potential).\n"
     "  Alternatively, it may be an object providing an appropriate interface -- "
     "either an instance of Density or Potential class, or a user-defined function "
-    "'my_density(x,y,z)' returning the value of density at the given cartesian coordinates.\n"
+    "'my_density(xyz)' returning the value of density computed simultaneously at N points, "
+    "where xyz is a Nx3 array of points in cartesian coordinates (even if N=1, it's a 2d array).\n"
     "  file='...'   the name of a file with potential coefficients for a potential "
     "expansion (an alternative to density='...'), or with an N-body snapshot that "
     "will be used to compute the coefficients.\n"
@@ -1076,7 +1090,7 @@ static const char* docstringPotential =
     ">>> pot_from_ini  = Potential('my_potential.ini')\n"
     ">>> pot_from_coef = Potential(file='stored_coefs')\n"
     ">>> pot_from_particles = Potential(type='Multipole', particles=(coords, masses))\n"
-    ">>> pot_user = Potential(type='Multipole', density=lambda x,y,z: (x**2+y**2+z**2+1)**-2)\n"
+    ">>> pot_user = Potential(type='Multipole', density=lambda x: (numpy.sum(x**2,axis=1)+1)**-2)\n"
     ">>> disk_par = dict(type='DiskDensity', surfaceDensity=1e9, scaleRadius=3, scaleHeight=0.4)\n"
     ">>> halo_par = dict(type='SpheroidDensity', densityNorm=2e7, scaleRadius=15, gamma=1, beta=3, "
     "outerCutoffRadius=150, axisRatioZ=0.8)\n"
@@ -1398,7 +1412,7 @@ static PyTypeObject PotentialType = {
     PyObject_HEAD_INIT(NULL)
     0, "agama.Potential",
     sizeof(PotentialObject), 0, (destructor)Potential_dealloc,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, Potential_potential, Potential_name, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Potential_name, 0, 0, 0,
     Py_TPFLAGS_DEFAULT, docstringPotential,
     0, 0, 0, 0, 0, 0, Potential_methods, 0, 0, 0, 0, 0, 0, 0,
     (initproc)Potential_init
@@ -1446,7 +1460,7 @@ static potential::PtrDensity getDensity(PyObject* dens_obj, coord::SymmetryType 
     // otherwise this could be an arbitrary Python function
     if(PyCallable_Check(dens_obj))
     {   // then create a C++ wrapper for this Python function
-        // (don't check if it accepts 3 numbers as the arguments...)
+        // (don't check if it accepts a single Nx3 array as the argument...)
         return potential::PtrDensity(new DensityWrapper(dens_obj, sym));
     }
 
@@ -1653,7 +1667,7 @@ static const char* docstringDistributionFunction =
     "The constructor accepts several key=value arguments that describe the parameters "
     "of distribution function.\n"
     "Required parameter is type='...', specifying the type of DF: currently available types are "
-    "'DoublePowerLaw', 'DoublePowerLawSph' (for the halo), 'PseudoIsothermal' (for the disk component), "
+    "'DoublePowerLaw', (for the halo), 'PseudoIsothermal' (for the disk component), "
     "'Interp1', 'Interp3' (for interpolated DFs).\n"
     "For some of them, one also needs to provide the potential to initialize the table of "
     "epicyclic frequencies (pot=... argument).\n"
@@ -1845,11 +1859,24 @@ public:
     virtual double value(const actions::Actions &J) const {
         double act[3];
         unconvertActions(J, act);
-        PyObject* args = Py_BuildValue("(ddd)", act[0], act[1], act[2]);
-        PyObject* result = PyObject_CallObject(fnc, args);
+        npy_intp dims[]  = {1, 3};
+        PyObject* args   = PyArray_SimpleNewFromData(2, dims, NPY_DOUBLE, act);
+        PyObject* result = PyObject_CallFunctionObjArgs(fnc, args, NULL);
         Py_DECREF(args);
-        double value = PyFloat_AsDouble(result);
-        Py_XDECREF(result);
+        double value;
+        if(result == NULL) {
+            PyErr_Print();
+            throw std::runtime_error("Call to user-defined distribution function failed");
+        }
+        if(PyArray_Check(result))
+            value = static_cast<double*>(PyArray_GETPTR1((PyArrayObject*)result, 0))[0];
+        else if(PyNumber_Check(result))
+            value = PyFloat_AsDouble(result);
+        else {
+            Py_DECREF(result);
+            throw std::runtime_error("Invalid data type returned from user-defined distribution function");
+        }
+        Py_DECREF(result);
         return value * conv->massUnit / pow_3(conv->velocityUnit * conv->lengthUnit);
     }
 };
@@ -1865,8 +1892,8 @@ static df::PtrDistributionFunction getDistributionFunction(PyObject* df_obj)
         return ((DistributionFunctionObject*)df_obj)->df;
     // otherwise this could be an arbitrary callable Python object
     if(PyCallable_Check(df_obj))
-    {   // then create a C++ wrapper for this Python method
-        // (don't check if it accepts 3 numbers as the arguments...)
+    {   // then create a C++ wrapper for this Python function
+        // (don't check if it accepts a single Nx3 array as the argument...)
         return df::PtrDistributionFunction(new DistributionFunctionWrapper(df_obj));
     }
     // none succeeded - return an empty pointer
@@ -2784,7 +2811,7 @@ static PyObject* SplineApprox_value(PyObject* self, PyObject* args, PyObject* /*
     if(PyFloat_Check(ptx))  // one value
         return Py_BuildValue("d", spl_eval(((SplineApproxObject*)self)->spl, PyFloat_AsDouble(ptx), der) );
     // else an array of values
-    PyArrayObject *arr = (PyArrayObject*) 
+    PyArrayObject *arr = (PyArrayObject*)
         PyArray_FROM_OTF(ptx, NPY_DOUBLE, NPY_ARRAY_OUT_ARRAY | NPY_ARRAY_ENSURECOPY);
     if(arr == NULL) {
         PyErr_SetString(PyExc_ValueError, "Argument must be either float, list or numpy array");
@@ -2894,7 +2921,7 @@ static PyObject* integrate_orbit(PyObject* /*self*/, PyObject* args, PyObject* n
 /// \name  ----- Math routines -----
 ///@{
 
-/// description of integration function
+/// description of grid creation function
 static const char* docstringNonuniformGrid =
     "Create a grid with unequally spaced nodes:\n"
     "x[k] = (exp(Z k) - 1)/(exp(Z) - 1), i.e., coordinates of nodes increase "
@@ -2937,16 +2964,23 @@ class FncWrapper: public math::IFunctionNdim {
 public:
     FncWrapper(unsigned int _nvars, PyObject* _fnc): nvars(_nvars), fnc(_fnc) {}
     virtual void eval(const double vars[], double values[]) const {
-        npy_intp dim   = nvars;
-        PyObject* arr  = PyArray_SimpleNewFromData(1, &dim, NPY_DOUBLE, const_cast<double*>(vars));
-        PyObject* args = Py_BuildValue("(O)", arr);
-        Py_DECREF(arr);
-        PyObject* result = PyObject_CallObject(fnc, args);
+        npy_intp dims[]  = {1, nvars};
+        PyObject* args   = PyArray_SimpleNewFromData(2, dims, NPY_DOUBLE, const_cast<double*>(vars));
+        PyObject* result = PyObject_CallFunctionObjArgs(fnc, args, NULL);
         Py_DECREF(args);
-        values[0] = PyFloat_AsDouble(result);
-        Py_XDECREF(result);
-        if(PyErr_Occurred())
-            throw std::runtime_error("Exception occured inside integrand");
+        if(result == NULL) {
+            PyErr_Print();
+            throw std::runtime_error("Exception occurred inside integrand");
+        }
+        if(PyArray_Check(result))
+            values[0] = static_cast<double*>(PyArray_GETPTR1((PyArrayObject*)result, 0))[0];
+        else if(PyNumber_Check(result))
+            values[0] = PyFloat_AsDouble(result);
+        else {
+            Py_DECREF(result);
+            throw std::runtime_error("Invalid data type returned from user-defined function");
+        }
+        Py_DECREF(result);
     }
     virtual unsigned int numVars()   const { return nvars; }
     virtual unsigned int numValues() const { return 1; }
@@ -3013,9 +3047,11 @@ static bool parseLowerUpperBounds(PyObject* lower_obj, PyObject* upper_obj,
 static const char* docstringIntegrateNdim =
     "Integrate an N-dimensional function\n"
     "Arguments:\n"
-    "  fnc - a callable object that must accept a single argument (array of coordinates) "
-    "and return a single numeric value;\n"
-    "  lower, upper - two arrays of the same length (equal to the number of dimensions) "
+    "  fnc - a callable object that must accept a single argument "
+    "(a 2d array MxN array of coordinates, where N is the dimension of the integration space, "
+    "and M>=1 is the number of points where the integrand should be evaluated simultaneously -- "
+    "this improves performance), and return a 1d array of length M with function values;\n"
+    "  lower, upper - two arrays of the same length N (equal to the number of dimensions) "
     "that specify the lower and upper boundaries of integration hypercube; "
     "alternatively, a single value - the number of dimensions - may be passed instead of 'lower', "
     "in which case the default interval [0:1] is used for each dimension;\n"
@@ -3067,8 +3103,11 @@ static const char* docstringSampleNdim =
     "Draw a requested number of points from the hypercube in such a way that "
     "the density of points at any location is proportional to the value of function.\n"
     "Arguments:\n"
-    "  fnc - a callable object that must accept a single argument (array of coordinates) "
-    "and return a single non-negative numeric value (interpreted as probability density);\n"
+    "  fnc - a callable object that must accept a single argument "
+    "(a 2d array MxN array of coordinates, where N is the dimension of the hypercube, "
+    "and M>=1 is the number of points where the function should be evaluated simultaneously -- "
+    "this improves performance), and return a 1d array of M non-negative values "
+    "(one for each point), interpreted as the probability density;\n"
     "  nsamples - the required number of samples drawn from this function;\n"
     "  lower, upper - two arrays of the same length (equal to the number of dimensions) "
     "that specify the lower and upper boundaries of the region (hypercube) to be sampled; "
@@ -3104,7 +3143,7 @@ static PyObject* sampleNdim(PyObject* /*self*/, PyObject* args, PyObject* namedA
         math::sampleNdim(fnc, &xlow[0], &xupp[0], numSamples, samples, &numEval, &result, &error);
         npy_intp dim[] = {numSamples, xlow.size()};
         PyObject* arr  = PyArray_SimpleNewFromData(2, dim, NPY_DOUBLE, const_cast<double*>(samples.data()));
-        return Py_BuildValue("Oddi", arr, result, error, numEval);
+        return Py_BuildValue("Nddi", arr, result, error, numEval);
     }
     catch(std::exception& e) {
         if(!PyErr_Occurred())    // set our own error string if it hadn't been set by Python

@@ -12,6 +12,9 @@
     is already needed before constructing the DF for the disk component, since the latter relies
     upon plausible radially-varying epicyclic frequencies.
     Both stages require a few iterations to converge.
+    Finally, we create N-body representations of both components.
+
+    An equivalent Python example is given in pytests/example_self_consistent_model.py
 */
 #include "galaxymodel_selfconsistent.h"
 #include "galaxymodel.h"

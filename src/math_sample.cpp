@@ -193,8 +193,9 @@ private:
     }
 
     /** refine a cell by adding more sampling points into it, 
-        while decreasing the weights of existing points, their list being provided in the 3rd argument */
-    void refineCellByAddingSamples(CellEnum indexCell, double refineFactor, 
+        while decreasing the weights of existing points, their list being provided in the last argument */
+    void refineCellByAddingSamples(CellEnum indexCell,
+        unsigned int indexAddSamples, unsigned int numAddSamples,
         const std::vector<unsigned int>& listOfPointsInCell);
 
     /** update the estimate of integral and its error, using all collected samples */
@@ -464,13 +465,12 @@ void Sampler::readjustBins()
 }
 
 // put more samples into a cells, while decreasing the weights of existing samples in it
-void Sampler::refineCellByAddingSamples(CellEnum indexCell, double refineFactor, 
+void Sampler::refineCellByAddingSamples(CellEnum indexCell,
+    unsigned int indexAddSamples, unsigned int numAddSamples,
     const std::vector<unsigned int>& listOfPointsInCell)
 {
-    assert(refineFactor>1);
-    // ensure that we add at least one new sample (increase refineFactor if needed)
-    unsigned int numNewSamples = std::max<unsigned int>(1, listOfPointsInCell.size() * (refineFactor-1));
-    refineFactor = 1. + numNewSamples * 1. / listOfPointsInCell.size();
+    assert(numAddSamples>0);
+    double refineFactor = 1. + numAddSamples * 1. / listOfPointsInCell.size();
 
     // retrieve the average number of samples per cell for this cell
     double samplesPerThisCell = defaultSamplesPerCell;
@@ -489,19 +489,11 @@ void Sampler::refineCellByAddingSamples(CellEnum indexCell, double refineFactor,
     for(unsigned int i=0; i<listOfPointsInCell.size(); i++)
         weightedFncValues[ listOfPointsInCell[i] ] /= refineFactor;
 
-    // extend the array of sampling points while preserving the existing values
-    unsigned int numPrevSamples = sampleCoords.rows();
-    assert(weightedFncValues.size() == numPrevSamples);
-    Matrix<double> newSampleCoords(numPrevSamples + numNewSamples, Ndim);
-    std::copy(sampleCoords.data(), sampleCoords.data()+sampleCoords.size(), newSampleCoords.data());
-    sampleCoords = newSampleCoords;
-    weightedFncValues.resize(numPrevSamples + numNewSamples);
-
     // assign coordinates for newly sampled points, but don't evaluate function yet --
     // this will be performed once all cells have been refined
-    for(unsigned int i=0; i<numNewSamples; i++) {
-        double* coords = &(sampleCoords(numPrevSamples+i, 0));  // taking the entire row
-        weightedFncValues[numPrevSamples+i] = 
+    for(unsigned int i=0; i<numAddSamples; i++) {
+        double* coords = &(sampleCoords(indexAddSamples+i, 0));  // taking the entire row
+        weightedFncValues[indexAddSamples+i] = 
             samplePointFromCell(indexCell, coords) / samplesPerThisCell;
         assert(cellIndex(coords) == indexCell);
     }
@@ -548,22 +540,48 @@ void Sampler::ensureEnoughSamples(const unsigned int numOutputSamples)
                 samplesInCell[iter->first].push_back(indexPoint);
         }
 
-        // loop over cells to be refined: first assign coordinates and weight factors for new samples
+        // loop over cells to be refined and assign the number of additional samples for each cell
+        std::map<CellEnum, unsigned int> numAddSamples;
+        unsigned int numAddSamplesTotal = 0;
         for(CellMap::const_iterator iter = cellsForRefinement.begin();
-            iter != cellsForRefinement.end(); ++iter) {
+            iter != cellsForRefinement.end(); ++iter)
+        {
             CellEnum indexCell  = iter->first;
             double refineFactor = iter->second*1.25;  // safety margin
+            assert(refineFactor>1);
+            // ensure that we add at least one new sample (increase refineFactor if needed)
+            unsigned int numAddSamplesThisCell = 
+                std::max<unsigned int>(1, samplesInCell[indexCell].size() * (refineFactor-1));
+            numAddSamples[indexCell] = numAddSamplesThisCell;
+            numAddSamplesTotal += numAddSamplesThisCell;
             ++numCellsForRefinement;
-            refineCellByAddingSamples(indexCell, refineFactor, samplesInCell[indexCell]);
         }
 
-        // then evaluate function values for all new samples
-        unsigned int numNewSamples = sampleCoords.rows()-numSamples;
+        // reserve space in the array of sample coords while preserving the existing values
+        Matrix<double> newSampleCoords(numSamples + numAddSamplesTotal, Ndim);
+        std::copy(sampleCoords.data(), sampleCoords.data()+sampleCoords.size(), newSampleCoords.data());
+        sampleCoords = newSampleCoords;
+        weightedFncValues.resize(numSamples + numAddSamplesTotal);
+
+        // assign coordinates and weight factors for new samples
+        unsigned int indexAddSamples = numSamples;
+        for(CellMap::const_iterator iter = cellsForRefinement.begin();
+            iter != cellsForRefinement.end(); ++iter)
+        {
+            CellEnum indexCell  = iter->first;
+            unsigned int numAddSamplesThisCell = numAddSamples[indexCell];
+            refineCellByAddingSamples(indexCell,
+                indexAddSamples, numAddSamplesThisCell, samplesInCell[indexCell]);
+            indexAddSamples += numAddSamplesThisCell;
+        }
+        assert(indexAddSamples = numSamples + numAddSamplesTotal);
+
+        // then evaluate the function for all new samples
         utils::msg(utils::VL_DEBUG, "sampleNdim",
             "Iteration #"+utils::toString(nIter)+": refining "+utils::toString(numCellsForRefinement)+
             " cells because of "+utils::toString(numOverweightSamples)+" overweight samples"
-            " by making further "+utils::toString(numNewSamples)+" function calls");
-        evalFncLoop(numSamples, numNewSamples);
+            " by making further "+utils::toString(numAddSamplesTotal)+" function calls");
+        evalFncLoop(numSamples, numAddSamplesTotal);
 
         // update the integral estimate
         computeIntegral();

@@ -47,6 +47,7 @@ template<>
 void OrbitIntegrator<coord::Cyl>::eval(const double /*t*/,
     const math::OdeStateType& y, math::OdeStateType& dydt) const
 {
+    // TODO: handle the case R<0
     const coord::PosVelCyl p(&y.front());
     coord::GradCyl grad;
     potential.eval(p, NULL, &grad);
@@ -65,6 +66,7 @@ template<>
 void OrbitIntegrator<coord::Sph>::eval(const double /*t*/,
     const math::OdeStateType& y, math::OdeStateType& dydt) const
 {
+    // TODO: the integrator may well provide a point with r<0, which can't be handled properly
     const coord::PosVelSph p(&y.front());
     coord::GradSph grad;
     potential.eval(p, NULL, &grad);

@@ -68,8 +68,8 @@ public:
     /// init potential from stored coefficients
     BasisSetExp(double _Alpha, const std::vector< std::vector<double> > &coefs);
 
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "BasisSetExp"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "BasisSetExp"; return text; }
 
     //  get functions:
     /// return the array of BSE coefficients
@@ -139,8 +139,8 @@ public:
     SplineExp(const std::vector<double> &_gridradii,
         const std::vector< std::vector<double> > &_coefs);
 
-    virtual const char* name() const { return myName(); };
-    static const char* myName() { return "SplineExp"; };
+    virtual const char* name() const { return myName(); }
+    static const char* myName() { static const char* text = "SplineExp"; return text; }
 
     // get functions
     /// return the number of radial points in the spline (excluding r=0)

@@ -730,7 +730,7 @@ static PtrPotential determineAsympt(
             // S_l       = the amplitude of l-th coefficient to be determined.
             for(unsigned int p=0; p<npoints; p++) {
                 rhs[p] = Phi[m+mmax](indR[p], indz[p]);
-                double r = hypot(points[p].R, points[p].z);
+                double r = sqrt(pow_2(points[p].R) + pow_2(points[p].z));
                 double tau = points[p].z / (points[p].R + r);
                 math::sphHarmArray(lmax_fit, absm, tau, &Plm.front());
                 for(int l=absm; l<=lmax_fit; l++)
@@ -749,7 +749,7 @@ static PtrPotential determineAsympt(
         // something went wrong - at least return a correct value for the l=0 term
         math::Averager avg;
         for(unsigned int p=0; p<npoints; p++)
-            avg.add(Phi[mmax](indR[p], indz[p]) * hypot(points[p].R, points[p].z) / r0);
+            avg.add(Phi[mmax](indR[p], indz[p]) * sqrt(pow_2(points[p].R) + pow_2(points[p].z)) / r0);
         W.assign(ncoefs, 0);
         W[0] = avg.mean();
     }
@@ -791,7 +791,7 @@ static void chooseGridRadii(const particles::ParticleArray<coord::PosCyl>& point
     unsigned int Npoints = points.size();
     std::vector<double> radii(Npoints);
     for(unsigned int i=0; i<Npoints; i++)
-        radii[i] = hypot(points.point(i).R, points.point(i).z);
+        radii[i] = sqrt(pow_2(points.point(i).R) + pow_2(points.point(i).z));
     std::nth_element(radii.begin(), radii.begin() + Npoints/2, radii.end());
     double gridSize = sqrt(gridSizeR*gridSizez);  // average of the two sizes
     double Rhalf = radii[Npoints/2];   // half-mass radius (if all particles have equal mass)

@@ -13,7 +13,7 @@ ProlSph::ProlSph(double _delta):
 };
 
 PosT<ProlMod>::PosT(double _rho, double _tau, double _phi, const ProlMod& coordsys):
-    rho(_rho), tau(_tau), phi(_phi), chi(hypot(_rho, coordsys.D)) {};
+    rho(_rho), tau(_tau), phi(_phi), chi(sqrt(pow_2(_rho) + pow_2(coordsys.D))) {};
 
 //--------  angular momentum functions --------//
 
@@ -49,17 +49,17 @@ template<> PosCar toPos(const PosSph& pos) {
     return PosCar(R*cos(pos.phi), R*sin(pos.phi), pos.r*cos(pos.theta)); 
 }
 template<> PosCyl toPos(const PosCar& pos) {
-    return PosCyl(hypot(pos.x, pos.y), pos.z, atan2(pos.y, pos.x));
+    return PosCyl(sqrt(pow_2(pos.x) + pow_2(pos.y)), pos.z, atan2(pos.y, pos.x));
 }
 template<> PosCyl toPos(const PosSph& pos) {
     return PosCyl(pos.r*sin(pos.theta), pos.r*cos(pos.theta), pos.phi);
 }
 template<> PosSph toPos(const PosCar& pos) {
     return PosSph(sqrt(pow_2(pos.x)+pow_2(pos.y)+pow_2(pos.z)), 
-        atan2(hypot(pos.x, pos.y), pos.z), atan2(pos.y, pos.x));
+        atan2(sqrt(pow_2(pos.x) + pow_2(pos.y)), pos.z), atan2(pos.y, pos.x));
 }
 template<> PosSph toPos(const PosCyl& pos) {
-    return PosSph(hypot(pos.R, pos.z), atan2(pos.R, pos.z), pos.phi);
+    return PosSph(sqrt(pow_2(pos.R) + pow_2(pos.z)), atan2(pos.R, pos.z), pos.phi);
 }
 template<> PosCyl toPos(const PosProlSph& p) {
     if(fabs(p.nu)>p.coordsys.delta || p.lambda<p.coordsys.delta)
@@ -90,8 +90,16 @@ template<>
 PosCyl toPosDeriv(const PosCar& p, PosDerivT<Car, Cyl>* deriv, PosDeriv2T<Car, Cyl>* deriv2) 
 {
     const double R2=pow_2(p.x)+pow_2(p.y), R=sqrt(R2);
-//    if(R==0)
-//        throw std::runtime_error("PosDeriv Car=>Cyl: R=0, degenerate case!");
+    if(R==0) {
+        // degenerate case, but provide something meaningful nevertheless,
+        // assuming that these numbers will be multiplied by 0 anyway
+        if(deriv!=NULL)
+            deriv->dRdx=deriv->dRdy=deriv->dphidx=deriv->dphidy=1.;
+        if(deriv2!=NULL)
+            deriv2->d2Rdx2=deriv2->d2Rdy2=deriv2->d2Rdxdy=
+            deriv2->d2phidx2=deriv2->d2phidy2=deriv2->d2phidxdy=1.;
+        return PosCyl(0, p.z, 0);
+    }
     const double cosphi=p.x/R, sinphi=p.y/R;
     if(deriv!=NULL) {
         deriv->dRdx=cosphi;
@@ -173,7 +181,7 @@ PosCar toPosDeriv(const PosCyl& p, PosDerivT<Cyl, Car>* deriv, PosDeriv2T<Cyl, C
 
 template<>
 PosSph toPosDeriv(const PosCyl& p, PosDerivT<Cyl, Sph>* deriv, PosDeriv2T<Cyl, Sph>* deriv2) {
-    const double r = hypot(p.R, p.z);
+    const double r = sqrt(pow_2(p.R) + pow_2(p.z));
 //    if(r==0)
 //        throw std::runtime_error("PosDeriv Cyl=>Sph: r=0, degenerate case!");
     const double rinv= 1./r;
@@ -363,7 +371,7 @@ PosProlMod toPosDeriv(const PosCyl& p, const ProlMod& cs,
     double r2  = pow_2(p.R) + pow_2(p.z);
     double sum = 0.5 * (r2 + pow_2(cs.D));
     double dif = 0.5 * (r2 - pow_2(cs.D));
-    double det = p.z==0 || cs.D==0 ? sum : hypot(dif, p.R*cs.D);
+    double det = p.z==0 || cs.D==0 ? sum : sqrt(pow_2(dif) + pow_2(p.R*cs.D));
     double chi = sqrt(det + sum);
     double cosv= p.z / chi;
     double rho, sinv;  // accurate treatment to avoid cancellation
