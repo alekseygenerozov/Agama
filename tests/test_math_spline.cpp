@@ -10,7 +10,7 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
-#include <cmath>˚
+#include <cmath>
 #include <algorithm>
 #include <cstdlib>
 #include <ctime>
@@ -22,7 +22,7 @@
 const bool OUTPUT = utils::verbosityLevel >= utils::VL_VERBOSE;
 
 // provides the integral of sin(x)*x^n
-class testfnc: public math::IFunctionIntegral {
+class testfncsin: public math::IFunctionIntegral {
     virtual double integrate(double x1, double x2, int n=0) const {
         return antideriv(x2,n)-antideriv(x1,n);
     }
@@ -38,9 +38,9 @@ class testfnc: public math::IFunctionIntegral {
 };
 
 // provides the integrand for numerical integration of sin(x)*f(x)
-class testfncint: public math::IFunctionNoDeriv {
+class testfncintsin: public math::IFunctionNoDeriv {
 public:
-    testfncint(const math::IFunction& _f): f(_f) {};
+    testfncintsin(const math::IFunction& _f): f(_f) {};
     virtual double value(const double x) const {
         return sin(x) * f(x);
     }
@@ -58,27 +58,6 @@ public:
 private:
     const math::IFunction& f;
 };
-
-// test the integration of a spline function
-bool test_integral(const math::CubicSpline& f, double x1, double x2)
-{
-    double result_int = f.integrate(x1, x2);
-    double result_ext = math::integrateAdaptive(f, x1, x2, 1e-10);
-    std::cout << "Ordinary intergral on ["<<x1<<":"<<x2<<
-        "]: internal routine = "<<result_int<<", adaptive integration = "<<result_ext<<"\n";
-    if(fabs(result_int-result_ext)>1e-10) return false;
-    result_int = f.integrate(x1, x2, testfnc());
-    result_ext = math::integrateAdaptive(testfncint(f), x1, x2, 1e-10);
-    std::cout << "Weighted intergral on ["<<x1<<":"<<x2<<
-        "]: internal routine = "<<result_int<<", adaptive integration = "<<result_ext<<"\n";
-    if(fabs(result_int-result_ext)>1e-10) return false;
-    result_int = f.integrate(x1, x2, f);
-    result_ext = math::integrateAdaptive(squaredfnc(f), x1, x2, 1e-10);
-    std::cout << "Integral of f(x)^2 on ["<<x1<<":"<<x2<<
-        "]: internal routine = "<<result_int<<", adaptive integration = "<<result_ext<<"\n";
-    if(fabs(result_int-result_ext)>1e-10) return false;
-    return true;
-}
 
 // provides a function of 1 variable to interpolate
 class testfnc1d: public math::IFunction {
@@ -344,6 +323,28 @@ bool testPenalizedSplineDensity()
 }
 
 //-------- test cubic and quintic splines ---------//
+
+// test the integration of a spline function
+bool test_integral(const math::CubicSpline& f, double x1, double x2)
+{
+    double result_int = f.integrate(x1, x2);
+    double result_ext = math::integrateAdaptive(f, x1, x2, 1e-10);
+    std::cout << "Ordinary intergral on ["<<x1<<":"<<x2<<
+        "]: internal routine = "<<result_int<<", adaptive integration = "<<result_ext<<"\n";
+    if(fabs(result_int-result_ext)>1e-10) return false;
+    result_int = f.integrate(x1, x2, testfncsin());
+    result_ext = math::integrateAdaptive(testfncintsin(f), x1, x2, 1e-10);
+    std::cout << "Weighted intergral on ["<<x1<<":"<<x2<<
+        "]: internal routine = "<<result_int<<", adaptive integration = "<<result_ext<<"\n";
+    if(fabs(result_int-result_ext)>1e-10) return false;
+    result_int = f.integrate(x1, x2, f);
+    result_ext = math::integrateAdaptive(squaredfnc(f), x1, x2, 1e-10);
+    std::cout << "Integral of f(x)^2 on ["<<x1<<":"<<x2<<
+        "]: internal routine = "<<result_int<<", adaptive integration = "<<result_ext<<"\n";
+    if(fabs(result_int-result_ext)>1e-10) return false;
+    return true;
+}
+
 bool test1dSpline()
 {
     // accuracy of approximation of an oscillating fnc //
@@ -371,12 +372,19 @@ bool test1dSpline()
         fcubcl.evalDeriv(xnodes[i], NULL, &yderivscubcl[i]);
     }
     math::HermiteSpline fhercu(xnodes, yvalues, yderivscubcl);  // should be the same as fcubcl +- eps
+
+    math::BsplineInterpolator1d<3> fbspl3(xnodes);
+    std::vector<double> ampl3 = math::createBsplineInterpolator1dArray<3>(fnc, xnodes);
+    math::CubicSpline   fcubbs(xnodes, ampl3);
+
     std::ofstream strm;
     if(OUTPUT)
         strm.open("test_math_spline1d.dat");
-    double sumerrv3n = 0, sumerrv3 = 0, sumerrv5 = 0, sumerrvh = 0,
+
+    double sumerrv3n = 0, sumerrv3 = 0, sumerrv5 = 0, sumerrvh = 0, sumerrvb = 0,
         sumerrd3 = 0, sumerrd5 = 0, sumerrdh = 0, sumerrs3 = 0, sumerrs5 = 0, sumerrsh = 0,
-        maxdifhercu = 0;
+        maxdifhercu = 0, maxdifbscub = 0;
+
     for(int i=0; i<=(NNODES-1)*NSUBINT; i++) {
         double xa = xnodes[i/NSUBINT];
         double xb = i<(NNODES-1)*NSUBINT ? xnodes[i/NSUBINT+1] : xa;
@@ -392,10 +400,13 @@ bool test1dSpline()
         fhercu.evalDeriv(x, &yc, &ycp, &ycpp);
         double y5, y5p, y5pp, y5ppp=fquint.deriv3(x);
         fquint.evalDeriv(x, &y5, &y5p, &y5pp);
+        double yb = fbspl3.interpolate(x, ampl3);
+        double ybscub = fcubbs(x);
         sumerrv3n += pow_2(y0-y3n);
         sumerrv3  += pow_2(y0-y3);
         sumerrvh  += pow_2(y0-yh);
         sumerrv5  += pow_2(y0-y5);
+        sumerrvb  += pow_2(y0-yb);
         sumerrd3  += pow_2(y0p-y3p);
         sumerrdh  += pow_2(y0p-yhp);
         sumerrd5  += pow_2(y0p-y5p);
@@ -411,38 +422,48 @@ bool test1dSpline()
             ok &= y5  == yvalues[k] && y5p == yderivs[k];
         }
         maxdifhercu = fmax(maxdifhercu, fabs(yc-y3)+fabs(ycp-y3p)+fabs(ycpp-y3pp));
+        maxdifbscub = fmax(maxdifbscub, fabs(yb-ybscub));
         if(OUTPUT)
-            strm << x << '\t' << y0 << ' ' << 
-            y3n << ' ' << y3  << ' ' << yh  << ' ' << y5  << '\t' <<
+            strm << x << '\t' <<
+            y0  << ' ' << yb << ' ' << y3n << ' ' << y3  << ' ' << yh  << ' ' << y5  << '\t' <<
             y0p << ' ' << y3p << ' ' << yhp << ' ' << y5p << '\t' <<
             y0pp<< ' ' << y3pp<< ' ' << yhpp<< ' ' << y5pp<< '\t' <<
             y0ppp << ' ' << y5ppp << "\n";
     }
+    if(OUTPUT)
+        strm.close();
     sumerrv3n = (sqrt(sumerrv3n / ((NNODES-1)*NSUBINT)));
     sumerrv3  = (sqrt(sumerrv3  / ((NNODES-1)*NSUBINT)));
     sumerrvh  = (sqrt(sumerrvh  / ((NNODES-1)*NSUBINT)));
     sumerrv5  = (sqrt(sumerrv5  / ((NNODES-1)*NSUBINT)));
+    sumerrvb  = (sqrt(sumerrvb  / ((NNODES-1)*NSUBINT)));
     sumerrd3  = (sqrt(sumerrd3  / ((NNODES-1)*NSUBINT)));
     sumerrdh  = (sqrt(sumerrdh  / ((NNODES-1)*NSUBINT)));
     sumerrd5  = (sqrt(sumerrd5  / ((NNODES-1)*NSUBINT)));
     sumerrs3  = (sqrt(sumerrs3  / ((NNODES-1)*NSUBINT)));
     sumerrsh  = (sqrt(sumerrsh  / ((NNODES-1)*NSUBINT)));
     sumerrs5  = (sqrt(sumerrs5  / ((NNODES-1)*NSUBINT)));
-    std::cout << "RMS error in cubic spline: " << sumerrv3n <<
+    std::cout << "RMS error in ordinary cubic spline: " << sumerrv3n <<
         ", in clamped cubic spline: " << sumerrv3 <<
         ", in hermite cubic spline: " << sumerrvh <<
+        ", in cubic B-spline: " << sumerrvb <<
         ", in quintic spline: " << sumerrv5 << 
-        ", max|cubic-hermite|=" << maxdifhercu << "\n";
-    ok &= maxdifhercu < 1e-13 && sumerrv3n<5e-3 &&
+        ", max|cubic-hermite|=" << maxdifhercu << 
+        ", max|cubbs-bspline|=" << maxdifbscub << "\n";
+    ok &= maxdifhercu < 1e-13 && maxdifbscub < 1e-15 &&
+        sumerrvb<1.4e-4 && sumerrv3n<5e-3 &&
         sumerrv3<2.7e-4 && sumerrvh<2.3e-4 && sumerrv5<3.4e-5 &&
         sumerrd3<1.8e-3 && sumerrdh<1.3e-3 && sumerrd5<9e-4   &&
         sumerrs3<0.04   && sumerrsh<0.04   && sumerrs5<0.05;
-    if(OUTPUT)
-        strm.close();
 
-    // test the integration function //
-    ok &= test_integral(fcubcl, (xnodes[0]+xnodes[1])/2, xnodes.back());
+    // test the integration functions //
+    const double X1 = (xnodes[0]+xnodes[1])/2, X2 = xnodes[xnodes.size()-2]-0.1;
+    ok &= test_integral(fcubcl, X1, X2);
     ok &= test_integral(fcubna, -1.234567, xnodes.back()+1.);
+    double intcub = fcubbs.integrate(X1, X2);
+    double intbsp = fbspl3.integrate(X1, X2, ampl3);
+    double intnum = math::integrateAdaptive(fcubbs, X1, X2, 1e-10);
+    ok &= fabs(intcub-intnum) < 1e-10 && fabs(intcub-intbsp) < 1e-14;
 
     return ok;
 }
@@ -690,8 +711,8 @@ bool test3dSpline()
     yval=math::createUniformGrid(NNODESY, 0, 3),
     zval=math::createUniformGrid(NNODESZ, 0, 5);
     math::Matrix<double> samples;
-    std::vector<double> lval3d(math::createInterpolator3dArray<1>(fnc3d, xval, yval, zval));
-    std::vector<double> cval3d(math::createInterpolator3dArray<3>(fnc3d, xval, yval, zval));
+    std::vector<double> lval3d(math::createBsplineInterpolator3dArray<1>(fnc3d, xval, yval, zval));
+    std::vector<double> cval3d(math::createBsplineInterpolator3dArray<3>(fnc3d, xval, yval, zval));
     /*
     double integr_quad, interr_quad, integr_samp, interr_samp;
     const double xlower[3] = {xval.front(), yval.front(), zval.front()};
@@ -773,8 +794,8 @@ int main()
 {
     std::cout << std::setprecision(12);
     bool ok=true;
-    ok &= testPenalizedSplineFit() || printFail("Penalized spline fit");
-    ok &= testPenalizedSplineDensity() || printFail("Penalized spline density estimator");
+    //ok &= testPenalizedSplineFit() || printFail("Penalized spline fit");
+    //ok &= testPenalizedSplineDensity() || printFail("Penalized spline density estimator");
     ok &= test1dSpline() || printFail("1d spline");
     ok &= test2dSpline() || printFail("2d spline");
     ok &= test3dSpline() || printFail("3d spline");
