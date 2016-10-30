@@ -129,7 +129,7 @@ double computeVelocityDistribution(const GalaxyModel& model,
     std::vector<double>& amplVR,
     std::vector<double>& amplVz,
     std::vector<double>& amplVphi,
-    const double reqRelError=1e-2, const int maxNumEval=1e5);
+    const double reqRelError=1e-2, const int maxNumEval=1e6);
 
 
 /** Compute the value of 'projected distribution function' at the given point

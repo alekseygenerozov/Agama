@@ -174,7 +174,7 @@ void writeVelocityDistributions(const std::string& fileName, const galaxymodel::
     model.potential.eval(point, &Phi, &dPhi);
     double v_escape = sqrt(-2*Phi);
     double v_circ   = sqrt(dPhi.dR*point.R);
-    double v_max     = fmin(v_escape, 2*v_circ);
+    double v_max    = fmin(v_escape, 2*v_circ);
     // create grids in velocity space
     std::vector<double> gridVR   = math::createUniformGrid(41, -v_max, v_max);
     std::vector<double> gridVz   = math::createUniformGrid(41, -v_max, v_max);

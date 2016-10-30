@@ -342,7 +342,7 @@ inline double interpHermiteMonotonic(double x, double x1, double f1, double dfdx
 {
     // derivatives must exist and have the same sign
     // (but shouldn't bee too large, otherwise we have an overflow -- apparently a bug in gsl_poly_solve)
-    if(!gsl_finite(dfdx1+dfdx2) || dfdx1*dfdx2<0 || fabs(dfdx1*dfdx1)>1e100)
+    if(!isFinite(dfdx1+dfdx2) || dfdx1*dfdx2<0 || fabs(dfdx1)>1e100 || fabs(dfdx2)>1e100)
         return NAN;
     const double dx = x2-x1, sixdf = 6*(f2-f1);
     const double t = (x-x1)/dx;
