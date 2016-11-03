@@ -100,11 +100,12 @@ static inline void scaleE(const double E, const double invPhi0,
 
 /// return E and dE/d(scaledE) as functions of scaledE
 static inline void unscaleE(const double scaledE, const double invPhi0,
-    /*output*/ double& E, double& dEdscaledE)
+    /*output*/ double& E, double& dEdscaledE, double& d2EdscaledE2)
 {
     double expE = exp(scaledE);
     E           = 1 / (invPhi0 - expE);
     dEdscaledE  = E * E * expE;
+    d2EdscaledE2= E * dEdscaledE * (invPhi0 + expE);
 }
 
 /// same as above, but for two separate values of E1 and E2;
@@ -121,7 +122,98 @@ static inline void unscaleDeltaE(const double scaledE1, const double scaledE2, c
     dE1dscaledE1 = E1 * E1 * exp1;
 }
 
+
+/// helper class for interpolating the density as a function of phase volume,
+/// used in the Eddington inversion routine,
+/// optionally with an asymptotic expansion for a constant-density core.
+class DensityInterp: public math::IFunctionNoDeriv {
+    const std::vector<double> &logh, &logrho;
+    const math::CubicSpline spl;
+    double logrho0, A, B, loghmin;
+    int offset;
+
+    // function used in the root-finder
+    virtual double value(const double B1) const {
+        double ratio = (logrho[offset+0]-logrho[offset+1]) / (logrho[offset+1]-logrho[offset+2]);
+        if(B1==0)
+            return (logh[offset+0] - logh[offset+1]) / (logh[offset+1] - logh[offset+2]) - ratio;
+        if(B1==1)
+            return -ratio;
+        double B = B1 / (1-B1);  // scaled exponent
+        double h0B = exp(B*logh[offset+0]), h1B = exp(B*logh[offset+1]), h2B = exp(B*logh[offset+2]);
+        return (h0B - h1B) / (h1B - h2B) - ratio;
+    }
+
+    // evaluate log(rho) and its derivatives w.r.t. log(h) using the asymptotic expansion
+    void asympt(const double logh, /*output*/ double& logrho, double& dlogrho, double& d2logrho) const
+    {
+        double AhB = A * exp(B * logh);
+        logrho     = logrho0 + log(1 + AhB);
+        dlogrho    = B / (1 + 1 / AhB);
+        d2logrho   = B / (1 + AhB) * dlogrho;
+    }
+
+public:
+    // initialize the spline for log(rho) as a function of log(h),
+    // and check if the density is approaching a constant value as h-->0;
+    /// if it does, then determines the coefficients of its asymptotic expansion
+    /// rho(h) = rho0 * (1 + A * h^B)
+    DensityInterp(const std::vector<double>& _logh, const std::vector<double>& _logrho) :
+        logh(_logh), logrho(_logrho),
+        spl(logh, logrho),
+        logrho0(-INFINITY), A(0), B(0), loghmin(-INFINITY), offset(0)
+    {
+        if(logh.size()<4)
+            return;
+        // try determining the exponent B from the first three grid points
+        offset = 0;
+        double B1a = math::findRoot(*this, 0, 1, EPS2DER);
+        if(!(B1a > 0.05 && B1a < 0.95))
+            return;
+        // now try the same using three points shifted by one
+        offset = 1;
+        double B1b = math::findRoot(*this, 0, 1, EPS2DER);
+        if(!(B1b > 0.05 && B1b < 0.95))
+            return;
+        // consistency check - if the two values differ significantly, we're getting nonsense
+        if(B1a < B1b*0.95 || B1b < B1a*0.95)
+            return;
+        B = B1a / (1-B1a);
+        A = (logrho[0] - logrho[1]) / (exp(B*logh[0]) - exp(B*logh[1]));
+        logrho0 = logrho[0] - A * exp(B*logh[0]);
+        if(logrho0!=logrho0)
+            return;
+
+        utils::msg(utils::VL_VERBOSE, "makeEddingtonDF",
+            "Density core: rho="+utils::toString(exp(logrho0))+"*(1"+(A>0?"+":"")+
+            utils::toString(A)+"*h^"+utils::toString(B)+") at small h");
+
+        // now need to determine the critical value of log(h)
+        // below which we will use the asymptotic expansion
+        for(unsigned int i=3; i<logh.size(); i++) {
+            loghmin = logh[i];
+            double corelogrho, coredlogrho, cored2logrho;  // values returned by the asymptotic expansion
+            asympt(logh[i], corelogrho, coredlogrho, cored2logrho);
+            if(!(fabs((corelogrho-logrho[i]) / (corelogrho-logrho0)) < 1e-4))
+                break;   // TODO: come up with a more rigorous method...
+        }
+    }
+
+    /// returns the interpolated value for log(rho) as a function of log(h),
+    /// together with its two derivatives.
+    /// It automatically switches to the asymptotic expansion if necessary.
+    void interpolate(const double logh, /*output*/ double& logrho, double& dlogrho, double& d2logrho) const
+    {
+        if(logh < loghmin)
+            asympt(logh, logrho, dlogrho, d2logrho);
+        else
+            spl.evalDeriv(logh, &logrho, &dlogrho, &d2logrho);
+    }
+
+};
+
 }  // internal namespace
+
 
 //---- Correspondence between h and E ----//
 
@@ -216,7 +308,7 @@ void PhaseVolume::evalDeriv(const double E, double* h, double* g, double*) const
         *g *= val / dEdscaledE;
 }
 
-double PhaseVolume::E(const double h, double* g) const
+double PhaseVolume::E(const double h, double* g, double* dgdh) const
 {
     if(h==0) {
         if(g) *g=0;
@@ -226,11 +318,16 @@ double PhaseVolume::E(const double h, double* g) const
         if(g) *g=INFINITY;
         return 0;
     }
-    double scaledE, dEdscaledE, realE;
-    EofH.evalDeriv(log(h), &scaledE, g);
-    unscaleE(scaledE, invPhi0, realE, dEdscaledE);
+    double scaledE, dEdscaledE, d2EdscaledE2, realE, dscaledEdlogh, d2scaledEdlogh2;
+    EofH.evalDeriv(log(h), &scaledE,
+        g!=NULL || dgdh!=NULL ? &dscaledEdlogh : NULL,
+        dgdh!=NULL ? &d2scaledEdlogh2 : NULL);
+    unscaleE(scaledE, invPhi0, realE, dEdscaledE, d2EdscaledE2);
     if(g)
-        *g = h / *g / dEdscaledE;
+        *g = h / ( dEdscaledE * dscaledEdlogh );
+    if(dgdh)
+        *dgdh = ( (1 - d2scaledEdlogh2 / dscaledEdlogh) / dscaledEdlogh -
+            d2EdscaledE2 / dEdscaledE ) / dEdscaledE;
     return realE;
 }
 
@@ -265,13 +362,15 @@ SphericalIsotropic::SphericalIsotropic(const std::vector<double>& gridh, const s
     // f(h) ~ h^slopeIn, df/dh = slopeIn * f / h = d(log f) / d(log h) * f / h
     spl = math::CubicSpline(sh, sf, slopeIn, slopeOut);
     // check correctness of asymptotic behaviour
-    double der;
-    spl.evalDeriv(sh.front(), NULL, &der);
-    if(!(der > -1))
+    double der_in, der_out;
+    spl.evalDeriv(sh.front(), NULL, &der_in);
+    if(!(der_in > -1))
         throw std::runtime_error("SphericalIsotropic: f(h) rises too steeply as h-->0");
-    spl.evalDeriv(sh.back(), NULL, &der);
-    if(!(der < -1))
+    spl.evalDeriv(sh.back(), NULL, &der_out);
+    if(!(der_out < -1))
         throw std::runtime_error("SphericalIsotropic: f(h) falls too slowly as h-->infinity");
+    utils::msg(utils::VL_VERBOSE, "SphericalIsotropic", "f(h) ~ h^"+utils::toString(der_in)+
+        " at small h, and ~h^"+utils::toString(der_out)+" at large h");
 }
 
 double SphericalIsotropic::value(const double h) const
@@ -282,10 +381,133 @@ double SphericalIsotropic::value(const double h) const
 }
 
 
-SphericalIsotropic makeEddingtonDF(const math::IFunction& /*density*/, const math::IFunction& /*potential*/)
+//---- Eddington inversion ----//
+
+void makeEddingtonDF(const math::IFunction& density, const math::IFunction& potential,
+    /*output*/ std::vector<double>& gridh, std::vector<double>& gridf)
 {
-    throw std::runtime_error("makeEddingtonDF not implemented");
+    // 1. construct a phase-volume interpolator
+    PhaseVolume phasevol(potential);
+
+    // 2. sweep through a grid in radius and record h(r), rho(r)
+    std::vector<double> gridPhi, gridlogrho, gridlogh;  // log(density) as a function of log(h)
+    const double logRinit = 0; // initial value of log radius (rather arbitrary but doesn't matter)
+    double logR = logRinit;
+    int   stage = 0;   // 0 means scan inward, 1 - outward, 2 - done
+    while(stage<2) {   // first scan inward in radius, then outward, then stop
+        double R    = exp(logR);
+        double Phi  = potential(R);
+        double rho  = density(R);
+        double logH = log(phasevol(Phi));
+        if(rho>0) {
+            gridlogh.  push_back(logH);
+            gridlogrho.push_back(log(rho));
+            gridPhi.   push_back(Phi);
+        }
+        if(stage == 0 && logH < phasevol.logHmin()-4.) {
+            std::reverse(gridlogh.  begin(), gridlogh.  end());
+            std::reverse(gridlogrho.begin(), gridlogrho.end());
+            std::reverse(gridPhi.   begin(), gridPhi.   end());
+            stage = 1;
+            logR  = logRinit;
+        }
+        if(stage == 1 && logH > phasevol.logHmax()+1.)
+            stage = 2;  // finish
+        logR += DELTALOG * (stage*2-1);
+    }
+
+    // 3. construct a spline for log(rho) as a function of log(h),
+    // optionally with an asymptotic expansion in the case of a constant-density core
+    DensityInterp densityInterp(gridlogh, gridlogrho);
+
+    // 4. compute the integrals for f(h) at each point in the h-grid
+    unsigned int gridsize = gridlogh.size();
+    gridf.resize(gridsize);  // f(h_i) = int_{h[i]}^{infinity}
+    gridh.resize(gridsize);
+    for(unsigned int i=0; i<gridsize; i++)
+        gridh[i] = exp(gridlogh[i]);
+
+    // 4a. prepare integration tables
+    const unsigned int GLORDER = 8;
+    double glnodes[GLORDER], glweights[GLORDER];
+    math::prepareIntegrationTableGL(0, 1, GLORDER, glnodes, glweights);
+
+    // 4b. integrate from log(h_max) = logh[gridsize-1] to infinity, or equivalently, 
+    // from Phi(r_max) to 0, assuming that Phi(r) ~ -1/r and h ~ r^(3/2) in the asymptotic regime.
+    // First we find the slope d(logrho)/d(logh) at h_max
+    double logrho, dlogrho, d2logrho;
+    densityInterp.interpolate(gridlogh.back(), logrho, dlogrho, d2logrho);
+    double slope = -1.5*dlogrho;  // density at large radii is ~ r^(-slope)
+    utils::msg(utils::VL_VERBOSE, "makeEddingtonDF",
+        "Density is ~r^"+utils::toString(-slope)+" at large r");
+    double mult  = 0.5 / M_SQRT2 / M_PI / M_PI;
+    // next we compute analytically the values of all integrals for f(h_j) on the segment h_max..infinity
+    for(unsigned int j=0; j<gridsize; j++) {
+        try{
+            double factor = j==gridsize-1 ?
+                (slope-1) * M_SQRTPI * math::gamma(slope-1) / math::gamma(slope-0.5) :
+                math::hypergeom2F1(0.5, slope-1, slope, gridPhi.back() / gridPhi[j]);
+            gridf[j] = mult * slope * exp(logrho) / -gridPhi.back() * factor / sqrt(-gridPhi[j]);
+        }
+        catch(std::exception&) {
+            // do nothing (keep f=0) in case of arithmetic overflow (outer slope too steep)
+        }
+    }
+
+    // 4c. integrate from logh[i-1] to logh[i] for all i=1..gridsize-1
+    for(unsigned int i=gridsize-1; i>0; i--)
+    {
+        for(unsigned int k=0; k<GLORDER; k++)
+        {
+            // node of Gauss-Legendre quadrature within the current segment (logh[i-1] .. logh[i]);
+            // the integration variable y ranges from 0 to 1, and logh(y) is defined below
+            double y = glnodes[k];
+            double logh = gridlogh[i-1] + (gridlogh[i]-gridlogh[i-1]) * y*y;
+            // compute E, g, dg/dh at the current point h (GL node)
+            double h = exp(logh), g, dgdh;
+            double E = phasevol.E(h, &g, &dgdh);
+            // compute log[rho](log[h]) and its derivatives
+            densityInterp.interpolate(logh, logrho, dlogrho, d2logrho);
+            // GL weight -- contribution of this point to each integral on the current segment,
+            // taking into account the transformation of variable y -> logh
+            double weight = glweights[k] * 2*y * (gridlogh[i]-gridlogh[i-1]);
+            // common factor for all integrals - the derivative d^2\rho / d\Phi^2,
+            // expressed in scaled and transformed variables
+            double factor = (d2logrho * g / h + dlogrho * ( (dlogrho-1) * g / h + dgdh) ) * exp(logrho);
+            // now add a contribution to the integral expressing f(h_j) for all h_j <= h[i-1]
+            for(unsigned int j=0; j<i; j++) {
+                double denom2 = E - gridPhi[j];
+                if(denom2 < fabs(gridPhi[i]) * 1e-8)              // loss of precision is possible:
+                    denom2 = phasevol.deltaE(logh, gridlogh[j]);  // use a more accurate expression
+                gridf[j] += mult * weight * factor / sqrt(denom2);
+            }
+        }
+    }
+
+    // results are returned in the two arrays, gridh and gridf
 }
+
+SphericalIsotropic makeEddingtonDF(const math::IFunction& density, const math::IFunction& potential)
+{
+    std::vector<double> gridh, gridf;
+    makeEddingtonDF(density, potential, gridh, gridf);
+    assert(gridh.size() == gridf.size());
+    bool hasNegativeF = false;
+    for(unsigned int i=0; i<gridf.size();) {
+        if(gridf[i]<=0) {
+            gridf.erase(gridf.begin() + i);
+            gridh.erase(gridh.begin() + i);
+            hasNegativeF = true;
+        } else
+            i++;
+    }
+    if(hasNegativeF)
+        utils::msg(utils::VL_WARNING, "makeEddingtonDF", "Distribution function is negative");
+    return SphericalIsotropic(gridh, gridf);
+}
+
+
+//---- Construction of f(h) from an N-body snapshot ----//
 
 SphericalIsotropic fitSphericalDF(
     const std::vector<double>& hvalues, const std::vector<double>& masses, unsigned int gridSize)
@@ -349,6 +571,8 @@ SphericalIsotropic fitSphericalDF(
     return SphericalIsotropic(gridh, gridf, slopeIn, slopeOut);
 }
 
+
+//---- Computation of diffusion coefficients ----//
 
 DiffusionCoefs::DiffusionCoefs(const PhaseVolume& _phasevol, const math::IFunction& df) :
     phasevol(_phasevol)

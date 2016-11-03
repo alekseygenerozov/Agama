@@ -654,8 +654,8 @@ void computePotentialCoefsSph(const BaseDensity& dens,
     }
 
     // prepare tables for (non-adaptive) integration over radius
-    std::vector<double> glx(ORDER_RAD_INT), glw(ORDER_RAD_INT);  // Gauss-Legendre nodes and weights
-    math::prepareIntegrationTableGL(0, 1, ORDER_RAD_INT, &glx.front(), &glw.front());
+    double glx[ORDER_RAD_INT], glw[ORDER_RAD_INT];  // Gauss-Legendre nodes and weights
+    math::prepareIntegrationTableGL(0, 1, ORDER_RAD_INT, glx, glw);
 
     // prepare SH transformation
     math::SphHarmTransformForward trans(ind);

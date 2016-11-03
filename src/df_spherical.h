@@ -54,12 +54,21 @@ public:
     /// which must be monotonic in radius (otherwise a std::runtime_error exception is thrown)
     explicit PhaseVolume(const math::IFunction& potential);
 
-    /// return the phase volume h for the given energy, and optionally its derivative (density of states)
+    /** compute h and g from E.
+        \param[in]  E is the energy (may be arbitrary;
+        if E>=0, return infinity, if E<=Phi(0), return 0);
+        \param[out] h is the phase volume corresponding to the given energy;
+        \param[out] g is the density of states (dh/dE), if this pointer is NULL then it's not computed.
+    */
     virtual void evalDeriv(const double E, double* h=NULL, double* g=NULL, double* =NULL) const;
 
-    /// return the energy corresponding to the given phase volume h,
-    /// and optionally the derivative g = dh(E) / dE if the second argument is not NULL
-    double E(const double h, double* g=NULL) const;
+    /** compute E, g and dg/dh from h.
+        \param[in]  h  is the phase volume [0..infinity]
+        \param[out] g  is the density of states, g=1/(dE/dh), if NULL then it's not computed;
+        \param[out] dgdh is the derivative dg/dh, if NULL then it's not computed; 
+        \return  the energy E corresponding to the given phase volume h.
+    */
+    double E(const double h, double* g=NULL, double* dgdh=NULL) const;
 
     /// compute deltaE = E(h1) - E(h2) in a way that does not suffer from cancellation;
     /// h1 and h2 are specified through their logarithms
@@ -115,6 +124,26 @@ private:
     from a spherically-symmetric `BaseDensity` object using the wrapper class `DensityWrapper`.
     \param[in]  potential  is any one-dimensional function representing the spherically-symmetric
     potential (may be constructed using the `PotentialWrapper` class).
+    \param[out]  gridh  is the array of phase volumes at which the DF is defined;
+    \param[out]  gridf  is the array of DF values at corresponding nodes of gridh,
+    these two arrays may be passed to the constructor of the SphericalIsotropic class,
+    however, keep in mind that these values are not guaranteed to be positive.
+*/
+void makeEddingtonDF(const math::IFunction& density, const math::IFunction& potential,
+    /*output*/ std::vector<double>& gridh, std::vector<double>& gridf);
+
+/** Construct a spherical isotropic distribution function using the Eddington formula.
+    This is a convenience overloaded routine that first computes the values of f at a grid in h,
+    using the previous function with the same name, then eliminates negative points,
+    and creates an instance of SphericalIsotropic class.
+    This may still fail if the asymptotic behaviour of f(h) is inconsistent with a finite-mass model.
+    \param[in]  density   is any one-dimensional function returning rho(r);
+    \param[in]  potential  is any one-dimensional function representing the potential;
+    \return  an instance of SphericalIsotropic interpolated distribution function.
+    \throw   std::runtime_error if the DF is badly behaving at large or small h,
+    or some other exception in case of any other problem encountered.
+    Negative values of f are not an exception - they are simply eliminated,
+    with a warning message printed if utils::verbosityLevel >= utils::VL_WARNING.
 */
 SphericalIsotropic makeEddingtonDF(const math::IFunction& density, const math::IFunction& potential);
 

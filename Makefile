@@ -132,7 +132,7 @@ $(OBJDIR)/%.o:  $(SRCDIR)/%.cpp Makefile.local
 	@mkdir -p $(OBJDIR)
 	$(CXX) -c $(CXXFLAGS) $(DEFINES) $(INCLUDES) -o "$@" "$<"
 
-$(OBJDIR)/%.o:  $(TORUSDIR)/%.cc
+$(OBJDIR)/%.o:  $(TORUSDIR)/%.cc Makefile.local
 	$(CXX) -c $(CXXFLAGS) $(TORUSFLAGS) $(INCLUDES) -o "$@" "$<"
 
 clean:
