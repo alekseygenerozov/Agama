@@ -5,7 +5,7 @@
 */
 #pragma once
 #include "df_base.h"
-#include "df_spherical.h"
+#include "galaxymodel_spherical.h"
 #include "actions_spherical.h"
 
 namespace df{
@@ -28,16 +28,16 @@ namespace df{
     distributions -- hence the name "pseudo".
 */
 class PseudoIsotropic: public BaseDistributionFunction{
-    const SphericalIsotropic fnc;  ///< one-dimensional function of spherical phase volume h
-    const PhaseVolume pv;          ///< correspondence between E and h
+    const math::LogLogSpline df;    ///< one-dimensional function of spherical phase volume h
+    const potential::PhaseVolume pv;          ///< correspondence between E and h
     const actions::ActionFinderSpherical af;  ///< correspondence between (Jr,L) and E
 public:
-    PseudoIsotropic(const SphericalIsotropic& _fnc, const potential::BasePotential& potential) :
-        fnc(_fnc), pv(potential::PotentialWrapper(potential)), af(potential) {}
+    PseudoIsotropic(const math::LogLogSpline& _df, const potential::BasePotential& potential) :
+        df(_df), pv(potential::PotentialWrapper(potential)), af(potential) {}
 
     virtual double value(const actions::Actions &J) const
     {
-        return fnc(pv(af.E(J)));
+        return df(pv(af.E(J)));
     }
 };
 

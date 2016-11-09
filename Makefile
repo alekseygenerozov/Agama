@@ -25,9 +25,9 @@ SOURCES   = \
             df_factory.cpp \
             df_halo.cpp \
             df_interpolated.cpp \
-            df_spherical.cpp \
             galaxymodel.cpp \
             galaxymodel_selfconsistent.cpp \
+            galaxymodel_spherical.cpp \
             math_core.cpp \
             math_fit.cpp \
             math_linalg.cpp \

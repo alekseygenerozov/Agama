@@ -1803,7 +1803,7 @@ static df::PtrDistributionFunction DistributionFunction_initFromDict(PyObject* n
         } else
             dens = pot;
         return df::PtrDistributionFunction(new df::PseudoIsotropic(
-            df::makeEddingtonDF(potential::DensityWrapper(*dens),
+            galaxymodel::makeEddingtonDF(potential::DensityWrapper(*dens),
             potential::PotentialWrapper(*pot)), *pot));
     }
     return df::createDistributionFunction(params, pot.get(), *conv);  // any other DF type
