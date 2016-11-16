@@ -718,6 +718,26 @@ Also, the \Python interface provides a way to supply a user-defined \Python call
 \subsection{Mathematical methods}
 
 %%%%%%%%%%%%%%
+\subsubsection{Basis splines}  \label{sec:MathSplineDetails}
+
+We often need to represent approximately an arbitrary function of one variable, defined on a finite or infinite interval.
+This is conventionally achieved by using a basis-set expansion, that is, the function $f(x)$ is approximated as a weighted sum $\tilde f^{(M)}$ of a finite number ($M$) of basis functions, and the accuracy of approximation improves as we increase the number of terms:
+\begin{subequations}
+\begin{align}
+\tilde f^{(M)}(x) = \sum_{i=1}^M A_i\,B_i(x).
+\end{align}
+The coefficients of expansion $A_i$ satisfy the linear system of equations
+\begin{align}
+C_j \equiv \int \tilde f^{(M)}(x)\, B_j(x)\, dx = \sum_{i=1}^M A_i\, \mathsf{B}_{ij} \;,\quad
+\mathsf{B}_{ij} \equiv \int B_i(x)\,B_j(x)\,dx
+\end{align}
+\end{subequations}
+Now if we compute $C_j$ by putting the original function $f(x)$ into the above integral, and solve the resulting linear system to obtain $A_i$, this gives an approximation of the original function.
+
+There are many possible choices of basis sets: for instance, for a periodic function the natural choice are the trigonometric functions, forming the Fourier expansion.
+B-splines of degree $N$ are a set of piecewise-polynomial functions defined by the nodes of a grid: $x_i, i=1..M$. The number of basis functions is $M+N-1$, and each one is 
+
+%%%%%%%%%%%%%%
 \subsubsection{Penalized spline regression}  \label{sec:MathSplineApproxDetails}
 
 Suppose we have $N_\mathrm{data}$ points $\{x_i, y_i\}$, and we need to find a smooth function $y=f(x)$ that approximates the data in the least-square sense, but does not fluctuate too much -- in other words, minimize the functional

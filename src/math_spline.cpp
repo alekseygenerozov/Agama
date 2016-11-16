@@ -391,9 +391,12 @@ BaseInterpolator1d::BaseInterpolator1d(const std::vector<double>& xv, const std:
     if(xv.size() < 2)
         throw std::invalid_argument("Error in 1d interpolator: number of nodes should be >=2");
     for(unsigned int i=1; i<xv.size(); i++)
-        if(xv[i] <= xv[i-1])
+        if(!(xv[i] > xv[i-1]))
             throw std::invalid_argument("Error in 1d interpolator: "
                 "x values must be monotonically increasing");
+    for(unsigned int i=0; i<fv.size(); i++)
+        if(!isFinite(fv[i]))
+            throw std::invalid_argument("Error in 1d interpolator: y values must be finite");
 }
 
 LinearInterpolator::LinearInterpolator(const std::vector<double>& xv, const std::vector<double>& yv) :
@@ -869,7 +872,11 @@ LogSpline::LogSpline(const std::vector<double>& xvalues, const std::vector<doubl
     double derivLeft, double derivRight)
 {
     std::vector<double> logfvalues(fvalues.size());
-    std::transform(fvalues.begin(), fvalues.end(), logfvalues.begin(), log);
+    for(unsigned int i=0; i<fvalues.size(); i++) {
+        if(!(fvalues[i]>0))
+            throw std::invalid_argument("LogSpline: input values must be positive");
+        logfvalues[i] = log(fvalues[i]);
+    }
     derivLeft  /= fvalues.front();
     derivRight /= fvalues.back ();
     S = CubicSpline(xvalues, logfvalues, derivLeft, derivRight);
@@ -891,10 +898,17 @@ void LogSpline::evalDeriv(const double x, double* value, double* deriv, double* 
 LogLogSpline::LogLogSpline(const std::vector<double>& xvalues, const std::vector<double>& fvalues,
     double derivLeft, double derivRight)
 {
-    std::vector<double> logxvalues(xvalues.size());
-    std::transform(xvalues.begin(), xvalues.end(), logxvalues.begin(), log);
-    std::vector<double> logfvalues(fvalues.size());
-    std::transform(fvalues.begin(), fvalues.end(), logfvalues.begin(), log);
+    std::vector<double> logxvalues(xvalues.size()), logfvalues(fvalues.size());
+    for(unsigned int i=0; i<xvalues.size(); i++) {
+        if(!(xvalues[i]>0))
+            throw std::invalid_argument("LogSpline: input values must be positive");
+        logxvalues[i] = log(xvalues[i]);
+    }
+    for(unsigned int i=0; i<fvalues.size(); i++) {
+        if(!(fvalues[i]>0))
+            throw std::invalid_argument("LogSpline: input values must be positive");
+        logfvalues[i] = log(fvalues[i]);
+    }
     derivLeft  *= xvalues.front() / fvalues.front();
     derivRight *= xvalues.back () / fvalues.back ();
     S = CubicSpline(logxvalues, logfvalues, derivLeft, derivRight);
