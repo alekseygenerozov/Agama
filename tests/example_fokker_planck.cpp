@@ -174,6 +174,7 @@ int main(int argc, char* argv[])
     int nsubstep= args.getInt("nsubstep", 8);
     int nstepout= args.getInt("nstepout", 0);
     double timeout=args.getDouble("timeout", 0);
+    bool updatepot=args.getBool("updatepot", true);
     std::string fileout = args.getString("fileout");
     if(fileout.empty())
         timeout = nstepout = 0;
@@ -211,7 +212,10 @@ int main(int argc, char* argv[])
         dt = fmin(dtmax, fmax(dtmin, dt * eps / relChange));
         nstep++;
         if(nstep % nsubstep == 0) {
-            fp.reinitPotential();
+            if (updatepot){
+                std::cout<<updatepot<<std::endl;
+                fp.reinitPotential();
+            }
             fp.reinitDifCoefs();
         }
     }
