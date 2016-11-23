@@ -41,6 +41,7 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <cstdlib>
 
 /// read a text file with the mass profile
 /// (two columns -- radius and the enclosed mass within this radius),
