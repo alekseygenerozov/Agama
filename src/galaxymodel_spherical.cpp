@@ -920,7 +920,7 @@ static potential::Interpolator computePotential(
 } // internal namespace
 
 FokkerPlanckSolver::FokkerPlanckSolver(
-    const math::IFunction& initDensity, const potential::PtrPotential& externalPotential,
+    const math::IFunction& initDensity, const math::IFunction& bkgdDensity, const potential::PtrPotential& externalPotential,
     const std::vector<double>& inputgridh) :
     extPot(externalPotential),
     totalPot(computePotential(initDensity, externalPotential, 0, 0, /*diagnostic output*/ Phi0)),
@@ -929,6 +929,8 @@ FokkerPlanckSolver::FokkerPlanckSolver(
 {
     // construct the initial distribution function
     makeEddingtonDF(initDensity, totalPot, /*output*/ gridh, gridf);
+    //Mass ratio of the 2 different species
+    makeEddingtonDF(bkgdDensity, totalPot, /*output*/ gridh, gridf2);
     if(!inputgridh.empty()) {
         // a grid in phase space was provided and we will try to respect it,
         // even though the Eddington inversion routine may have eliminated some of its nodes:
@@ -986,9 +988,11 @@ void FokkerPlanckSolver::reinitDifCoefs()
 {
     // 1. construct the interpolated distribution function from the values of f on the grid
     math::LogLogSpline df(gridh, gridf);
+    math::LogLogSpline df2(gridh, gridf2);
 
     // 2. construct the spherical model for this DF in the current potential, used to compute dif.coefs
     SphericalModel model(phasevol, df);
+    SphericalModel model2(phasevol, df2);
     double mult = 16*M_PI*M_PI * model.cumulMass();
     // 2a. store diagnostic quantities
     Mass = model.cumulMass();
@@ -1015,13 +1019,17 @@ void FokkerPlanckSolver::reinitDifCoefs()
     // 3a. intermediate quantities W_{+,-} and C
     for(unsigned int i=1; i<gridsize; i++) {
         double
-            intf  = model.I0(xcenter[i]),
-            intfg = model.cumulMass(xcenter[i]),
-            intfh = model.cumulEkin(xcenter[i]) * (2./3),
-            h     = exp(xcenter[i]), g;
+                intf  = model.I0(xcenter[i]),
+                intf2  = model2.I0(xcenter[i]),
+                intfg = model.cumulMass(xcenter[i]),
+                intfg2 = model2.cumulMass(xcenter[i]),
+                intfh = model.cumulEkin(xcenter[i]) * (2./3),
+                intfh2 = model2.cumulEkin(xcenter[i]) * (2./3),
+                h     = exp(xcenter[i]), g;
         phasevol.E(h, &g);
-        double B  = mult * intfg;                   // drift coefficient D_h
-        double C  = mult * g * (intf + intfh / h);  // diffusion coefficient D_hh / h
+        //Needs fixing (mass ratio/normalization).
+        double B  = mult * (intfg+mass_ratio*intfg2);                   // drift coefficient D_h
+        double C  = mult * g * (intf + intfh / h +pow(mass_ratio,2)*intf2 + pow(mass_ratio,2)*intfh2 / h);  // diffusion coefficient D_hh / h
         // we use  D_hh / h  here because the derivative of f is taken w.r.t. ln h
         Cdiv  [i] = C / (xnode[i] - xnode[i-1]);
         double w  = B / Cdiv[i];

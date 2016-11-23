@@ -189,8 +189,9 @@ int main(int argc, char* argv[])
     potential::PtrDensity initModel = args.contains("density") ?
         potential::createDensity(args) :
         createModelFromFile(args.getString("filein").c_str(), mbh);
+    potential::PtrDensity bkgdModel=createModelFromFile(args.getString("background").c_str(), mbh);
     potential::PtrPotential extPot(mbh>0 ? new potential::Plummer(mbh, 0) : NULL);
-    galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), extPot, gridh);
+    galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), potential::DensityWrapper(*bkgdModel), extPot, gridh);
     
     double timesim = 0, dt = (dtmin>0 ? dtmin : 1e-8), prevtimeout = -INFINITY;
     int nstep = 0, prevnstepout = -nstepout;

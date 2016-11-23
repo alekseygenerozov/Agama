@@ -145,6 +145,8 @@ public:
     potential::PhaseVolume  phasevol;   ///< mapping between energy and phase volume
     std::vector<double> gridh;          ///< grid in h (phase volume), stays fixed throughout the evolution
     std::vector<double> gridf;          ///< values of distribution function at grid nodes
+    std::vector<double> gridf2;          ///< values of (2nd) distribution function at grid nodes
+    static const double mass_ratio=0.1;
     std::vector<double> diag, above, below; ///< coefficients of the tridiagonal system solved at each step
 public:
     /** Construct the Fokker-Planck model with the given density profile,
@@ -155,7 +157,7 @@ public:
         (e.g., a central black hole), which will be summed with the self-consistently generated
         potential of the evolving model; may be omitted.
     */
-    FokkerPlanckSolver(const math::IFunction& initDensity,
+    FokkerPlanckSolver(const math::IFunction& initDensity, const math::IFunction& bkgdDensity,
         const potential::PtrPotential& externalPotential = potential::PtrPotential(),
         const std::vector<double>& gridh = std::vector<double>());
 
