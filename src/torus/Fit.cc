@@ -344,7 +344,7 @@ int SbyLevMar(               // return:        error flag (see below)
     double&         mean_H,  // Output:        mean H
     double&         delta_H, // Output:        rms deviation from mean
     int&            negact,  // Output:        # of occurence of neg. actions
-    const double    exp_H,   // Input:	       estimate of expected mean H
+    const double  /*exp_H*/, // Input:	       estimate of expected mean H
     const int       err)     // Input:	       error output
 /*==============================================================================
    meaning of return: positive -> =number of iterations
@@ -371,7 +371,7 @@ int SbyLevMar(               // return:        error flag (see below)
     int             iterations=0, mfit=0, F;
     double          chirms, dchisq, dchtry, temp, damp=1.,
                     H_av, *dA, *B, **AA, **AAtry;
-    register double H_av0, //rHav, 
+    register double //H_av0, rHav, 
 		    Rc     = Phi->RfromLc(J(2)), 	// Rc = length scale
                     vc     = WDabs(J(2)) / Rc;		// vc = velocity scale
 		
@@ -427,7 +427,7 @@ int SbyLevMar(               // return:        error flag (see below)
 	}
       }
     }
-    H_av0 = (exp_H)? exp_H : mean_H;  // first Average value of H
+    //H_av0 = (exp_H)? exp_H : mean_H;  // first Average value of H
     //rHav  = mean_H/H_av0;             // ratio of average to initial average
     if(err) cerr<<"SbyLevMar: init:";
     if(F) {

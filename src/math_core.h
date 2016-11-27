@@ -86,7 +86,7 @@ double unwrapAngle(double x, double xprev);
     or -1 if x<x_0, or N if x>x_N.
 */
 template<typename NumT>
-unsigned int binSearch(const NumT x, const NumT arr[], const unsigned int size);
+int binSearch(const NumT x, const NumT arr[], const unsigned int size);
 
 /** linearly interpolate the value y(x) between y1 and y2, for x between x1 and x2 */
 inline double linearInterp(double x, double x1, double x2, double y1, double y2) {
@@ -230,15 +230,16 @@ private:
     double dxToPosneg(double sgn) const;
 };
 
-/** Evaluate the second derivative of a function from its values and first derivatives
+/** Evaluate the higher derivatives of a function from its values and first derivatives
     at three consecutive points, using high-accuracy Hermite interpolation.
     \param[in] x0, x1, x2 are the abscissa points (assuming that x1 is between x0 and x2);
     \param[in] f0, f1, f2 are the function values at these points;
     \param[in] df0, df1, df2 are the function derivatives at these points;
-    \return the second derivative of function at x1
+    \param[out] der2, der3, der4, der5  are the estimated 2nd to 5th derivatives at x1.
 */
-double deriv2(double x0, double x1, double x2, double f0, double f1, double f2,
-    double df0, double df1, double df2);
+void hermiteDerivs(double x0, double x1, double x2,
+    double f0, double f1, double f2, double df0, double df1, double df2,
+    /*output*/ double& der2, double& der3, double& der4, double& der5);
 
 ///@}
 /// \name ------ integration routines -------

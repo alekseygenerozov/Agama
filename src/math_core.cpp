@@ -102,16 +102,16 @@ double unwrapAngle(double x, double xprev)
 }
 
 template<typename NumT>
-unsigned int binSearch(const NumT x, const NumT arr[], unsigned int size)
+int binSearch(const NumT x, const NumT arr[], unsigned int size)
 {
     if(size<1 || x<arr[0])
         return -1;
     if(x>arr[size-1] || size<2)
         return size;
     // first guess the likely location in the case that the input grid is equally-spaced
-    unsigned int index = static_cast<unsigned int>( (x-arr[0]) / (arr[size-1]-arr[0]) * (size-1) );
-    unsigned int indhi = size-1;
-    if(index==size-1)
+    int index = static_cast<int>( (x-arr[0]) / (arr[size-1]-arr[0]) * (size-1) );
+    int indhi = size-1;
+    if(index==static_cast<int>(size)-1)
         return size-2;     // special case -- we are exactly at the end of array, return the previous node
     if(x>=arr[index]) {
         if(x<arr[index+1])
@@ -122,7 +122,7 @@ unsigned int binSearch(const NumT x, const NumT arr[], unsigned int size)
         index = 0;
     }
     while(indhi > index + 1) {
-        unsigned int i = (indhi + index)/2;
+        int i = (indhi + index)/2;
         if(arr[i] > x)
             indhi = i;
         else
@@ -132,12 +132,12 @@ unsigned int binSearch(const NumT x, const NumT arr[], unsigned int size)
 }
 
 // template instantiations
-template unsigned int binSearch(const double x, const double arr[], unsigned int size);
-template unsigned int binSearch(const float x, const float arr[], unsigned int size);
-template unsigned int binSearch(const int x, const int arr[], unsigned int size);
-template unsigned int binSearch(const long x, const long arr[], unsigned int size);
-template unsigned int binSearch(const unsigned int x, const unsigned int arr[], unsigned int size);
-template unsigned int binSearch(const unsigned long x, const unsigned long arr[], unsigned int size);
+template int binSearch(const double x, const double arr[], unsigned int size);
+template int binSearch(const float x, const float arr[], unsigned int size);
+template int binSearch(const int x, const int arr[], unsigned int size);
+template int binSearch(const long x, const long arr[], unsigned int size);
+template int binSearch(const unsigned int x, const unsigned int arr[], unsigned int size);
+template int binSearch(const unsigned long x, const unsigned long arr[], unsigned int size);
 
 /* --------- random numbers -------- */
 class RandGenStorage{
@@ -315,19 +315,44 @@ double PointNeighborhood::dxBetweenRoots() const
     return sqrt(fder*fder - 2*f0*fder2) / fabs(fder2);  // NaN if discriminant<0 - no roots
 }
 
-double deriv2(double x0, double x1, double x2, double f0, double f1, double f2,
-    double df0, double df1, double df2)
+void hermiteDerivs(double x0, double x1, double x2, double f0, double f1, double f2,
+    double df0, double df1, double df2, double& der2, double& der3, double& der4, double& der5)
 {
-    // construct a divided difference table to evaluate 2nd derivative via Hermite interpolation
-    double dx10 = x1-x0, dx21 = x2-x1, dx20 = x2-x0;
-    double df10 = (f1   - f0  ) / dx10;
-    double df21 = (f2   - f1  ) / dx21;
-    double dd10 = (df10 - df0 ) / dx10;
-    double dd11 = (df1  - df10) / dx10;
-    double dd21 = (df21 - df1 ) / dx21;
-    double dd22 = (df2  - df21) / dx21;
-    return ( -2 * (pow_2(dx21)*(dd10-2*dd11) + pow_2(dx10)*(dd22-2*dd21)) +
-            4*dx10*dx21 * (dx10*dd21 + dx21*dd11) / dx20 ) / pow_2(dx20);
+    // construct a divided difference table to evaluate 2nd to 5th derivatives via Hermite interpolation:
+    const double
+    // differences between grid points in x
+    dx10   = x1-x0,
+    dx21   = x2-x1,
+    dx20   = x2-x0,
+    sx20   = dx21-dx10,
+    // 2nd column
+    f00    = df0,
+    f01    = (f1    - f0)    / dx10,
+    f11    = df1,
+    f12    = (f2    - f1)    / dx21,
+    f22    = df2,
+    // 3rd column
+    f001   = (f01   - f00)   / dx10,
+    f011   = (f11   - f01)   / dx10,
+    f112   = (f12   - f11)   / dx21,
+    f122   = (f22   - f12)   / dx21,
+    // 4th column
+    f0011  = (f011  - f001)  / dx10,
+    f0112  = (f112  - f011)  / dx20,
+    f1122  = (f122  - f112)  / dx21,
+    // 5th column
+    f00112 = (f0112 - f0011) / dx20,
+    f01122 = (f1122 - f0112) / dx20;
+    // 6th column - the tip of triangle, equal to (1/5!) * 5th derivative
+    der5   = (f01122- f00112)/ dx20 * 120;
+    // start unwinding back
+    der4   = (f01122+ f00112) * 12 - sx20 * der5 * 0.3;
+    der3   =  f0112 * 6 - sx20 * (der4 + der5 * (sx20 + dx10*dx21/sx20) * 0.2) * 0.25;
+    der2   =  f011  + f112 - f0112 * sx20 - dx10 * dx21 * (der4 + der5 * sx20 * 0.2) / 12;
+
+    // alternative expression:
+    //der2 = ( -2 * (pow_2(dx21)*(f001-2*f011) + pow_2(dx10)*(f122-2*f112)) +
+    //    4*dx10*dx21 * (dx10*f112 + dx21*f011) / dx20 ) / pow_2(dx20);
 }
 
 // ------ root finder routines ------//

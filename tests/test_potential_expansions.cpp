@@ -435,7 +435,7 @@ int main() {
     std::cout << "--- Axisymmetric ExpDisk ---\n";
     PtrPotential test5c = potential::CylSpline::create(
         test5_ExpdiskAxi, 0, 20, 5e-2, 50., 20, 1e-2, 10.);
-    ok &= testAverageError(*test5c, *test5_Galpot, 0.05);
+    ok &= testAverageError(*test5c, *test5_Galpot, 0.06);
 
     // mildly triaxial, created from N-body samples
     std::cout << "--- Triaxial Dehnen gamma=0.5 from N-body samples ---\n";

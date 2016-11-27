@@ -40,7 +40,7 @@ constructed which provides globally three times continuously differentiable inte
 
 In both 1d and 2d cases, quintic splines are better approximating a smooth function,
 but only if its derivatives at grid nodes are known with sufficiently high accuracy
-(i.e. trying to obtain them by finite differences is useless).
+(i.e. trying to obtain them by finite differences or from a cubic spline is useless).
 
 ###  3-dimensional case.
 For separable 3d grids there are linear and natural cubic spline interpolators,
@@ -82,8 +82,6 @@ The same approach works in more than one dimension. The amplitudes of a 2d B-spl
 may be converted into its values and derivatives, and used to construct a 2d quintic spline.
 In the 3d case, the amplitudes are directly used with a cubic (N=3) 3d B-spline interpolator.
 
-###  Code origin
-1d and 2d quintic splines are based on the code by W.Dehnen.
 */
 #pragma once
 #include "math_base.h"
@@ -134,7 +132,8 @@ public:
 
     /** compute the value of interpolator and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
-    virtual void evalDeriv(const double x, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
+    virtual void evalDeriv(const double x,
+        double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
 };
 
 
@@ -162,7 +161,8 @@ public:
 
     /** compute the value of spline and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
-    virtual void evalDeriv(const double x, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
+    virtual void evalDeriv(const double x,
+        double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
 
     /** return the integral of spline function times x^n on the interval [x1..x2] */
     virtual double integrate(double x1, double x2, int n=0) const;
@@ -197,7 +197,8 @@ public:
 
     /** compute the value of spline and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
-    virtual void evalDeriv(const double x, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
+    virtual void evalDeriv(const double x,
+        double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
 
 private:
     std::vector<double> fder;  ///< first derivatives of function at grid nodes
@@ -205,10 +206,11 @@ private:
 
 
 /** Class that defines a quintic spline.
-    Given y and dy/dx on a grid, d^3y/dx^3 is computed such that the (unique) 
-    polynomials of 5th degree between two adjacent grid points that give y,dy/dx,
-    and d^3y/dx^3 on the grid are continuous in d^2y/dx^2, i.e. give the same
-    value at the grid points. At the grid boundaries  d^3y/dx^3=0  is adopted.
+    On each grid segment, y(x) is a 5th order polynomial specified by 6 coefficients --
+    values and the first two derivatives at two adjacent grid nodes.
+    The 2nd derivatives are initialized from the provided values y(x) and derivatives dy/dx
+    of the function at grid nodes, using the condition that the 3rd derivative is continuous
+    at each node, and the 4th derivative is zero at the boundaries of the grid.
 */
 class QuinticSpline: public BaseInterpolator1d {
 public:
@@ -222,17 +224,12 @@ public:
 
     /** compute the value of spline and optionally its derivatives at point x;
         if the input location is outside the definition interval, a linear extrapolation is performed. */
-    virtual void evalDeriv(const double x, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
-
-    /** return the value of 3rd derivative at a given point */
-    double deriv3(const double x) const;
-
-    /** two derivatives are returned by evalDeriv() method, and third derivative - by deriv3() */
-    virtual unsigned int numDerivs() const { return 3; }
+    virtual void evalDeriv(const double x,
+        double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
 
 private:
     std::vector<double> fder;  ///< first derivatives of function at grid nodes
-    std::vector<double> fder3; ///< third derivatives of function at grid nodes
+    std::vector<double> fder2; ///< second derivatives of function at grid nodes
 };
 
 
@@ -357,7 +354,8 @@ public:
     /**/
     LogSpline(const std::vector<double>& xvalues, const std::vector<double>& fvalues,
         double derivLeft=NAN, double derivRight=NAN);
-    virtual void evalDeriv(const double x, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
+    virtual void evalDeriv(const double x,
+        double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
     virtual unsigned int numDerivs() const { return 2; }
 };
 
@@ -369,7 +367,8 @@ class LogLogSpline: public math::IFunction {
 public:
     LogLogSpline(const std::vector<double>& xvalues, const std::vector<double>& fvalues,
         double derivLeft=NAN, double derivRight=NAN);
-    virtual void evalDeriv(const double x, double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
+    virtual void evalDeriv(const double x,
+        double* value=NULL, double* deriv=NULL, double* deriv2=NULL) const;
     virtual unsigned int numDerivs() const { return 2; }
 };
 
@@ -501,7 +500,7 @@ public:
 
 private:
     /// flattened 2d arrays of various derivatives
-    std::vector<double> fx, fy, fxxx, fyyy, fxyy, fxxxyy;
+    std::vector<double> fx, fy, fxx, fxy, fyy, fxxy, fxyy, fxxyy;
 };
 
 

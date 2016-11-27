@@ -718,24 +718,101 @@ Also, the \Python interface provides a way to supply a user-defined \Python call
 \subsection{Mathematical methods}
 
 %%%%%%%%%%%%%%
-\subsubsection{Basis splines}  \label{sec:MathSplineDetails}
+\subsubsection{B-splines}  \label{sec:MathBSplineDetails}
 
-We often need to represent approximately an arbitrary function of one variable, defined on a finite or infinite interval.
-This is conventionally achieved by using a basis-set expansion, that is, the function $f(x)$ is approximated as a weighted sum $\tilde f^{(M)}$ of a finite number ($M$) of basis functions, and the accuracy of approximation improves as we increase the number of terms:
-\begin{subequations}
+We often need to represent approximately an arbitrary function of one variable, defined on a finite or infinite interval $[a,b]$.
+This is conventionally achieved by defining the inner product of two functions $f(x), g(x)$:
 \begin{align}
-\tilde f^{(M)}(x) = \sum_{i=1}^M A_i\,B_i(x).
+\langle f, g \rangle \equiv \int_a^b f(x)\, g(x)\, W(x) dx \;,
+\end{align}
+where $W(x)$ is the weight function, and introducing a complete set of basis functions $B_i(x)$, so that any sufficiently well-behaved function $f(x)$ can be approximated by a weighted sum with a finite number of terms $M$ to any desired accuracy:
+\begin{subequations}
+\begin{align}  \label{eq:BasisInterpolation}
+\tilde f^{(M)}(x) = \sum_{i=1}^M A_i\,B_i(x) \;.
 \end{align}
 The coefficients of expansion $A_i$ satisfy the linear system of equations
 \begin{align}
-C_j \equiv \int \tilde f^{(M)}(x)\, B_j(x)\, dx = \sum_{i=1}^M A_i\, \mathsf{B}_{ij} \;,\quad
-\mathsf{B}_{ij} \equiv \int B_i(x)\,B_j(x)\,dx
+C_j &\equiv \int_a^b \tilde f^{(M)}(x)\, B_j(x)\, W(x)\, dx = \sum_{i=1}^M A_i\, \mathsf{B}_{ij} \;,  \label{eq:BasisExpansionCoefs} \\
+\mathsf{B}_{ij} &\equiv \int B_i(x)\,B_j(x)\,W(x)\,dx \;.   \label{eq:BasisExpansionMatrix}
 \end{align}
 \end{subequations}
-Now if we compute $C_j$ by putting the original function $f(x)$ into the above integral, and solve the resulting linear system to obtain $A_i$, this gives an approximation of the original function.
 
-There are many possible choices of basis sets: for instance, for a periodic function the natural choice are the trigonometric functions, forming the Fourier expansion.
-B-splines of degree $N$ are a set of piecewise-polynomial functions defined by the nodes of a grid: $x_i, i=1..M$. The number of basis functions is $M+N-1$, and each one is 
+Classical basis sets usually are orthonormal, i.e., $\mathsf{B}_{ij} = \delta_{ij}$, and addition of each subsequent term does not change existing expansion coefficients (e.g., Fourier series, orthogonal polynomials). Of course, it is possible to construct an orthogonal set by employing the Gram--Schmidt procedure for any sequence of independent basis functions. However, it is not always necessary, as long as we can solve efficiently the linear system (\ref{eq:BasisExpansionCoefs}) to find $A_i$ from $C_j$.
+
+The B-spline set of basis function is defined by a grid of points (knots) on the interval $[a,b]$: $a=k_1<k_2<\dots<k_K=b$. Each basis function is a piecewise polynomial of degree $N\ge 0$ that is non-zero on at most $N+1$ consecutive segments of the grid (or fewer at the edges of the grid). Specifically, it is a polynomial inside each grid segment, and its $N-1$-th derivative is continuous at each knot (except the endpoints $a,b$, but including all interior knots). The total number of basis functions is $M=K+N-1$. These functions are defined through the following recurion (de Boor's algorithm):
+\begin{subequations}
+\begin{align}
+B^{[0]}_j(x) &\equiv \left\{ \begin{array}{ll} 1 &\mbox{if }k_j \le x \le k_{j+1} \\ 0 & \mbox{otherwise} \end{array} \right., \\
+B^{[N]}_j(x) &\equiv B^{[N-1]}_j(x)\,\frac{x-k_j}{k_{j+N}-k_j} +
+B^{[N-1]}_{j+1}(x)\,\frac{k_{j+N+1}-x}{k_{j+N+1}-k_{j+1}} \;.
+\end{align}
+\end{subequations}
+
+B-splines have the following convenient properties:
+\begin{itemize}
+\item At any grid segment, at most $N+1$ basis functions are nonzero. This makes the computation of interpolant (\ref{eq:BasisInterpolation}) very efficient -- the grid segment enclosing the point $x$ is located in $\mathcal{O}(\log M)$ operations, and the computation of all $N$ possibly non-zero basis functions takes $\mathcal{O}(N^2)$ operations (with $N$ typically ranging from 0 to 3), instead of $\mathcal{O}(M)$ as for traditional basis sets.
+\item The basis is not orthogonal, but the matrix $\mathsf{B}_{ij}$ (\ref{eq:BasisExpansionMatrix}) is block-diagonal with bandwidth $2N-1$, thus the coefficients of decomposition $A_i$ are obtained from $C_j$ in $\mathcal{O}(NM)$ operations. (The weight function $W(x)$ is unity).
+\item Although the number and degree of basis functions must be fixed in advance before computing any decompositions, we may use the freedom to put the knots at the most suitable locations to improve the accuracy of approximation.
+\item The basis functions are non-negative, thus to ensure that $f(x) \ge 0$, it is sufficient to have $A_i\ge 0$. 
+\item The sum of all basis functions is always 1 at any $x$.
+\end{itemize}
+
+The case $N=0$ corresponds to a histogram (piecewise-constant function), $N=1$ -- to a piecewise-linear interpolator, and $N=3$ -- to a cubic spline with clamped boundary conditions (it is defined by $K$ nodes but has $K+2$ independent components, unlike the more familiar natural cubic spline, in which the extra two degrees of freedom are used to make the second derivative zero at endpoints), see Figure~\ref{fig:SplineKernels} (left panel). In more than one dimension, the basis set is formed by tensor products of one-dimensional B-splines in each coordinate.
+
+B-splines are well suited for constructing the approximating function with a relatively small number of terms from a possibly large array of points (essentially replacing the integral in (\ref{eq:BasisExpansionCoefs}) by a discrete sum, see Sections~\ref{sec:MathSplineApproxDetails} and \ref{sec:MathSplineDensityDetails}). However, their construction from the array of function values at grid nodes (especially in more than one dimension), as is typical for spline interpolation, and the evaluation of the interpolant, is less efficient than conventional splines. Thus we consider the alternatives in the next section.
+
+%%%%%%%%%%%%%%
+\begin{figure}
+\begin{center}
+\includegraphics[width=16cm]{SplineKernels.pdf}
+\end{center}
+\caption{Various interpolation kernels. To obtain the value of interpolated function, one sums up the values of all interpolating kernels with appropriate weight coefficients. \protect\\
+\textit{Left panel:} B-splines of degree $N=1$ (dashed) and $N=3$ (solid lines), defined by the nodes of a non-uniform grid (marked by $x$-axis ticks). The former are piecewise-linear and non-zero on at most two segments, and the latter are piecewise-cubic, with two continuous derivatives, and nonzero on at most four consecutive segments. The sum of all B-spline functions at any point $x$ is unity, and they are always non-negative; thus the cubic kernels never reach unity (except the endpoint ones), because at any point more than one of them is positive.
+The total number of functions is $K+N-1$, where $K$ is the number of grid nodes.\protect\\
+\textit{Right panel:} interpolation kernels of a natural cubic spline defined by the same grid (solid lines). This type of spline is constructed from the array of function values at grid nodes, thus each kernel reaches unity at the corresponding grid point, and the number of kernels is $K$ (not all of them are shown). Consequently, they must attain negative values for their sum to be unity at any $x$. Moreover, since the weights of kernels are computed by solving a global linear system of equations, each kernel spans the entire grid, although its amplitude rapidly decreases away from its central node. For comparison, a cubic interpolating Catmull--Rom kernel (dashed curve) is nonzero only on four adjacent grid segments, although it also attains negative values on the two outermost segments. } \label{fig:SplineKernels}
+\end{figure}
+%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%
+\subsubsection{Spline interpolation}  \label{sec:MathSplineDetails}
+
+The task of interpolation in 1, 2 and 3 dimensions is performed by several kinds of splines: linear interpolators (not particularly exciting), cubic splines and quintic splines (the latter -- only in 1d and 2d). The degree of spline (1, 3 or 5) refers to the degree of the piecewise polynomial at each grid segment (in more than one dimension, along each axis). However, the continuity conditions at grid nodes may be different from B-splines (in which the function has $N-1$ continuous derivatives at all interior nodes).
+
+Let us first consider the 1d case with $K\ge 2$ grid points ($K-1$ segments).
+
+Interpolation by piecewise-cubic polynomials requires 4 coefficients for each segment, which are conveniently taken to be the values and first derivatives of the function at two adjacent nodes: $f(x_i), f(x_{i+1}), f'(x_i), f'(x_{i+1})$ -- this is called the Hermite interpolation. Thus the total number of coefficients is $2K$; the function and its derivative is continuous across segments, but the second derivative may change discontinuously.
+
+What if we are only given the function values $f(x_i)$, but not the derivatives? One may come up with a plausible approximation for derivatives at each node, and then use the Hermite interpolation on each segment -- this will yield a continuously differentiable curve no matter what the values of $f'(x_i)$ are. Of course, we want it not only to be smooth, but also to approximate the true function accurately, and this requires a judicious assignment of derivatives. One possibility is to use finite-differences to estimate $f'(x_i)$ as $[f(x_{i+1})-f(x_{i-1})]/[x_{i+1}-x_{i-1}]$, with a suitable modification for boundary points, or a generalization for unequally-spaced grids. This is called the Catmull--Rom spline, and is frequently used in resampling (especially in more than one dimension), due to its locality: the value of interpolated function on each interval $x_i\le x\le x_{i+1}$ depends on four nearby values -- $f(x_{i-1}), f(x_i), f(x_{i+1}), f(x_{i+2})$.
+Another possibility is the familiar cubic spline, in which the first derivatives are computed from the requirement that the \textit{second} derivatives are continuous at each interior node (i.e. $K-1$ points). This results in a tridiagonal linear equation system, relating $f'(x_i)$ to $f'(x_{i-1})$ and $f'(x_{i+1})$%
+\footnote{Usually this is expressed as a relation between second derivatives at grid nodes, and the spline function is defined in terms of $f(x_i)$ and $f''(x_i), i=1..K$. Since all cubic splines are a subset of Hermite piecewise-cubic polynomial interpolators, we may equivalently parametrize them by the values and \textit{first} derivatives at grid nodes, and this automatically ensures that the second derivative is continuous because the first derivative was computed from this condition.}
+Two additional boundary conditions are required to close the equation system; most commonly, these are $f''(x_1) = f''(x_K) = 0$ (so-called natural cubic splines), but alternatively, one may specify the first derivatives at the endpoints (clamped cubic spline). Thus the derivatives, and consequently the interpolated curve, depend on the values of $f$ at all grid nodes, not just the adjacent ones; since $f'(x_i)$ are expressed as a linear function of $f(x_1)\dots f(x_K)$, we may consider the result of interpolation as a smoothing kernel defined by the grid nodes and linearly depending on all input values $f(x_i)$ (see Figure~\ref{fig:SplineKernels}, right panel, for comparison of Catmull--Rom and natural cubic spline interpolation kernels).
+
+Thus natural cubic splines are defined by $K$ function values at grid points and are a subset of all cubic splines with $K$ grid points (parametrized by $K+2$ numbers); the latter, in turn, are a subset of a wider class of piecewise-cubic Hermite interpolators (which are fully specified by $2K$ coefficients). The set of all cubic splines is also equivalent to B-splines of degree 3 over the same grid. The evaluation of cubic splines and optionally their derivatives is more efficient than the B-splines, and the array of B-spline amplitudes may be directly used to initialize an equivalent clamped cubic spline.
+
+If, on the other hand, one can independently compute both $f(x_i)$ and $f'(x_i)$ at all grid nodes, and use these $2K$ numbers to construct a piecewise-cubic Hermite interpolator, this should generally improve the accuracy of approximation (even though will decrease its \textit{smoothness} compared to the case of cubic splines). In practice, within the class of piecewise-cubic polynomials the improvement is not dramatic. However, one may instead go to higher order and use piecewise-quintic polynomials, specified by 6 coefficients on each segment, which are again conveniently taken to be the values and first two derivatives of the function at two adjacent nodes -- a natural extension of cubic Hermite interpolation. The resulting curve will be twice continuously differentiable for any choice of $f''(x_i)$, but the accuracy of approximation will be good only if these second derivatives are assigned carefully. In close analogy to cubic splines, one may compute them from the requirement that the 3rd derivative is continuous at all interior grid nodes, augmented with two boundary conditions; the natural choice for them is $f''''(x_1)=f''''(x_K)=0$, because in a degenerate case $K=2$ they simply lead to a cubic Hermite interpolator.
+\begin{subequations}
+\begin{align}
+\frac{1}{3} f'''_i
+&= 20 \frac{f_{i+1}-f_i}{(x_{i+1}-x_i)^3} - \frac{12f'_i+8f'_{i+1}}{(x_{i+1}-x_i)^2} - \frac{3f''_i-f''_{i+1}}{x_{i+1}-x_i} = \\
+&= 20 \frac{f_i-f_{i-1}}{(x_i-x_{i-1})^3} - \frac{12f'_i+8f'_{i-1}}{(x_i-x_{i-1})^2} + \frac{3f''_i-f''_{i-1}}{x_i-x_{i-1}}\quad \mbox{for }2\le i \le K-1, \nonumber \\
+0 &= 30\frac{f_2-f_1}{(x_2-x_1)^3} - \frac{16f'_1+14f'_2}{(x_2-x_1)^2} - \frac{3f''_1-2f''_2}{x_2-x_1} \quad\mbox{for }i=1,\mbox{ and similarly for }i=K.
+\end{align}
+\end{subequations}
+
+This tridiagonal system results in a quintic spline, which provides 5th degree piecewise-polynomial interpolation with three continuous derivatives. It is \textit{not} equivalent to a 5th degree B-spline -- the latter would have 4 continuous derivatives and is fully specified by $K+4$ coefficients, whereas a quintic spline is specified by $2K+2$ numbers (the values and first derivatives at all nodes, plus two endpoint conditions). The accuracy of approximation with a quintic spline is far better than anything achievable with a cubic interpolation -- but only in the case when one may compute the function derivatives independently and accurately enough (i.e., using a cubic spline to find the derivatives results in a quintic spline which is almost equivalent to a cubic one in terms of accuracy).
+
+Let's move to the multidimensional case, where the interpolation is provided on a separable grid with piecewise-polynomial functions of degree $N$ (per dimension) on each cell: $\sum_{p=0}^{N}\sum_{q=0}^N\dots C_{pq\dots} x_1^p\,x_2^q\dots$
+A straightforward way of performing a multidimensional interpolation is to employ a sequence of 1d interpolation operations for each dimension separately. The 1d interpolation function is defined by $N+1$ coefficients -- the values and certain derivatives of the polynomial at two adjacent nodes in the $d$-th coordinate. These coefficients are obtained from $(N-1)$-dimensional interpolation along other coordinates in each of these two nodes.
+
+To illustrate this, consider the case of piecewise-cubic Hermite interpolation, specified by the value and the first derivative in each dimension. For a 2d point $\{x,y\}$, we first locate the indices of grid nodes $\{i,j\}$ in each dimension that enclose the point: $x_i\le x \le x_{i+1},\; y_j\le y \le y_{j+1}$. Then we perform four 1d interpolation operations in $x$ to find $f(x, y_j),\; f(x, y_{j+1}),\; f'_y(x, y_j),\; f'_y(x, y_{j+1})$, using 16 coefficients at 4 corners of the cell (i.e., $f(x_i,y_j),\; f(x_{i+1},y_j),\; f'_x(x_i,y_j),\; f'_x(x_{i+1},y_j)$ for the first value, etc.). Finally the last interpolation in $y$ produces the required value. The same result would be obtained, had we reversed the order of coordinates. 
+If we also want partial derivatives in both dimensions, then we need to compute higher derivatives on the first stage (i.e., from the first four coefficients we get not only $f(x, y_j)$, but also $f'_x(x, y_j)$ and $f''_{xx}(x, y_j)$), and then use extra 1d interpolation in $y$ per each output derivative on the second stage (e.g., $f''_{xx}(x, y)$ is obtained from $f''_{xx}(x, y_j),\; f''_{xx}(x, y_{j+1}),\; f'''_{xxy}(x, y_j),\; f'''_{xxy}(x, y_{j+1})$, and the latter one is computed on the first stage from $f'_y(x_i, y_{j+1}),\; f'_y(x_{i+1}, y_{j+1}),\; f''_{xy}(x_i, y_{j+1}),\; f''_{xy}(x_{i+1}, y_{j+1})$). 
+
+Thus we see that for a cubic Hermite interpolation we need the values and derivatives in each direction at all grid nodes: $f(x_i, y_j),\; f'_x(x_i, y_j),\; f'_y(x_i, y_j),\; f''_{xy}(x_i, y_j)$. How do we find them, given only the function values at grid nodes? It turns out that the concept of cubic splines can naturally be extended to the multidimensional case, using the following multi-stage procedure. At the beginning, the first derivatives $f'_x, f'_y$ in each dimension are found from the condition that the corresponding \textit{second} derivatives $f''_{xx}, f''_{yy}$ are continuous at grid nodes. Then the mixed second derivative $f''_{xy}(x_i, y_j)$ is computed by establishing a cubic spline for $f'_y(x, y_j)$ at each $j$ and taking its derivative in $x$. The elegance of this approach is in its symmetry: the same value for $f''_{xy}$ is also produced by constructing a cubic spline for $f'_x(x_i, y)$ at each $x_i$ and taking the derivative in $y$. To understand why, recall that the natural cubic spline for $g(x)$ is a linear function of the input values $g_i\equiv g(x_i)$ defined by the array of grid nodes $\{x_i\}$. Equivalently, it is described by the matrix $\mathsf{X}$ that transforms the array of input values to the array of spline derivatives at grid nodes: $g'_i\equiv g'(x_i) = \sum_{k=1}^{K_x} X_{ik}\,g_k$. The complete 2d matrix $\mathsf{f}'_x$ of $x$-derivatives $f'_{x;\,ij} \equiv f'_x(x_i, y_j)$ is then given by $\mathsf{f}'_x = \mathsf{X\,f}$, where the elements of matrix $\mathsf{f}$ are $f_{ij} \equiv f(x_i, y_j)$. On the other hand, the interpolation in the $y$ direction is provided by the matrix $\mathsf{Y}$ such that for any array of values $h_j\equiv h(y_j)$, the $y$-derivatives are given by $h'_j\equiv h'(y_j) = \sum_{k=1}^{K_y} Y_{jk}\,g_k$. The complete 2d matrix $\mathsf{f}'_y$ of $y$-derivatives $f'_{y;\,ij} \equiv f'_y(x_i, y_j)$ is given by $\mathsf{f}'_y = (\mathsf{Y}\,\mathsf{f}^T)^T = \mathsf{f\,Y}^T$. Now if we compute the mixed second derivatives $\mathsf{f}''_{xy}$ by constructing the $y$-spline from $\mathsf{f}'_x$, this results in $\mathsf{f}''_{xy} = \mathsf{f}'_x\,\mathsf{Y}^T = (\mathsf{X\,f})\,\mathsf{Y}^T$, whereas computing them from the $\mathsf{f}'_y$ results in $\mathsf{X\,f}'_y = \mathsf{X}\,(\mathsf{f\,Y}^T)$ -- which are identical matrices.
+
+The same scheme works in three dimensions: now we need eight coefficients at each grid node $\{x_i,y_j,z_k\}$ -- $f, f'_x, f'_y, f'_z, f''_{xy}, f''_{xz}, f''_{yz}, f'''_{xyz}$, which are all found in three steps, using just the values of $f$ and continuity conditions on higher derivatives. The evaluation of $f(x,y,z)$ also proceeds in three stages: first a total of 64 coefficients (8 numbers at 8 cell corners) are fed into 16 Hermite cubic interpolation operations in $x$, then the resulting 16 numbers are used in 4 interpolations in $y$, and finally one interpolation in $z$. As before, the outcome does not depend on the order. This should also work in higher dimensions, although would clearly become more clumsy.
+
+We now consider a more complicated case of 2d quintic interpolation. Similarly to the cubic Hermite case, we may interpolate with a piecewise-quintic polynomial in each direction using the following 9 quantities stored at each node: $f, f'_x, f''_{xx}, f'_y, f''_{xy}, f'''_{xxy}, f''_{yy}, f'''_{xyy}, f''''_{xxyy}$, first performing 6 interpolations in $y$ to compute $f$, $f'_x$, $f''_{xx}$ at two nodes of the $x$-grid, and then the final interpolation in $x$, or vice versa.
+By a similar argument, if we were provided with four matrices $\mathsf{f}, \mathsf{f}'_x, \mathsf{f}'_y, \mathsf{f}''_{xy}$, we could construct 1d quintic splines in each direction and use them to initialize the remaining five derivatives at each node from the conditions of continuity of still higher derivatives; again this will not result in a conflicting assignment of the mixed fourth derivative $f''''_{xxyy}$. Unfortunately, in practice we only have three matrices to work with -- the function and its two partial derivatives at each node, but no mixed second derivative. We were not able to come up with an elegant method in this case, although the following kludge seems to deliver satisfactory results. We first construct the 1d quintic splines for $f(x, y_j)$ and $f(x_i, y)$ at each node, and use them to compute the second derivatives ($f''_{xx}$ and $f''_{yy}$, correspondingly). To compute the mixed derivatives, we construct natural cubic splines in $y$ from the values of $f'_x$ and $f''_{xx}$, and similarly in $x$ from the values of $f'_y$ and $f''_{yy}$, and then differentiate them. The resulting values do not agree with each other, so we take either the average of the two estimates, or the one that is expected to be more accurate: for instance, if $i=1$, we would compute $f''_{xy,ij}$ by differentiating the spline for $f'_x(x_i,y)$ by $y$, because the alternative variant (differentiating the spline for $f'_y(x,y_j)$ by $x$) does not provide a good estimate at the endpoint of its $x$-grid. In this way, all remaining derivatives are assigned.
 
 %%%%%%%%%%%%%%
 \subsubsection{Penalized spline regression}  \label{sec:MathSplineApproxDetails}
@@ -746,18 +823,10 @@ Suppose we have $N_\mathrm{data}$ points $\{x_i, y_i\}$, and we need to find a s
 \end{align}
 Here $\lambda\ge 0$ is the smoothing parameter that controls the tradeoff between approximation error and wiggliness of the function \cite{GreenSilverman}; its choice is discussed below.
 
-We represent $f(x)$ as a sum of basis functions $B_k(x)$ with adjustable amplitudes $A_k$:
+We represent $f(x)$ as a sum of B-spline basis functions $B^{[N]}_k(x)$, defined by the grid of $N_\mathrm{grid}$ knots, with adjustable amplitudes $A_k$:
 \begin{align}  \label{eq:FncSplineFit}
-f(x) &\equiv \sum_{k=1}^{N_\mathrm{basis}} A_k\,B_k(x) .
+f(x) &\equiv \sum_{k=1}^{N_\mathrm{basis}} A_k\,B_k(x) \;,\;\;N_\mathrm{basis} = N_\mathrm{grid}+N-1, \mbox{ and we use cubic B-splines }(N=3).
 \end{align}
-
-These basis functions are taken to be B-splines of degree $N$, defined by an array of grid nodes $\{X_j\}$, $j=1..N_\mathrm{grid}$. They are computed recursively using the de Boor's formula:
-\begin{align}  \label{eq:Bspline}
-B_{j;0} \equiv \left\{ \begin{array}{ll}1 &\mbox{if }X_j\le x\le X_{j+1} \\ 0 &\mbox{otherwise} \end{array} \right. ,\quad
-B_{j;N} \equiv B_{j;N-1} \frac{x-X_j}{X_{j+N}-X_j} + B_{j+1;N-1} \frac{X_{j+N+1}-x}{X_{j+N+1}-X_{j+1}} \;.
-\end{align}
-
-The number of basis functions is $N_\mathrm{basis} \equiv N_\mathrm{grid}+N-1$. Each function is nonzero (positive) on at most $N+1$ consecutive intervals between grid nodes, and has piecewise-continuous $N$-th derivative. At each $x$ there are at most $N+1$ nonzero functions, with their sum always being unity (Figure~\ref{fig:Bsplines}). These properties make B-splines an attractive choice for approximating an arbitrary one-dimensional function, even though the basis set is not orthogonal. 
 
 Let the matrix $\mathsf{B}$ with $N_\mathrm{data}$ rows and $N_\mathrm{basis}$ columns contain the values of basis functions at data points: $B_{ik} = B_k(x_i)$. Due to the locality of B-splines, this matrix is sparse -- each row contains at most $N+1$ nonzero elements. The grid in $x$ does not need to encompass all data points -- the function $f(x)$ is linearly extrapolated outside the grid boundaries.
 Define the ``roughness matrix'' $\mathsf{R}$ containing the integrals of products of second derivatives of basis functions: $R_{kl} \equiv \int B_k''(x) \, B_l''(x)\, dx$. This matrix is also sparse (band-diagonal) and symmetric.
