@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cassert>
 #include <stdexcept>
-#include <cstdlib>
 
 namespace math{
 
