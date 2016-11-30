@@ -1018,7 +1018,7 @@ void FokkerPlanckSolver::reinitDifCoefs()
 
     // 2. construct the spherical model for this DF in the current potential, used to compute dif.coefs
     SphericalModel model(phasevol, df);
-    double mult = 16*M_PI*M_PI*2.5e-6;
+    double mult = 16*M_PI*M_PI;
     // 2a. store diagnostic quantities
     Mass = model.cumulMass();
     Etot = model.cumulEtotal();
