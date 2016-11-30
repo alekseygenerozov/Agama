@@ -1018,7 +1018,7 @@ void FokkerPlanckSolver::reinitDifCoefs()
 
     // 2. construct the spherical model for this DF in the current potential, used to compute dif.coefs
     SphericalModel model(phasevol, df);
-    double mult = 16*M_PI*M_PI * model.cumulMass();
+    double mult = 16*M_PI*M_PI*2.5e-6;
     // 2a. store diagnostic quantities
     Mass = model.cumulMass();
     Etot = model.cumulEtotal();
@@ -1093,7 +1093,7 @@ double FokkerPlanckSolver::doStep(double dt)
     for(unsigned int i=0; i<gridsize; i++)
         xnode[i] = log(gridh[i]);
     for(unsigned int i=0; i<gridsize; i++)
-        v_rhs[i]=gridf[i]+dt*Src(i, src1, i0)/(xnode[i+1]-xnode[i]);
+        v_rhs[i]=gridf[i]+dt*Src(i, src1, i0)/(exp(xnode[i+1])-exp(xnode[i]));
 
     std::vector<double> newf = math::solveTridiag(c_diag, c_above, c_below, v_rhs);
     double maxdf = 0;
