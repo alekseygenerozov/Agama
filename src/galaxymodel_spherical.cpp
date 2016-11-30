@@ -11,6 +11,7 @@
 #include <stdexcept>
 //debugging output
 #include <fstream>
+#include <iostream>
 
 namespace galaxymodel{
 
@@ -53,6 +54,16 @@ public:
         return (x0B - x1B) / (x1B - x2B) - ratio;
     }
 };
+
+//Src function at a partic
+double Src(int index, double src, int i0){
+    if (index==i0){
+        return src;
+    }
+    else{
+        return 0;
+    }
+}
 
 /// helper class for interpolating the density as a function of phase volume,
 /// used in the Eddington inversion routine,
@@ -921,7 +932,7 @@ static potential::Interpolator computePotential(
 
 FokkerPlanckSolver::FokkerPlanckSolver(
     const math::IFunction& initDensity, const potential::PtrPotential& externalPotential,
-    const std::vector<double>& inputgridh) :
+    const std::vector<double>& inputgridh, const double src) :
     extPot(externalPotential),
     totalPot(computePotential(initDensity, externalPotential, 0, 0, /*diagnostic output*/ Phi0)),
     phasevol(totalPot),
@@ -948,6 +959,24 @@ FokkerPlanckSolver::FokkerPlanckSolver(
     }
     // compute diffusion coefficients
     reinitDifCoefs();
+    unsigned int gridsize = gridh.size();
+    src1=src;
+    i0=0;
+    double h0;
+    phasevol.evalDeriv(-0.6, &h0);
+    double min_diff=fabs(gridh[0]-h0);
+    double diff;
+    for(unsigned int i=0; i<gridsize; i++)
+    {
+        diff=fabs(gridh[i]-h0);
+        if (diff<min_diff){
+            min_diff=diff;
+            i0=i;
+        }
+    }
+    std::cout<<gridsize<<" "<<i0<<std::endl;
+
+
 }
 
 void FokkerPlanckSolver::reinitPotential()
@@ -1058,8 +1087,15 @@ double FokkerPlanckSolver::doStep(double dt)
             c_above[i]   = dt * above[i];
         c_diag[i] = 1 + dt * diag[i];
     }
-    // solve the system and overwrite the values of DF at grid nodes with the new ones
-    std::vector<double> newf = math::solveTridiag(c_diag, c_above, c_below, gridf);
+    std::vector<double> xnode(gridsize);
+    std::vector<double> v_rhs(gridsize);
+
+    for(unsigned int i=0; i<gridsize; i++)
+        xnode[i] = log(gridh[i]);
+    for(unsigned int i=0; i<gridsize; i++)
+        v_rhs[i]=gridf[i]+dt*Src(i, src1, i0)/(xnode[i+1]-xnode[i]);
+
+    std::vector<double> newf = math::solveTridiag(c_diag, c_above, c_below, v_rhs);
     double maxdf = 0;
     for(unsigned int i=0; i<gridsize; i++)
         maxdf = fmax(maxdf, fabs(log(newf[i]/gridf[i])));

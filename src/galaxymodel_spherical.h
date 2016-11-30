@@ -78,6 +78,7 @@ public:
 
     /// the object providing the correspondence between phase volume h and energy E
     const potential::PhaseVolume phasevol;
+
 };
 
 
@@ -157,7 +158,7 @@ public:
     */
     FokkerPlanckSolver(const math::IFunction& initDensity,
         const potential::PtrPotential& externalPotential = potential::PtrPotential(),
-        const std::vector<double>& gridh = std::vector<double>());
+        const std::vector<double>& gridh = std::vector<double>(), const double src=0.);
 
     /** Recompute the potential and the phase volume mapping (h <-> E) by integrating the DF over velocity,
         and solving the Poisson equation (adding the external potential if present).
@@ -178,6 +179,8 @@ public:
 
     /// diagnostic quantities: total mass, stellar potential at origin, total energy and kinetic energy
     double Mass, Phi0, Etot, Ekin;
+    double src1;
+    int i0;
 
 };
 

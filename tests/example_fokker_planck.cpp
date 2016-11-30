@@ -139,6 +139,7 @@ void help()
     "beta=(4)         outer power-law slope (for SpheroidDensity only; "
     "it also has other parameters, see readme)\n"
     "mbh=(0)          additional central mass (black hole)\n"
+    "src=0 Source of black holes\n"
     "time=...         total evolution time (required)\n"
     "eps=(0.001)      max relative change of DF in one timestep of the FP solver "
     "(determines the timestep)\n"
@@ -173,6 +174,7 @@ int main(int argc, char* argv[])
     double dtmax= args.getDouble("dtmax", INFINITY);
     double hmin = args.getDouble("hmin", 0);
     double hmax = args.getDouble("hmax", 0);
+    double src  = args.getDouble("src", 0);
     int gridsize= args.getInt("gridsize", 200);
     int nsubstep= args.getInt("nsubstep", 8);
     int nstepout= args.getInt("nstepout", 0);
@@ -190,7 +192,7 @@ int main(int argc, char* argv[])
         potential::createDensity(args) :
         createModelFromFile(args.getString("filein").c_str(), mbh);
     potential::PtrPotential extPot(mbh>0 ? new potential::Plummer(mbh, 0) : NULL);
-    galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), extPot, gridh);
+    galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), extPot, gridh, src);
     
     double timesim = 0, dt = (dtmin>0 ? dtmin : 1e-8), prevtimeout = -INFINITY;
     int nstep = 0, prevnstepout = -nstepout;
