@@ -355,7 +355,7 @@ BaseInterpolator1d::BaseInterpolator1d(const std::vector<double>& xv, const std:
                 "x values must be monotonically increasing");
     for(unsigned int i=0; i<fv.size(); i++)
         if(!isFinite(fv[i]))
-            throw std::invalid_argument("Error in 1d interpolator: y values must be finite");
+            throw std::invalid_argument("Error in 1d interpolator: function values must be finite");
 }
 
 LinearInterpolator::LinearInterpolator(const std::vector<double>& xv, const std::vector<double>& yv) :
@@ -481,7 +481,7 @@ void CubicSpline::evalDeriv(const double x, double* val, double* deriv, double* 
 
 bool CubicSpline::isMonotonic() const
 {
-    if(xval.size()==0)
+    if(fval.empty())
         throw std::range_error("Empty spline");
     bool ismonotonic=true;
     for(unsigned int index=0; ismonotonic && index < xval.size()-1; index++) {
@@ -905,29 +905,18 @@ BaseInterpolator2d::BaseInterpolator2d(
 // ------- Bilinear interpolation in 2d ------- //
 
 void LinearInterpolator2d::evalDeriv(const double x, const double y,
-     double *z, double *deriv_x, double *deriv_y,
-     double* deriv_xx, double* deriv_xy, double* deriv_yy) const
+     double *z, double *z_x, double *z_y, double *z_xx, double *z_xy, double *z_yy) const
 {
-    if(isEmpty())
+    if(fval.empty())
         throw std::range_error("Empty 2d interpolator");
     // 2nd derivatives are always zero
-    if(deriv_xx)
-        *deriv_xx = 0;
-    if(deriv_xy)
-        *deriv_xy = 0;
-    if(deriv_yy)
-        *deriv_yy = 0;
-    // no interpolation outside the 2d grid
-    if(x<xval.front() || x>xval.back() || y<yval.front() || y>yval.back()) {
-        if(z)
-            *z = NAN;
-        if(deriv_x)
-            *deriv_x = NAN;
-        if(deriv_y)
-            *deriv_y = NAN;
-        return;
-    }
-    const unsigned int
+    if(z_xx)
+        *z_xx = 0;
+    if(z_xy)
+        *z_xy = 0;
+    if(z_yy)
+        *z_yy = 0;
+    const int
         nx  = xval.size(),
         ny  = yval.size(),
         xi  = binSearch(x, &xval.front(), nx),
@@ -937,6 +926,16 @@ void LinearInterpolator2d::evalDeriv(const double x, const double y,
         ilu = ill + 1,      // xlow,yupp
         iul = ill + ny,     // xupp,ylow
         iuu = iul + 1;      // xupp,yupp
+    // no interpolation outside the 2d grid
+    if(xi<0 || xi>=nx-1 || yi<0 || yi>=ny-1) {
+        if(z)
+            *z    = NAN;
+        if(z_x)
+            *z_x  = NAN;
+        if(z_y)
+            *z_y  = NAN;
+        return;
+    }    
     const double
         zlowlow = fval[ill],
         zlowupp = fval[ilu],
@@ -950,10 +949,10 @@ void LinearInterpolator2d::evalDeriv(const double x, const double y,
         u = (y - yval[yi]) / dy;
     if(z)
         *z = (1-t)*(1-u) * zlowlow + t*(1-u) * zupplow + (1-t)*u * zlowupp + t*u * zuppupp;
-    if(deriv_x)
-        *deriv_x = (-(1-u) * zlowlow + (1-u) * zupplow - u * zlowupp + u * zuppupp) / dx;
-    if(deriv_y)
-        *deriv_y = (-(1-t) * zlowlow - t * zupplow + (1-t) * zlowupp + t * zuppupp) / dy;
+    if(z_x)
+        *z_x = (-(1-u) * zlowlow + (1-u) * zupplow - u * zlowupp + u * zuppupp) / dx;
+    if(z_y)
+        *z_y = (-(1-t) * zlowlow - t * zupplow + (1-t) * zlowupp + t * zuppupp) / dy;
 }
 
 
@@ -1006,24 +1005,9 @@ CubicSpline2d::CubicSpline2d(const std::vector<double>& xgrid, const std::vector
 void CubicSpline2d::evalDeriv(const double x, const double y,
     double *z, double *z_x, double *z_y, double *z_xx, double *z_xy, double *z_yy) const
 {
-    if(isEmpty())
+    if(fval.empty())
         throw std::range_error("Empty 2d spline");
-    if(x<xval.front() || x>xval.back() || y<yval.front() || y>yval.back()) {
-        if(z)
-            *z = NAN;
-        if(z_x)
-            *z_x = NAN;
-        if(z_y)
-            *z_y = NAN;
-        if(z_xx)
-            *z_xx = NAN;
-        if(z_xy)
-            *z_xy = NAN;
-        if(z_yy)
-            *z_yy = NAN;
-        return;
-    }
-    const unsigned int
+    const int
         nx = xval.size(),
         ny = yval.size(),
         // indices of grid cell in x and y
@@ -1034,6 +1018,21 @@ void CubicSpline2d::evalDeriv(const double x, const double y,
         ilu = ill + 1,      // xlow,yupp
         iul = ill + ny,     // xupp,ylow
         iuu = iul + 1;      // xupp,yupp
+    if(xi<0 || xi>=nx-1 || yi<0 || yi>=ny-1) {
+        if(z)
+            *z    = NAN;
+        if(z_x)
+            *z_x  = NAN;
+        if(z_y)
+            *z_y  = NAN;
+        if(z_xx)
+            *z_xx = NAN;
+        if(z_xy)
+            *z_xy = NAN;
+        if(z_yy)
+            *z_yy = NAN;
+        return;
+    }    
     const double
         // coordinates of corner points
         xlow = xval[xi],
@@ -1171,9 +1170,20 @@ void QuinticSpline2d::evalDeriv(const double x, const double y,
     double* z, double* z_x, double* z_y,
     double* z_xx, double* z_xy, double* z_yy) const
 {
-    if(isEmpty())
+    if(fval.empty())
         throw std::range_error("Empty 2d spline");
-    if(x<xval.front() || x>xval.back() || y<yval.front() || y>yval.back()) {
+    const int
+        nx = xval.size(),
+        ny = yval.size(),
+        // indices of grid cell in x and y
+        xi = binSearch(x, &xval.front(), nx),
+        yi = binSearch(y, &yval.front(), ny),
+        // indices in flattened 2d arrays:
+        ill = xi * ny + yi, // xlow,ylow
+        ilu = ill + 1,      // xlow,yupp
+        iul = ill + ny,     // xupp,ylow
+        iuu = iul + 1;      // xupp,yupp
+    if(xi<0 || xi>=nx-1 || yi<0 || yi>=ny-1) {
         if(z)
             *z    = NAN;
         if(z_x)
@@ -1188,20 +1198,8 @@ void QuinticSpline2d::evalDeriv(const double x, const double y,
             *z_yy = NAN;
         return;
     }
-    const unsigned int
-        nx = xval.size(),
-        ny = yval.size(),
-        // indices of grid cell in x and y
-        xi = binSearch(x, &xval.front(), nx),
-        yi = binSearch(y, &yval.front(), ny),
-        // indices in flattened 2d arrays:
-        ill = xi * ny + yi, // xlow,ylow
-        ilu = ill + 1,      // xlow,yupp
-        iul = ill + ny,     // xupp,ylow
-        iuu = iul + 1;      // xupp,yupp
     bool der  = z_y!=NULL || z_xy!=NULL;
     bool der2 = z_yy!=NULL;
-
     const double
         // coordinates of corner points
         xlow = xval[xi],
@@ -2836,4 +2834,47 @@ std::vector<double> mirrorGrid(const std::vector<double> &input)
     return output;
 }
 
+std::vector<double> createInterpolationGrid(const IFunction& fnc, double eps, double xinit)
+{
+    // restrict the search to |x|<=xmax, assuming that x=log(something)
+    const double xmax = 25.;  // exp(xmax) ~ 0.7e11
+    double eps4=pow(eps*384/5, 0.25);
+    PointNeighborhood f0(fnc, xinit);
+    PointNeighborhood fm(fnc, xinit-eps4);
+    PointNeighborhood fp(fnc, xinit+eps4);
+    double d2f0 = f0.fder2, d2fm = fm.fder2, d2fp = fp.fder2;
+    double d3f0 = (d2f0-d2fm) / eps4, d3fp = (d2fp-d2f0) / eps4;
+    double dx = -eps4;
+    double x  = xinit;
+    d2fp = d2f0;
+    std::vector<double> result(1, xinit);
+    int stage=0;
+    while(stage<2) {
+        x += dx;
+        PointNeighborhood fx(fnc, x);
+        double d2f = fx.fder2;
+        double d3f = (d2f-d2fp) / dx;
+        double dif = fabs((d3f-d3fp) / dx) + 0.1 * (fabs(d3fp) + fabs(d3f));  // estimate of 4th derivative
+        d2fp       = d2f;
+        d3fp       = d3f;
+        dx         = eps4 / fmin(1, pow(dif, 0.25)) * (stage*2-1);
+        result.push_back(x);
+        if(fabs(d2f) < eps || fabs(x)>xmax || !isFinite(d2f+dx)) {
+            if(stage==0) {
+                std::reverse(result.begin(), result.end());
+                x   = 0;
+                dx  = eps4;
+                d2fp= d2f0;
+                d3fp= d3f0;
+            }
+            ++stage;
+        }
+    }
+    utils::msg(utils::VL_DEBUG, "createInterpolationGrid", "Grid: [" +
+        utils::toString(result.front()) + ":" + utils::toString(result.back()) + "], " +
+        utils::toString(result.size()) + " nodes");
+    return result;
+}
+
+    
 }  // namespace

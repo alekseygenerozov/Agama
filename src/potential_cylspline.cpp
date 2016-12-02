@@ -593,7 +593,7 @@ double DensityAzimuthalHarmonic::rho_m(int m, double R, double z) const
 {
     int mmax = (spl.size()-1)/2;
     double lR = log(1+R/Rscale), lz = log(1+fabs(z)/Rscale)*math::sign(z);
-    if( math::abs(m)>mmax || spl[m+mmax].isEmpty() ||
+    if( math::abs(m)>mmax || spl[m+mmax].empty() ||
         lR<spl[mmax].xmin() || lz<spl[mmax].ymin() ||
         lR>spl[mmax].xmax() || lz>spl[mmax].ymax() )
         return 0;
@@ -614,7 +614,7 @@ double DensityAzimuthalHarmonic::densityCyl(const coord::PosCyl &pos) const
         math::trigMultiAngle(pos.phi, mmax, needSine, trig);
     }
     for(int m=-mmax; m<=mmax; m++)
-        if(!spl[m+mmax].isEmpty()) {
+        if(!spl[m+mmax].empty()) {
             double trig_m = m==0 ? 1 : m>0 ? trig[m-1] : trig[mmax-1-m];
             result += spl[m+mmax].value(lR, lz) * trig_m;
         }
@@ -626,7 +626,7 @@ void DensityAzimuthalHarmonic::getCoefs(
     std::vector< math::Matrix<double> > &coefs) const
 {
     unsigned int mmax = (spl.size()-1)/2;
-    assert(mmax>=0 && spl.size() == mmax*2+1 && !spl[mmax].isEmpty());
+    assert(mmax>=0 && spl.size() == mmax*2+1 && !spl[mmax].empty());
     coefs.resize(2*mmax+1);
     unsigned int sizeR = spl[mmax].xvalues().size();
     unsigned int sizez = spl[mmax].yvalues().size();
@@ -638,7 +638,7 @@ void DensityAzimuthalHarmonic::getCoefs(
     } else
         gridz = spl[mmax].yvalues();
     for(unsigned int mm=0; mm<=2*mmax; mm++)
-        if(!spl[mm].isEmpty()) {
+        if(!spl[mm].empty()) {
             coefs[mm]=math::Matrix<double>(sizeR, sizez);
             for(unsigned int iR=0; iR<sizeR; iR++)
                 for(unsigned int iz=0; iz<sizez; iz++)
@@ -1151,7 +1151,7 @@ void CylSpline::getCoefs(
     std::vector< math::Matrix<double> > &dPhidz) const
 {
     unsigned int mmax = (spl.size()-1)/2;
-    assert(mmax>=0 && spl.size() == mmax*2+1 && !spl[mmax]->isEmpty());
+    assert(mmax>=0 && spl.size() == mmax*2+1 && !spl[mmax]->empty());
     const std::vector<double>& scaledR = spl[mmax]->xvalues();
     const std::vector<double>& scaledz = spl[mmax]->yvalues();
     unsigned int sizeR = scaledR.size();

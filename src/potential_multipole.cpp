@@ -1399,7 +1399,7 @@ void MultipoleInterp2d::evalCyl(const coord::PosCyl &pos,
     const double
         r         = sqrt(pow_2(pos.R) + pow_2(pos.z)),
         logr      = log(r),
-        rplusRinv = 1. / (r + pos.R),
+        rplusRinv = 1. / (r + fabs(pos.R)),
         tau       = pos.R==0 ? math::sign(pos.z) : pos.z * rplusRinv;
 
     // number of azimuthal harmonics to compute

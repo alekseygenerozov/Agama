@@ -113,7 +113,7 @@ public:
     double xmax() const { return xval.size()? xval.back() : NAN; }
 
     /** check if the spline is initialized */
-    bool isEmpty() const { return xval.size()==0; }
+    bool empty() const { return fval.empty(); }
 
     /** return the array of spline nodes */
     const std::vector<double>& xvalues() const { return xval; }
@@ -380,7 +380,8 @@ public:
 /** Generic two-dimensional interpolator class */
 class BaseInterpolator2d: public IFunctionNdim {
 public:
-    BaseInterpolator2d() {};
+    BaseInterpolator2d() {}
+
     /** Initialize a 2d interpolator from the provided values of x, y and f.
         The latter is 2d array with the following indexing convention:  f[i][j] = f(x[i],y[j]).
         Values of x and y arrays should monotonically increase.
@@ -418,7 +419,7 @@ public:
     double ymax() const { return yval.size()? yval.back() : NAN; }
 
     /** check if the interpolator is initialized */
-    bool isEmpty() const { return xval.size()==0 || yval.size()==0; }
+    bool empty() const { return fval.empty(); }
 
     /** return the array of grid nodes in x-coordinate */
     const std::vector<double>& xvalues() const { return xval; }
@@ -435,7 +436,7 @@ protected:
 /** Two-dimensional bilinear interpolator */
 class LinearInterpolator2d: public BaseInterpolator2d {
 public:
-    LinearInterpolator2d() : BaseInterpolator2d() {};
+    LinearInterpolator2d() : BaseInterpolator2d() {}
 
     /** Initialize a 2d interpolator from the provided values of x, y and f.
         The latter is 2d array with the following indexing convention:  f[i][j] = f(x[i],y[j]).
@@ -443,7 +444,7 @@ public:
     */
     LinearInterpolator2d(const std::vector<double>& xgrid, const std::vector<double>& ygrid,
         const Matrix<double>& fvalues) : 
-        BaseInterpolator2d(xgrid, ygrid, fvalues) {};
+        BaseInterpolator2d(xgrid, ygrid, fvalues) {}
 
     /** Compute the value and/or derivatives of the interpolator;
         note that for the linear interpolator the 2nd derivatives are always zero. */
@@ -456,7 +457,7 @@ public:
 /** Two-dimensional cubic spline */
 class CubicSpline2d: public BaseInterpolator2d {
 public:
-    CubicSpline2d() : BaseInterpolator2d() {};
+    CubicSpline2d() : BaseInterpolator2d() {}
 
     /** Initialize a 2d cubic spline from the provided values of x, y and f.
         The latter is 2d array (Matrix) with the following indexing convention:  f(i,j) = f(x[i],y[j]).
@@ -483,7 +484,7 @@ private:
 /** Two-dimensional quintic spline */
 class QuinticSpline2d: public BaseInterpolator2d {
 public:
-    QuinticSpline2d() : BaseInterpolator2d() {};
+    QuinticSpline2d() : BaseInterpolator2d() {}
 
     /** Initialize a 2d quintic spline from the provided values of x, y, f(x,y), df/dx and df/dy.
         The latter three are 2d arrays (variables of Matrix type) with the following indexing
@@ -511,6 +512,8 @@ private:
 /** Trilinear interpolator */
 class LinearInterpolator3d: public math::IFunctionNdim {
 public:
+    LinearInterpolator3d() {}
+
     /** Construct the interpolator from the values at the nodes of a 3d grid.
         \param[in]  xnodes  is the grid in x dimension with size nx>=2;
         \param[in]  ynodes  is the grid in y dimension with size ny>=2;
@@ -519,15 +522,20 @@ public:
         fvalues[(i*ny + j) * nz + k] = f(xnodes[i], ynodes[j], znodes[k]).
         \throw std::invalid_argument if the grid sizes are incorrect.
     */
-    LinearInterpolator3d(const std::vector<double>& xnodes,
-        const std::vector<double>& ynodes, const std::vector<double>& znodes,
+    LinearInterpolator3d(
+        const std::vector<double>& xnodes,
+        const std::vector<double>& ynodes,
+        const std::vector<double>& znodes,
         const std::vector<double>& fvalues);
 
     /** Compute the value of the interpolator at the given point;
         if it is outside the grid boundaries, return NAN.
     */
     double value(double x, double y, double z) const;
-    
+
+    /** check if the interpolator is initialized */
+    bool empty() const { return fval.empty(); }
+
     // IFunctionNdim interface
     virtual void eval(const double point[3], double *val) const
     { *val = value(point[0], point[1], point[2]); }
@@ -543,6 +551,8 @@ private:
 /** Three-dimensional cubic spline with natural boundary conditions */
 class CubicSpline3d: public math::IFunctionNdim {
 public:
+    CubicSpline3d() {}
+
     /** Construct the spline interpolator from the values at the nodes of a 3d grid,
         or from the amplitudes of a BsplineInterpolator3d of degree N=3.
         \param[in]  xnodes  is the grid in x dimension with size nx>=2;
@@ -555,14 +565,19 @@ public:
         the grid of amplitudes should be (nx+2) * (ny+2) * (nz+2).
         \throw std::invalid_argument if the grid sizes are incorrect.
     */
-    CubicSpline3d(const std::vector<double>& xnodes,
-        const std::vector<double>& ynodes, const std::vector<double>& znodes,
+    CubicSpline3d(
+        const std::vector<double>& xnodes,
+        const std::vector<double>& ynodes,
+        const std::vector<double>& znodes,
         const std::vector<double>& fvalues);
 
     /** Compute the value of the interpolator at the given point;
         if it is outside the grid boundaries, return NAN.
     */
     double value(double x, double y, double z) const;
+
+    /** check if the interpolator is initialized */
+    bool empty() const { return fval.empty(); }
 
     // IFunctionNdim interface
     virtual void eval(const double point[3], double *val) const
@@ -616,8 +631,10 @@ public:
         There is no work done in the constructor apart from checking the validity of parameters.
         \throw std::invalid_argument if the 1d grids are invalid.
     */
-    BsplineInterpolator3d(const std::vector<double>& xnodes,
-        const std::vector<double>& ynodes, const std::vector<double>& znodes);
+    BsplineInterpolator3d(
+        const std::vector<double>& xnodes,
+        const std::vector<double>& ynodes,
+        const std::vector<double>& znodes);
 
     /** Compute the values of all potentially non-zero interpolating basis functions
         at the given point, needed to obtain the value of interpolant f(x,y,z) at this point.
@@ -996,5 +1013,28 @@ std::vector<double> createAlmostUniformGrid(unsigned int nnodes,
 */
 std::vector<double> mirrorGrid(const std::vector<double> &input);
 
+/** Construct a grid for interpolating a function with a cubic spline.
+    x is supposed to be a log-scaled coordinate, i.e., it does not attain very large values.
+    The function is assumed to have linear asymptotic behaviour at x -> +- infinity,
+    and the goal is to place the grid nodes such that the typical error in the interpolating
+    spline is less than the provided tolerance eps.
+    The error in the cubic spline approximation of a sufficiently smooth function
+    is <= 5/384 h^4 |f""(x)|, where h is the grid spacing and f"" is the fourth derivative
+    (which we have to estimate by finite differences, using the second derivatives provided
+    by the function). Note, however, that if the input function is a spline interpolator itself,
+    its smoothness is not quite as high, and the accuracy of the secondary interpolation deteriorates
+    somewhat (but is still at an acceptable level, taking into account that the original function
+    itself is an approximation).
+    We start from x=xinit and scan in both directions, adding grid nodes at intervals determined
+    by the above relation, and stop when the second derivative is less than the threshold eps.
+    Typically the nodes will be more sparsely spaced towards the end of the grid.
+    The approach is intended for functions that take x=log(y), so that the range of x is rather moderate.
+    \param[in] fnc  is the function f(x), only its second derivative is examined;
+    \param[in] eps  is the tolerance parameter;
+    \param[in] xinit  is the initial search point (expand in both directions from there);
+    \return  the grid in x.
+*/
+std::vector<double> createInterpolationGrid(const math::IFunction& fnc, double eps, double xinit=0);
+    
 ///@}
 }  // namespace

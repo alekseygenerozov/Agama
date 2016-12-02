@@ -133,23 +133,20 @@ class FncProduct: public IFunction {
 public:
     FncProduct(const IFunction& fnc1, const IFunction& fnc2) :
         f1(fnc1), f2(fnc2) {}
-
     virtual unsigned int numDerivs() const {
         return f1.numDerivs() < f2.numDerivs() ? f1.numDerivs() : f2.numDerivs();
     }
+    virtual void evalDeriv(const double x, double *val, double *der, double *der2) const;
+};
 
-    virtual void evalDeriv(const double x, double *val, double *der, double *der2) const {
-        double v1, v2, d1, d2, dd1, dd2;
-        bool needDer = der!=NULL || der2!=NULL, needDer2 = der2!=NULL;
-        f1.evalDeriv(x, &v1, needDer ? &d1 : 0, needDer2 ? &dd1 : 0);
-        f2.evalDeriv(x, &v2, needDer ? &d2 : 0, needDer2 ? &dd2 : 0);
-        if(val)
-            *val = v1 * v2;
-        if(der)
-            *der = v1 * d2 + v2 * d1;
-        if(der2)
-            *der2 = v1 * dd2 + 2 * d1 * d2 + v2 * dd1;
-    }
+/** Doubly-log-scaled function: return log(f(exp(logx))) and its two derivatives w.r.t log(x) */
+class LogLogScaledFnc: public math::IFunction {
+    const math::IFunction& fnc;  ///< reference to the original function
+public:
+    LogLogScaledFnc(const math::IFunction& _fnc) : fnc(_fnc) {}
+    virtual void evalDeriv(const double logx,
+        /*output*/ double* logf, double* der, double* der2) const;
+    virtual unsigned int numDerivs() const { return 2; }
 };
 
 ///@}

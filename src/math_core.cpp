@@ -104,7 +104,7 @@ double unwrapAngle(double x, double xprev)
 template<typename NumT>
 int binSearch(const NumT x, const NumT arr[], unsigned int size)
 {
-    if(size<1 || x<arr[0])
+    if(size<1 || !(x>=arr[0]))
         return -1;
     if(x>arr[size-1] || size<2)
         return size;
@@ -138,6 +138,37 @@ template int binSearch(const int x, const int arr[], unsigned int size);
 template int binSearch(const long x, const long arr[], unsigned int size);
 template int binSearch(const unsigned int x, const unsigned int arr[], unsigned int size);
 template int binSearch(const unsigned long x, const unsigned long arr[], unsigned int size);
+
+
+/* ------ algebraic transformations of functions ------- */
+
+void FncProduct::evalDeriv(const double x, double *val, double *der, double *der2) const
+{
+    double v1, v2, d1, d2, dd1, dd2;
+    bool needDer = der!=NULL || der2!=NULL, needDer2 = der2!=NULL;
+    f1.evalDeriv(x, &v1, needDer ? &d1 : 0, needDer2 ? &dd1 : 0);
+    f2.evalDeriv(x, &v2, needDer ? &d2 : 0, needDer2 ? &dd2 : 0);
+    if(val)
+        *val = v1 * v2;
+    if(der)
+        *der = v1 * d2 + v2 * d1;
+    if(der2)
+        *der2 = v1 * dd2 + 2 * d1 * d2 + v2 * dd1;
+}
+
+void LogLogScaledFnc::evalDeriv(const double logx,
+    /*output*/ double* logf, double* der, double* der2) const
+{
+    double x = exp(logx);
+    PointNeighborhood pt(fnc, x);
+    if(logf)
+        *logf = log(pt.f0);
+    if(der)
+        *der  = pt.fder * x / pt.f0;
+    if(der2)
+        *der2 = (pt.fder2 * x + (1 - pt.fder * x / pt.f0) * pt.fder) * x / pt.f0;
+}
+
 
 /* --------- random numbers -------- */
 class RandGenStorage{
@@ -228,6 +259,7 @@ double quasiRandomHalton(unsigned int ind, unsigned int base)
     }
     return val;
 }
+
 
 // ------- tools for analyzing the behaviour of a function around a particular point ------- //
 // this comes handy in root-finding and related applications, when one needs to ensure that 
@@ -354,6 +386,7 @@ void hermiteDerivs(double x0, double x1, double x2, double f0, double f1, double
     //der2 = ( -2 * (pow_2(dx21)*(f001-2*f011) + pow_2(dx10)*(f122-2*f112)) +
     //    4*dx10*dx21 * (dx10*f112 + dx21*f011) / dx20 ) / pow_2(dx20);
 }
+
 
 // ------ root finder routines ------//
 
@@ -514,7 +547,7 @@ static double findRootHybrid(const IFunction& fnc,
         if(numIter >= MAXITER) {
             converged = true;  // not quite ready, but can't loop forever
             utils::msg(utils::VL_WARNING, "findRoot", "max # of iterations exceeded: "
-                "x="+utils::toString(b,15)+" +- "+utils::toString(b-c)+
+                "x="+utils::toString(b,15)+" +- "+utils::toString(fabs(b-c))+
                 " on interval ["+utils::toString(x_lower,15)+":"+utils::toString(x_upper,15)+
                 "], req.toler.="+utils::toString(abstoler));
         }
@@ -726,6 +759,7 @@ double findMin(const IFunction& fnc, double xlower, double xupper, double xinit,
     return F.x_from_y(findMinKnown(F, xlower, xupper, xinit, ylower, yupper, yinit, reltoler));
 }
 
+
 // ------- integration routines ------- //
 
 double integrate(const IFunction& fnc, double x1, double x2, double reltoler, 
@@ -810,6 +844,7 @@ double ScaledIntegrandEndpointSing::value(const double y) const
     const double dx = (x_upp-x_low) * 6*y*(1-y);
     return dx==0 ? 0 : F(x)*dx;
 }
+
 
 // ------- multidimensional integration ------- //
 #ifdef HAVE_CUBA

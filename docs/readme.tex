@@ -1035,7 +1035,7 @@ The main advantage of \ttt{CylSpline} is in its ability to efficiently represent
 \Xi_m&= \frac{1}{\sqrt{R^2+R'^2+(z-z')^2}}\quad
   \mbox{if }R=0\mbox{ or }R'=0\mbox{, and }m=0\mbox{, otherwise 0}. \nonumber
 \end{align}
-Here $Q$ is the Legendre function of the second kind, which is computed using a Pad\'e approximation for $m\le 12$ or Gauss' hypergeometric function otherwise (more expensive).
+Here $Q$ is the Legendre function of the second kind, which is computed using a hand-crafted Pad\'e approximation for $m\le 12$ or Gauss' hypergeometric function otherwise (more expensive).
 %The two-dimensional integral in (\ref{eq:PoissonCylindric}) is calculated numerically with the \texttt{integrateNdim} routine (Section~\ref{sec:MathDetails}) to an accuracy of $10^{-6}$.
 For an array of particles, 
 \begin{align}  \label{eq:PoissonCylindricParticles}

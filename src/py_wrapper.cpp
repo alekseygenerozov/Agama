@@ -3074,7 +3074,7 @@ static inline double splEval(const math::CubicSpline& spl, double x, int der)
 
 static PyObject* CubicSpline_value(PyObject* self, PyObject* args, PyObject* namedArgs)
 {
-    if(self==NULL || ((CubicSplineObject*)self)->spl.isEmpty()) {
+    if(self==NULL || ((CubicSplineObject*)self)->spl.empty()) {
         PyErr_SetString(PyExc_ValueError, "CubicSpline object is not properly initialized");
         return NULL;
     }

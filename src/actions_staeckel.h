@@ -31,7 +31,7 @@ namespace actions {
     \param[in]  point     is the position/velocity point;
     \return     actions for the given point, or Jr=Jz=NAN if the energy is positive;
     \throw      std::invalid_argument exception if some error occurs.
-*/    
+*/
 Actions actionsAxisymStaeckel(
     const potential::OblatePerfectEllipsoid& potential, 
     const coord::PosVelCyl& point);
@@ -118,24 +118,29 @@ private:
     It is more suitable for massive computation in a fixed potential than just using 
     the standalone routines, because it estimates the interfocal distance using a pre-computed 
     interpolation grid, rather than doing it individually for each point. This results in 
-    a considerable speedup in action computation, for a negligible overhead during initialization.
+    a considerable speedup in action computation, for a minor overhead during initialization.
+    Additionally, it may set up an interpolation table for actions as functions
+    of three integrals of motion, which speeds up the evaluation by another order of magnitude,
+    for a moderate decrease in accuracy.
 */
 class ActionFinderAxisymFudge: public BaseActionFinder {
 public:
-    explicit ActionFinderAxisymFudge(const potential::PtrPotential& potential) :
-        pot(potential), finder(*potential) {};
+    ActionFinderAxisymFudge(const potential::PtrPotential& potential, bool interpolate = true);
 
-    virtual Actions actions(const coord::PosVelCyl& point) const {
-        return actionsAxisymFudge(*pot, point, 
-            finder.value(totalEnergy(*pot, point), point.R*point.vphi)); }
+    virtual Actions actions(const coord::PosVelCyl& point) const;
 
     virtual ActionAngles actionAngles(const coord::PosVelCyl& point, Frequencies* freq=NULL) const {
-        return actionAnglesAxisymFudge(*pot, point,
-            finder.value(totalEnergy(*pot, point), point.R*point.vphi), freq); }
+        return actionAnglesAxisymFudge(*pot, point, interfocalDistance(point), freq);
+    }
+
+    double interfocalDistance(const coord::PosVelCyl& point) const;
 
 private:
     const potential::PtrPotential pot;      ///< the potential in which actions are computed
-    const InterfocalDistanceFinder finder;  ///< fast estimator of interfocal distance
+    const potential::Interpolator interp;   ///< interpolator for Lcirc(E)
+    math::LinearInterpolator2d interpD;     ///< 2d interpolator for interfocal distance
+    math::CubicSpline2d interpR;            ///< 2d interpolator for the radius of thin orbit
+    math::CubicSpline3d intJr, intJz;       ///< 3d interpolators for Jr and Jz as functions of (E,Lz,I3)
 };
 
 ///@}
