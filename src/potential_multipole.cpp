@@ -501,64 +501,6 @@ static inline void transformDerivsSphToCyl(const coord::PosCyl& pos,
     }
 }
 
-// perform scaling transformation for the amplitude of potential and its derivatives:
-// on entry, pot, grad and hess contain the value, gradient and hessian of an auxiliary quantity
-// G[ln(r),...] = Phi[ln(r),...] * sqrt(r^2 + R0^2);
-// on output, they are replaced with the value, gradient and hessian of Phi w.r.t. [ln(r),...];
-// grad or hess may be NULL, if they are ultimately not needed.
-// \tparam nonrad tells whether we need to handle non-radial components, or they are zero.
-template<bool nonrad>
-static inline void transformAmplitude(double r, double Rscale,
-    double& pot, coord::GradSph *grad, coord::HessSph *hess)
-{
-    // additional scaling factor for the amplitude: 1 / sqrt(r^2 + R0^2)
-    double amp = 1. / sqrt(pow_2(r) + pow_2(Rscale));
-    pot *= amp;
-    if(!grad)
-        return;
-    // unscale the amplitude of derivatives, i.e. transform from
-    // d [scaledPhi(scaledCoords) * amp] / d[scaledCoords]  to  d[scaledPhi] / d[scaledCoords]
-    double damp = -r*r*amp;  // d amp[ln(r)] / d[ln(r)] / amp^2
-    grad->dr = (grad->dr + pot * damp) * amp;
-    if(nonrad) {
-        grad->dtheta *= amp;
-        grad->dphi   *= amp;
-    }
-    if(hess) {
-        hess->dr2 = (hess->dr2 + (2 * grad->dr + (2 - pow_2(r * amp)) * pot ) * damp) * amp;
-        if(nonrad) {
-            hess->drdtheta = (hess->drdtheta + grad->dtheta * damp) * amp;
-            hess->drdphi   = (hess->drdphi   + grad->dphi   * damp) * amp;
-            hess->dtheta2 *= amp;
-            hess->dphi2   *= amp;
-            hess->dthetadphi *= amp;
-        }
-    }
-}
-
-// find a suitable scaling radius R0 for transformation of potential amplitudes
-// (TODO: not very robust, incorrect results for steep cusps?)
-static double assignRscale(
-    const std::vector<double> &radii,
-    const std::vector< std::vector<double> > &Phi,
-    const std::vector< std::vector<double> > &dPhi)
-{
-    // determine the characteristic radius from the condition that Phi(0) = -Mtotal/rscale
-    double Rscale = radii.back() * Phi[0].back() / Phi[0].front();
-    if(!(Rscale>0))   // something weird happened, set to a reasonable default value
-        Rscale = 1.;
-    // if the l=0 harmonic component of the potential is well-behaved, that is everywhere negative
-    // and monotonically increasing with radius, then additionally ensure that the scaled potential
-    // does the same (to preserve monotonicity), at least near the center; otherwise don't care
-    for(unsigned int i=0; i<radii.size(); i++) {
-        double ratio = -Phi[0][i] / dPhi[0][i] * radii[i];
-        if(ratio >= 0 && Phi[0][i] / Phi[0][0] >= 0.5 && pow_2(Rscale) + pow_2(radii[i]) < ratio)
-            Rscale = sqrt(ratio - pow_2(radii[i]));
-    }
-    utils::msg(utils::VL_VERBOSE, "Multipole", "Rscale="+utils::toString(Rscale));
-    return Rscale;
-}
-
 }  // end internal namespace
 
 
@@ -802,7 +744,7 @@ PtrDensity DensitySphericalHarmonic::create(
         throw std::invalid_argument("DensitySphericalHarmonic: invalid choice of min/max grid radii");
     if(lmax<0 || lmax>LMAX_SPHHARM || mmax<0 || mmax>lmax)
         throw std::invalid_argument("DensitySphericalHarmonic: invalid choice of expansion order");
-    // to improve accuracy of SH coefficient computation, we may increase the order of expansion
+    // to improve accuracy of SH coefficient computation, we increase the order of expansion
     // that determines the number of integration points in angles
     int lmax_tmp =     isSpherical(dens) ? 0 : std::max<int>(lmax, LMIN_SPHHARM);
     int mmax_tmp = isZRotSymmetric(dens) ? 0 : std::max<int>(mmax, LMIN_SPHHARM);
@@ -972,8 +914,8 @@ private:
     math::SphHarmIndices ind;
     /// interpolation splines in log(r) for each {l,m} sph.-harm. component of potential
     std::vector<math::QuinticSpline> spl;
-    /// characteristic radius for amplitude scaling transformation
-    double Rscale;
+    /// whether to perform log-scaling on the l=0 component
+    bool logScaling;
 
     virtual void evalCyl(const coord::PosCyl &pos,
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
@@ -993,8 +935,8 @@ private:
     math::SphHarmIndices ind;
     /// 2d interpolation splines in meridional plane for each azimuthal harmonic (m) component
     std::vector<math::QuinticSpline2d> spl;
-    /// characteristic radius for amplitude scaling transformation
-    double Rscale;
+    /// whether to perform log-scaling on the l=0 component
+    bool logScaling;
 
     virtual void evalCyl(const coord::PosCyl &pos,
         double* potential, coord::GradCyl* deriv, coord::HessCyl* deriv2) const;
@@ -1097,7 +1039,7 @@ Multipole::Multipole(
         throw std::invalid_argument("Multipole: invalid choice of expansion order");
 
     // construct the interpolating splines
-    impl = ind.lmax<=2 ?   // choose between 1d or 2d splines, depending on the expected efficiency
+    impl = ind.lmax <= 2 ?   // choose between 1d or 2d splines, depending on the expected efficiency
         PtrPotential(new MultipoleInterp1d(gridRadii, Phi, dPhi)) :
         PtrPotential(new MultipoleInterp2d(gridRadii, Phi, dPhi));
 
@@ -1232,12 +1174,16 @@ MultipoleInterp1d::MultipoleInterp1d(
     assert(gridSizeR >= MULTIPOLE_MIN_GRID_SIZE &&
         ind.size() == Phi.size() && ind.size() == dPhi.size() &&
         Phi[0].size() == gridSizeR && ind.lmax >= 0 && ind.mmax <= ind.lmax);
-    Rscale = assignRscale(radii, Phi, dPhi);
+
+    // whether to perform logarithmic scaling for the amplitude of l=0 term
+    logScaling = true;  // will be enabled if all values of Phi_00(r) are negative
 
     // set up a logarithmic radial grid
     std::vector<double> gridR(gridSizeR);
-    for(unsigned int k=0; k<gridSizeR; k++)
+    for(unsigned int k=0; k<gridSizeR; k++) {
         gridR[k] = log(radii[k]);
+        logScaling &= Phi[0][k]<0;
+    }
     std::vector<double> Phi_lm(gridSizeR), dPhi_lm(gridSizeR);  // temp.arrays
 
     // set up 1d quintic splines in radius for each non-trivial (l,m) coefficient
@@ -1246,10 +1192,14 @@ MultipoleInterp1d::MultipoleInterp1d(
         for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
             unsigned int c = ind.index(l, m);
             for(unsigned int k=0; k<gridSizeR; k++) {
-                double amp = sqrt(pow_2(Rscale) + pow_2(radii[k]));   // additional scaling multiplier
-                Phi_lm[k]  =  amp *  Phi[c][k];
-                // transform d Phi / d r  to  d (Phi * amp(r)) / d ln(r)
-                dPhi_lm[k] = (amp * dPhi[c][k] + Phi[c][k] * radii[k] / amp) * radii[k];
+                if(c==0) {
+                    Phi_lm [k] =  logScaling ? log(-Phi[c][k]) : Phi[c][k];
+                    dPhi_lm[k] = (logScaling ? 1/Phi[c][k] : 1) * radii[k] * dPhi[c][k];
+                } else if(Phi[0][k] != 0) {
+                    Phi_lm [k] = Phi[c][k] / Phi[0][k];
+                    dPhi_lm[k] = (dPhi[c][k] - Phi_lm[k] * dPhi[0][k]) * radii[k] / Phi[0][k];
+                } else
+                    Phi_lm [k] = dPhi_lm[k] = 0;  // don't pretend to be anywhere accurate in this case
             }
             spl[c] = math::QuinticSpline(gridR, Phi_lm, dPhi_lm);
         }
@@ -1261,39 +1211,59 @@ void MultipoleInterp1d::evalCyl(const coord::PosCyl &pos,
     bool needGrad = grad!=NULL || hess!=NULL;
     bool needHess = hess!=NULL;
     double r = sqrt(pow_2(pos.R) + pow_2(pos.z)), logr = log(r);
-    double pot;
+
+    // temporary array created on the stack, without dynamic memory allocation.
+    // it will be automatically freed upon return from this routine, just as any local stack variable.
+    int ncoefs = pow_2(ind.lmax + 1);
+    double*   Phi_lm = static_cast<double*>(alloca(3 * ncoefs * sizeof(double)));
+    double*  dPhi_lm = Phi_lm + ncoefs;    // part of the temporary array
+    double* d2Phi_lm = Phi_lm + 2*ncoefs;
     coord::GradSph gradSph;
     coord::HessSph hessSph;
-    if(ind.lmax == 0) {   // fast track in the spherical case
-        spl[0].evalDeriv(logr, &pot,
-            needGrad ? &gradSph.dr  : NULL,
-            needHess ? &hessSph.dr2 : NULL);
-        if(needGrad)
-            gradSph.dtheta = gradSph.dphi = 0;
-        if(needHess)
-            hessSph.dtheta2 = hessSph.dphi2 = hessSph.drdtheta = hessSph.drdphi = hessSph.dthetadphi = 0;
-        transformAmplitude<false>(r, Rscale, pot,
-            needGrad ? &gradSph : NULL, needHess ? &hessSph : NULL);
 
+    // first compute the l=0 coefficient, possibly log-unscaled
+    spl[0].evalDeriv(logr, Phi_lm,
+        needGrad ? dPhi_lm  : NULL,
+        needHess ? d2Phi_lm : NULL);
+    if(logScaling) {
+        Phi_lm[0] = -exp(Phi_lm[0]);
+        if(needHess)
+            d2Phi_lm[0] = Phi_lm[0] * (d2Phi_lm[0] + pow_2(dPhi_lm[0]));
+        if(needGrad)
+            dPhi_lm[0] *= Phi_lm[0];
+    }
+    if(ind.lmax == 0) {   // fast track in the spherical case
+        if(potential)
+            *potential = Phi_lm[0];
+        if(needGrad) {
+            gradSph.dr = dPhi_lm[0];
+            gradSph.dtheta = gradSph.dphi = 0;
+        }
+        if(needHess) {
+            hessSph.dr2 = d2Phi_lm[0];
+            hessSph.dtheta2 = hessSph.dphi2 = hessSph.drdtheta = hessSph.drdphi = hessSph.dthetadphi = 0;
+        }
     } else {
-        double   Phi_lm[(LMAX_SPHHARM+1)*(LMAX_SPHHARM+1)];
-        double  dPhi_lm[(LMAX_SPHHARM+1)*(LMAX_SPHHARM+1)];
-        double d2Phi_lm[(LMAX_SPHHARM+1)*(LMAX_SPHHARM+1)];
         // compute spherical-harmonic coefs
         for(int m=ind.mmin(); m<=ind.mmax; m++)
             for(int l=ind.lmin(m); l<=ind.lmax; l+=ind.step) {
                 unsigned int c = ind.index(l, m);
+                if(c==0)
+                    continue;
                 spl[c].evalDeriv(logr, &Phi_lm[c],
                     needGrad?  &dPhi_lm[c] : NULL,
                     needHess? &d2Phi_lm[c] : NULL);
+                // scale by the value of l=0 coef
+                if(needHess)
+                    d2Phi_lm[c] = d2Phi_lm[c] * Phi_lm[0] + 2 * dPhi_lm[c] * dPhi_lm[0] +
+                        Phi_lm[c] * d2Phi_lm[0];
+                if(needGrad)
+                    dPhi_lm[c] = dPhi_lm[c] * Phi_lm[0] + Phi_lm[c] * dPhi_lm[0];
+                Phi_lm[c] *= Phi_lm[0];
             }
-        sphHarmTransformInverseDeriv(ind, pos, Phi_lm, dPhi_lm, d2Phi_lm, &pot,
-            needGrad ? &gradSph : NULL, needHess ? &hessSph : NULL);
-        transformAmplitude<true>(r, Rscale, pot,
+        sphHarmTransformInverseDeriv(ind, pos, Phi_lm, dPhi_lm, d2Phi_lm, potential,
             needGrad ? &gradSph : NULL, needHess ? &hessSph : NULL);
     }
-    if(potential)
-        *potential = pot;
     if(needGrad)
         transformDerivsSphToCyl(pos, gradSph, hessSph, grad, hess);
 }
@@ -1330,7 +1300,7 @@ static std::vector<double> createGridInTheta(unsigned int lmax)
     std::vector<double> gridT(gridSizeT);
     for(unsigned int iGL=0; iGL<=numPointsGL; iGL++)
         for(unsigned int iover=0; iover<oversampleFactor; iover++) {
-            gridT[/*gridT.size() - 1 -*/ (iGL * oversampleFactor + iover)] =
+            gridT[iGL * oversampleFactor + iover] =
                 (tau[iGL] * (oversampleFactor-iover) + tau[iGL+1] * iover) / oversampleFactor;
         }
     gridT.back() = 1;
@@ -1341,13 +1311,13 @@ MultipoleInterp2d::MultipoleInterp2d(
     const std::vector<double> &radii,
     const std::vector< std::vector<double> > &Phi,
     const std::vector< std::vector<double> > &dPhi) :
-    ind(getIndicesFromCoefs(Phi, dPhi))
+    ind(getIndicesFromCoefs(Phi, dPhi)),
+    logScaling(true)
 {
     unsigned int gridSizeR = radii.size();
     assert(gridSizeR >= MULTIPOLE_MIN_GRID_SIZE &&
         ind.size() == Phi.size() && ind.size() == dPhi.size() &&
         Phi[0].size() == gridSizeR && ind.lmax >= 0 && ind.mmax <= ind.lmax);
-    Rscale = assignRscale(radii, Phi, dPhi);
 
     // set up a 2D grid in ln(r) and tau = cos(theta)/(sin(theta)+1):
     std::vector<double> gridR(gridSizeR);
@@ -1360,11 +1330,14 @@ MultipoleInterp2d::MultipoleInterp2d(
     math::Matrix<double> Phi_val(gridSizeR, gridSizeT);
     math::Matrix<double> Phi_dR (gridSizeR, gridSizeT);
     math::Matrix<double> Phi_dT (gridSizeR, gridSizeT);
+    std::vector<double>  Phi0_val, Phi0_dR, Phi0_dT;   // copies of these matrices for the m=0 term
     std::vector<double>  Plm(ind.lmax+1), dPlm(ind.lmax+1);
 
     // loop over azimuthal harmonic indices (m)
     spl.resize(2*ind.mmax+1);
-    for(int m=ind.mmin(); m<=ind.mmax; m++) {
+    for(int mm=0; mm<=ind.mmax-ind.mmin(); mm++) {
+        // this weird order ensures that we first process the m=0 term even if there are m<0 terms
+        int m = mm<=ind.mmax ? mm : ind.mmax-mm;
         int lmin = ind.lmin(m);
         if(lmin > ind.lmax)
             continue;
@@ -1380,13 +1353,39 @@ MultipoleInterp2d::MultipoleInterp2d(
                     val +=  Phi[c][k] *  Plm[l-absm];   // Phi_{l,m}(r)
                     dR  += dPhi[c][k] *  Plm[l-absm];   // d Phi / d r
                     dT  +=  Phi[c][k] * dPlm[l-absm];   // d Phi / d theta
+                    if(m==0)
+                        logScaling &= val<0;
                 }
-                double amp = sqrt(pow_2(Rscale) + pow_2(radii[k]));   // additional scaling multiplier
-                Phi_val(k, j) = mul *  amp * val;
-                // transform d Phi / d r      to  d (Phi * amp(r)) / d ln(r)
-                Phi_dR (k, j) = mul * (amp * dR + val * radii[k] / amp) * radii[k];
-                // transform d Phi / d theta  to  d (Phi * amp) / d tau
-                Phi_dT (k, j) = mul *  amp * dT * -2 / (pow_2(gridT[j]) + 1);
+                Phi_val(k, j) = mul * val;
+                // transform d Phi / d r      to  d Phi / d ln(r)
+                Phi_dR (k, j) = mul * dR * radii[k];
+                // transform d Phi / d theta  to  d Phi / d tau
+                Phi_dT (k, j) = mul * dT * -2 / (pow_2(gridT[j]) + 1);
+            }
+        }
+        // further transform the amplitude and the derivatives:
+        // for the m=0 term we use log-scaling if possible (i.e. if it is everywhere negative),
+        // the other terms are normalized to the value of the m=0 term
+        if(m==0) {
+            // store the un-transformed m=0 term, which is later used to scale the other terms
+            Phi0_val.assign(Phi_val.data(), Phi_val.data()+Phi_val.size());  
+            Phi0_dR .assign(Phi_dR.data(),  Phi_dR.data() +Phi_dR.size());
+            Phi0_dT .assign(Phi_dT.data(),  Phi_dT.data()+Phi_dT.size());
+            if(logScaling) {
+                for(unsigned int i=0; i<gridSizeT*gridSizeR; i++) {
+                    Phi_dR. data()[i] /= Phi0_val[i];
+                    Phi_dT. data()[i] /= Phi0_val[i];
+                    Phi_val.data()[i] = log(-Phi0_val[i]);
+                }
+            }
+        } else {
+            for(unsigned int i=0; i<gridSizeT*gridSizeR; i++) {
+                if(Phi0_val[i] == 0)  // don't attempt to scale by a zero value
+                    continue;         // (assume that the m!=0 terms are zero too)
+                double Phi_rel = Phi_val.data()[i] / Phi0_val[i];
+                Phi_val.data()[i] = Phi_rel;
+                Phi_dR. data()[i] = (Phi_dR.data()[i] - Phi_rel * Phi0_dR[i]) / Phi0_val[i];
+                Phi_dT. data()[i] = (Phi_dT.data()[i] - Phi_rel * Phi0_dT[i]) / Phi0_val[i];
             }
         }
         // establish 2D quintic spline for Phi_m(ln(r), tau)
@@ -1400,47 +1399,78 @@ void MultipoleInterp2d::evalCyl(const coord::PosCyl &pos,
     const double
         r         = sqrt(pow_2(pos.R) + pow_2(pos.z)),
         logr      = log(r),
-        rplusRinv = 1. / (r + pos.R),
-        tau       = pos.z * rplusRinv;
+        rplusRinv = 1. / (r + fabs(pos.R)),
+        tau       = pos.R==0 ? math::sign(pos.z) : pos.z * rplusRinv;
 
     // number of azimuthal harmonics to compute
-    const int nm = ind.mmax - ind.mmin() + 1;
-
+    const int mmin = ind.mmin(), nm = ind.mmax - mmin + 1;
+    
+    // only compute those quantities that will be needed in output
+    const int numQuantities = hess!=NULL ? 6 : grad!=NULL ? 3 : 1;
+    
     // temporary array for storing coefficients: Phi, two first and three second derivs for each m
-    double C_m[(2*LMAX_SPHHARM+1) * 6];
-
+    // allocated on the stack and will be automatically freed upon leaving this routine
+    double *C_m = static_cast<double*>(alloca(nm * numQuantities * sizeof(double)));
+    double *Phi = C_m,    // assign proper names to these arrays
+        *dlnr   = C_m+nm,
+        *dtau   = C_m+nm*2,
+        *dlnr2  = C_m+nm*3,
+        *dlnrdtau=C_m+nm*4,
+        *dtau2  = C_m+nm*5;
+    
     // value, first and second derivs of scaled potential in scaled coordinates,
     // where 'r' stands for ln(r) and 'theta' - for tau
     double trPot;
     coord::GradSph trGrad;
     coord::HessSph trHess;
 
-    // only compute those quantities that will be needed in output
-    const int numQuantities = hess!=NULL ? 6 : grad!=NULL ? 3 : 1;
-
     // compute azimuthal harmonics
     for(int mm=0; mm<nm; mm++) {
-        int m = mm + ind.mmin();
+        int m = mm + mmin;
         if(ind.lmin(m) > ind.lmax)
             continue;
-        spl[m+ind.mmax].evalDeriv(logr, tau, &C_m[mm],
-            numQuantities>=3 ? &C_m[mm+nm  ] : NULL,
-            numQuantities>=3 ? &C_m[mm+nm*2] : NULL,
-            numQuantities==6 ? &C_m[mm+nm*3] : NULL,
-            numQuantities==6 ? &C_m[mm+nm*4] : NULL,
-            numQuantities==6 ? &C_m[mm+nm*5] : NULL);
-        if(pos.R==0) {  // zero out the derivatives w.r.t. tau that are pure roundoff errors
-            C_m[mm+nm*2] = 0;  //  d / dtau
-            C_m[mm+nm*4] = 0;  // d2 / dr dtau
-        }
+        spl[m+ind.mmax].evalDeriv(logr, tau, &Phi[mm],
+            numQuantities>=3 ? &dlnr    [mm] : NULL,
+            numQuantities>=3 ? &dtau    [mm] : NULL,
+            numQuantities==6 ? &dlnr2   [mm] : NULL,
+            numQuantities==6 ? &dlnrdtau[mm] : NULL,
+            numQuantities==6 ? &dtau2   [mm] : NULL);
     }
 
+    // transform the amplitude: first perform the inverse log-scaling for the m=0 term
+    if(logScaling) {
+        double val = -exp(Phi[mmin]);  // the value of potential
+        Phi[mmin]  = val;
+        if(numQuantities==6) {         // second derivatives w.r.t. (ln r)^2, tau * ln r, tau^2
+            dlnr2   [mmin] = val * (dlnr2   [mmin] + pow_2(dlnr[mmin]));
+            dlnrdtau[mmin] = val * (dlnrdtau[mmin] + dlnr[mmin] * dtau[mmin]);
+            dtau2   [mmin] = val * (dtau2   [mmin] + pow_2(dtau[mmin]));
+        }
+        if(numQuantities>=3) {
+            dlnr[mmin] *= val;
+            dtau[mmin] *= val;
+        }
+    }
+    // then multiply other terms by the value of the m=0 term, which resides in the [mmin] element
+    for(int mm=0; mm<nm; mm++) {
+        int m = mm + mmin;
+        if(m==0 || ind.lmin(m) > ind.lmax)
+            continue;
+        if(numQuantities==6) {
+            dlnr2[mm] = dlnr2[mm] * Phi[mmin] + Phi[mm] * dlnr2[mmin] + 2 * dlnr[mm] * dlnr[mmin];
+            dtau2[mm] = dtau2[mm] * Phi[mmin] + Phi[mm] * dtau2[mmin] + 2 * dtau[mm] * dtau[mmin];
+            dlnrdtau[mm] = dlnrdtau[mm] * Phi[mmin] + Phi[mm] * dlnrdtau[mmin] +
+                dlnr[mm] * dtau[mmin] + dtau[mm] * dlnr[mmin];
+        }
+        if(numQuantities>=3) {
+            dlnr[mm] = dlnr[mm] * Phi[mmin] + Phi[mm] * dlnr[mmin];
+            dtau[mm] = dtau[mm] * Phi[mmin] + Phi[mm] * dtau[mmin];
+        }
+        Phi[mm] *= Phi[mmin];  // Phi
+    }
+    
     // Fourier synthesis from azimuthal harmonics to actual quantities, still in scaled coords
     fourierTransformAzimuth(ind, pos.phi, C_m, &trPot,
-        numQuantities>=3 ? &trGrad : NULL, numQuantities==6 ? &trHess : NULL);
-
-    // scaling transformation for the amplitude of interpolated potential
-    transformAmplitude<true>(r, Rscale, trPot,
         numQuantities>=3 ? &trGrad : NULL, numQuantities==6 ? &trHess : NULL);
 
     if(potential)

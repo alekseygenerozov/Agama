@@ -6,6 +6,9 @@
 #include <cassert>
 #include <cmath>
 
+// debugging output
+#include <fstream>
+
 namespace actions{
 
 namespace {  // internal routines
@@ -602,6 +605,7 @@ ActionAngles computeActionAngles(
 }
 
 }  // internal namespace
+
 // -------- THE DRIVER ROUTINES --------
 
 Actions actionsAxisymStaeckel(const potential::OblatePerfectEllipsoid& potential, 
@@ -650,6 +654,207 @@ ActionAngles actionAnglesAxisymFudge(const potential::BasePotential& potential,
     return computeActionAngles(fnc, lim, freq);
 }
 
+
+// ----------- INTERPOLATOR ----------- //
+
+ActionFinderAxisymFudge::ActionFinderAxisymFudge(
+    const potential::PtrPotential& _pot, const bool interpolate) :
+    pot(_pot), interp(*pot)
+{
+    double Phi0 = pot->value(coord::PosCyl(0,0,0));
+    if(!isFinite(Phi0))
+        throw std::runtime_error(
+            "ActionFinderAxisymInterp: can only deal with potentials that are finite at r->0");
+    const int sizeE = 50;
+    const int sizeL = 20;
+    const int sizeI = 20;
+
+    // create a grid in energy
+    std::vector<double> gridE(sizeE);
+    for(int i=0; i<sizeE; i++) {
+        double x = (i+1.)/sizeE;
+        // transformation of interval [0:1] onto itself that places more grid points near the edges:
+        // a function with zero 1st and 2nd derivs at x=0 and x=1
+        gridE[i] = (1 - pow_3(x) * (10+x*(-15+x*6))) * Phi0;
+    }
+
+    // create a grid in L/Lcirc(E)
+    std::vector<double> gridL(sizeL);
+    for(int i=0; i<sizeL; i++) {
+        double x = 1.*i/(sizeL-1);
+        gridL[i] = pow_3(x) * (10+x*(-15+x*6));
+    }
+
+    // create a grid in I3/I3max(E,L)
+    std::vector<double> gridI(sizeI);
+    for(int i=0; i<sizeI; i++) {
+        double x = 1.*i/(sizeI-1);
+        gridI[i] = pow_3(x) * (10+x*(-15+x*6));
+    }
+
+    math::Matrix<double> grid2dD(sizeE, sizeL);           // Delta(E, L/Lc) (interfocal distance)
+    math::Matrix<double> grid2dR(sizeE, sizeL);           // Rthin(E, L/Lc)
+    std::vector<double> grid3dJr(sizeE * sizeL * sizeI);  // Jr(E, L/Lc, I3/I3max)
+    std::vector<double> grid3dJz(sizeE * sizeL * sizeI);  // same for Jz
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic,1)
+#endif
+    for(int iE=0; iE<sizeE-1; iE++) {
+        double E  = gridE[iE];
+        double Rc = R_circ(*pot, E);
+        double vc = v_circ(*pot, Rc);
+        double Lc = Rc * vc;
+        for(int iL=0; iL<sizeL-1; iL++) {
+            double Lz   = gridL[iL] * Lc;
+            double Rthin;
+            double ifd  = estimateInterfocalDistanceShellOrbit(*pot, E, Lz, &Rthin);
+            grid2dD(iE, iL) = ifd;
+            grid2dR(iE, iL) = Rthin / Rc;
+            if(!interpolate)
+                continue;
+            double vphi = Lz / Rthin;
+            double vmer = sqrt(fmax( 2 * (E - pot->value(coord::PosCyl(Rthin,0,0))) - pow_2(vphi), 0));
+            if(!isFinite(vmer))
+                throw std::runtime_error("ActionFinderAxisymFudge: cannot compute meridional velocity "
+                    "at R="+utils::toString(Rthin)+", E="+utils::toString(E));
+            for(int iI=0; iI<sizeI; iI++) {
+                int index = (iE * sizeL + iL) * sizeI + iI;
+                coord::PosVelCyl ic(Rthin, 0, 0, vmer * sqrt(1-gridI[iI]), vmer * sqrt(gridI[iI]), vphi);
+                actions::Actions acts = actionsAxisymFudge(*pot, ic, ifd);
+                if(!isFinite(acts.Jr+acts.Jz))
+                    throw std::runtime_error("ActionFinderAxisymFudge: cannot compute actions for "
+                        "R="+utils::toString(ic.R)+", vR="+utils::toString(ic.vR)+
+                        ", vz="+utils::toString(ic.vz)+", vphi="+utils::toString(ic.vphi));
+                grid3dJr[index] = acts.Jr / (Lc-Lz);
+                grid3dJz[index] = acts.Jz / (Lc-Lz);
+            }
+        }
+        // limiting case of a circular orbit
+        {
+            int iL = sizeL-1;
+            grid2dD(iE, iL) = grid2dD(iE, iL-1);
+            grid2dR(iE, iL) = 1.;
+            if(!interpolate)
+                continue;
+            double kappa, nu, Omega;
+            epicycleFreqs(*pot, Rc, kappa, nu, Omega);
+            if(kappa>0 && nu>0 && Omega>0) {
+                for(int iI=0; iI<sizeI; iI++) {
+                    int index = (iE * sizeL + iL) * sizeI + iI;
+                    grid3dJr[index] = Omega / kappa * (1-gridI[iI]);
+                    grid3dJz[index] = Omega / nu * gridI[iI];
+                }
+            } else {
+                utils::msg(utils::VL_WARNING, "ActionFinderAxisymFudge",
+                    "cannot compute epicyclic frequencies at R="+utils::toString(Rc));
+                // simply repeat the values from the previous row
+                for(int iI=0; iI<sizeI; iI++) {
+                    int index = (iE * sizeL + iL) * sizeI + iI;
+                    grid3dJr[index] = grid3dJr[index - sizeI];
+                    grid3dJz[index] = grid3dJz[index - sizeI];
+                }
+            }
+        }
+    }
+    // limiting case of E --> 0, assuming a Keplerian potential at large radii
+    {
+        int iE = sizeE-1;
+        for(int iL=0; iL<sizeL; iL++) {
+            grid2dD(iE, iL) = grid2dD(iE-1, iL);
+            grid2dR(iE, iL) = 1.;
+            for(int iI=0; iI<sizeI; iI++) {
+                int index = (iE * sizeL + iL) * sizeI + iI;
+                // in the Keplerian regime, Lcirc = Jr + L = Jr + Jz + Jphi,
+                // and L = sqrt( Lz^2 + (I3/I3max) * (Lcirc^2-Lz^2) ).
+                // in our scaled units gridL[iL] = Lz/Lcirc, and gridI[iI] = I3/I3max.
+                // thus Jr,rel = (Lcirc - L) / (Lcirc - Lz)  and  Jz,rel = (L - Lz) / (Lcirc - Lz)
+                double L = sqrt( pow_2(gridL[iL]) * (1 - gridI[iI]) + gridI[iI]);  // normalized to Lcirc
+                grid3dJr[index] = (1 + gridL[iL]) * (1 - gridI[iI]) / (1 + L);
+                grid3dJz[index] = iI+iL>0 ? (1 + gridL[iL]) * gridI[iI] / (gridL[iL] + L) : 0;
+            }
+        }
+    }
+
+    // debugging output
+    if(utils::verbosityLevel >= utils::VL_VERBOSE) {
+        std::ofstream strm("action_interp");
+        if(interpolate)
+            strm << "#E L/Lcirc I3rel\tIFD\tRthin/Rcirc\tJrrel\tJzrel\n";
+        else
+            strm << "#E L/Lcirc dummy\tIFD\n";
+        for(int iE=0; iE<sizeE; iE++) {
+            for(int iL=0; iL<sizeL; iL++) {
+                if(interpolate)
+                for(int iI=0; iI<sizeI; iI++) {
+                    strm <<
+                    utils::pp(gridE[iE], 8) +' '+
+                    utils::pp(gridL[iL], 6) +' '+
+                    utils::pp(gridI[iI], 6) +'\t'+
+                    utils::pp(grid2dD(iE, iL), 7) +'\t'+
+                    utils::pp(grid2dR(iE, iL), 7) +'\t'+
+                    utils::pp(grid3dJr[ (iE * sizeL + iL) * sizeI + iI ], 7) +'\t'+
+                    utils::pp(grid3dJz[ (iE * sizeL + iL) * sizeI + iI ], 7) +'\n';
+                }
+                else
+                    strm <<
+                    utils::pp(gridE[iE], 8) +' '+
+                    utils::pp(gridL[iL], 6) +" 0\t"+
+                    utils::pp(grid2dD(iE, iL), 7) +'\n';
+            }
+            strm << '\n';
+        }
+    }
+
+    interpD   = math::LinearInterpolator2d(gridE, gridL, grid2dD);
+    interpR   = math::CubicSpline2d(gridE, gridL, grid2dR);
+    if(interpolate) {
+        intJr = math::CubicSpline3d(gridE, gridL, gridI, grid3dJr);
+        intJz = math::CubicSpline3d(gridE, gridL, gridI, grid3dJz);
+    }
+}
+
+Actions ActionFinderAxisymFudge::actions(const coord::PosVelCyl& point) const
+{
+    double Phi   = pot->value(point);
+    double E     = Phi + 0.5 * (pow_2(point.vR) + pow_2(point.vz) + pow_2(point.vphi));
+    double Lz    = coord::Lz(point);
+    if(E>=0)
+        return Actions(NAN, NAN, Lz);
+    double Lcirc = interp.L_circ(E);
+    double Lzrel = fmin(fmax(fabs(Lz) / Lcirc, 0), 1);
+    double Eint  = fmin(fmax(E, interpD.xmin()), interpD.xmax());
+    double ifd   = fmax(0, interpD.value(Eint, Lzrel));
+    if(intJr.empty())   // interpolator not initialized
+        return actionsAxisymFudge(*pot, point, ifd);
+    double Rcirc = interp.R_from_Lz(Lcirc);
+    double Rthin = fmax(0, interpR.value(Eint, Lzrel)) * Rcirc;
+    double I3max = (pow_2(Rthin) + pow_2(ifd)) * fmax(0, E - interp.value(Rthin) - 0.5 * pow_2(Lz / Rthin));
+    coord::ProlSph coordsys(ifd*ifd);
+    const coord::PosVelProlSph pprol = coord::toPosVel<coord::Cyl, coord::ProlSph>(point, coordsys);
+    double lmd   = pprol.lambda - coordsys.delta;
+    double Phi0  = pot->value(coord::PosCyl(sqrt(lmd), 0, 0));
+    double I3    = pprol.lambda * (E - Phi0 - 0.5 / lmd *
+        (pow_2(Lz) + pow_2(point.R * point.vR + point.z * point.vz * lmd / pprol.lambda)) );
+    double I3rel = fmax(0, fmin(1, I3 / I3max));
+    double Jrrel = fmax(0, intJr.value(Eint, Lzrel, I3rel));
+    double Jzrel = fmax(0, intJz.value(Eint, Lzrel, I3rel));
+    return Actions(Lcirc * (1-Lzrel) * Jrrel, Lcirc * (1-Lzrel) * Jzrel, Lz);
+}
+
+double ActionFinderAxisymFudge::interfocalDistance(const coord::PosVelCyl& point) const
+{
+    double E    = totalEnergy(*pot, point);
+    double Lz   = coord::Lz(point);
+    double Lc   = interp.L_circ(E);
+    double Lzrel= fmin(fmax(fabs(Lz) / Lc, 0), 1);
+    double Eint = fmin(fmax(E, interpD.xmin()), interpD.xmax());
+    return fmax(0, interpD.value(Eint, Lzrel));
+}
+
+
+
+// the remaining part is unfinished and presently unused
 #if 0
 /// Inverse transformation: obtain integrals of motion (E,I3,Lz) from actions (Jr,Jz,Jphi)
 namespace {

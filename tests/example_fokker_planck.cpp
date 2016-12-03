@@ -146,6 +146,9 @@ void help()
     "dtmax=(inf)      maximum length of FP timestep (both these limits may modify the timestep "
     "that was computed using the criterion of max relative DF change)\n"
     "nsubstep=(8)     # of FP timesteps between each recomputation of potential and diffusion coefs\n"
+    "updatepot=(true) whether to update the gravitational potential self-consistently "
+    "(if false, the potential will be fixed to its initial profile, but the diffusion coefficients "
+    "are still recomputed after every 'nsubstep' FP steps)\n"
     "hmin=(),hmax=()  the extent of the grid in phase volume h; the grid is logarithmically spaced "
     "between hmin and hmax, and by default encompasses a fairly large range of h "
     "(depending on the potential, but typically hmin~1e-10, hmax~1e10)\n"
@@ -212,10 +215,8 @@ int main(int argc, char* argv[])
         dt = fmin(dtmax, fmax(dtmin, dt * eps / relChange));
         nstep++;
         if(nstep % nsubstep == 0) {
-            if (updatepot){
-                std::cout<<updatepot<<std::endl;
+            if(updatepot)
                 fp.reinitPotential();
-            }
             fp.reinitDifCoefs();
         }
     }

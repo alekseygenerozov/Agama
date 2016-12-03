@@ -97,10 +97,11 @@ public:
     virtual void eval(const double /*t*/, const math::OdeStateType& y, math::OdeStateType& dydt) const
     {
         coord::GradCyl grad;
-        poten.eval(coord::PosCyl(y[0], y[1], 0), NULL, &grad);
+        double sign = y[0]>=0 ? 1 : -1;
+        poten.eval(coord::PosCyl(fabs(y[0]), y[1], 0), NULL, &grad);
         dydt[0] = y[2];
         dydt[1] = y[3];
-        dydt[2] = -grad.dR + (Lz2>0 ? Lz2/pow_3(y[0]) : 0);
+        dydt[2] = -grad.dR*sign + (Lz2>0 ? Lz2/pow_3(y[0]) : 0);
         dydt[3] = -grad.dz;
     }
 
@@ -135,12 +136,11 @@ private:
     and record the radius at which it crosses this plane downward (vz<0).
     \param[out] timeCross stores the time required to complete the half-oscillation in z;
     \param[out] traj stores the trajectory recorded at equal intervals of time;
-    \param[out] Jz stores the vertical action computed for this trajectory;
     \return  the crossing radius
 */
 static double findCrossingPointR(
     const BasePotential& poten, double E, double Lz, double R,
-    double* timeCross, std::vector<coord::PosCyl>* traj, double* Jz)
+    double* timeCross, std::vector<coord::PosCyl>* traj)
 {
     double vz = sqrt(fmax( 2 * (E-poten.value(coord::PosCyl(R, 0, 0))) - (Lz>0 ? pow_2(Lz/R) : 0), R*R*1e-16));
     OrbitIntegratorMeridionalPlane odeSystem(poten, Lz);
@@ -159,8 +159,6 @@ static double findCrossingPointR(
     const double timeStepTraj = timeCross!=NULL ? *timeCross*0.5/(NUM_STEPS_TRAJ-1) : INFINITY;
     if(traj!=NULL)
         traj->clear();
-    if(Jz!=NULL)
-        *Jz = 0;
     while(!finished) {
         if(solver.doStep() <= 0 || numStepsODE >= MAX_NUM_STEPS_ODE)  // signal of error
             finished = true;
@@ -174,7 +172,7 @@ static double findCrossingPointR(
                     // store R and z at equal intervals of time
                     double vtraj[4];
                     solver.getSol(timeTraj, vtraj);
-                    traj->push_back(coord::PosCyl(vtraj[0], vtraj[1], 0));
+                    traj->push_back(coord::PosCyl(fabs(vtraj[0]), vtraj[1], 0));
                     timeTraj += timeStepTraj;
                 }
             }
@@ -184,15 +182,6 @@ static double findCrossingPointR(
                 finished = true;
                 timeCurr = math::findRoot(FindCrossingPointZequal0(solver),
                     timePrev, timeCurr, ACCURACY_RTHIN);
-            }
-            if(Jz!=NULL)
-            {   // compute vertical action  (very crude approximation! one integration point per timestep)
-                double vprev[4], vmid[4];
-                solver.getSol(timePrev, vprev);
-                solver.getSol((timePrev+timeCurr)/2, vmid);
-                *Jz += 1 / M_PI * (
-                    vmid[2] * (vcurr[0]-vprev[0]) +  // vR at the mid-timestep * delta R over timestep
-                    vmid[3] * (vcurr[1]-vprev[1]) ); // vz at the mid-timestep * delta z over timestep
             }
         }
     }
@@ -208,9 +197,9 @@ class FindClosedOrbitRZplane: public math::IFunctionNoDeriv {
 public:
     FindClosedOrbitRZplane(const BasePotential& p, 
         double _E, double _Lz, double _Rmin, double _Rmax,
-        double* _timeCross, std::vector<coord::PosCyl>* _traj, double* _Jz) :
+        double* _timeCross, std::vector<coord::PosCyl>* _traj) :
         poten(p), E(_E), Lz(_Lz), Rmin(_Rmin), Rmax(_Rmax), 
-        timeCross(_timeCross), traj(_traj), Jz(_Jz) {};
+        timeCross(_timeCross), traj(_traj) {};
     /// report the difference in R between starting point (R, z=0, vz>0) and return point (R1, z=0, vz<0)
     virtual double value(const double R) const {
         // first two calls in root-finder are for the boundary points, we already know the answer
@@ -218,7 +207,7 @@ public:
             return R-Rmax;
         if(R==Rmax)
             return R-Rmin;
-        double R1 = findCrossingPointR(poten, E, Lz, R, timeCross, traj, Jz);
+        double R1 = findCrossingPointR(poten, E, Lz, R, timeCross, traj);
         return R-R1;
     }
 private:
@@ -227,21 +216,20 @@ private:
     const double Rmin, Rmax;          ///< boundaries of interval in R (to skip the first two calls)
     double* timeCross;                ///< keep track of time required to complete orbit
     std::vector<coord::PosCyl>* traj; ///< store the trajectory
-    double* Jz;                       ///< store the estimated value of vertical action
 };
 
 
 double estimateInterfocalDistanceShellOrbit(
     const BasePotential& poten, double E, double Lz, 
-    double* R, double* Jz)
+    double* R)
 {
     double Rmin, Rmax;
     findPlanarOrbitExtent(poten, E, Lz, Rmin, Rmax);
     double timeCross = INFINITY;
     std::vector<coord::PosCyl> traj;
-    FindClosedOrbitRZplane fnc(poten, E, Lz, Rmin, Rmax, &timeCross, &traj, Jz);
+    FindClosedOrbitRZplane fnc(poten, E, Lz, Rmin, Rmax, &timeCross, &traj);
     // locate the radius of thin orbit;
-    // as a by-product, store the orbit in 'traj' and the vertical action in Jz (if necessary)
+    // as a by-product, store the orbit in 'traj'
     double Rthin = math::findRoot(fnc, Rmin, Rmax, ACCURACY_RTHIN);
     if(R!=NULL)
         *R=Rthin;
@@ -253,89 +241,6 @@ double estimateInterfocalDistanceShellOrbit(
     }
     // now find the best-fit value of delta for this orbit
     return fitInterfocalDistanceShellOrbit(traj);
-}
-
-
-// ----------- Interpolation of interfocal distance in E,Lz plane ------------ //
-InterfocalDistanceFinder::InterfocalDistanceFinder(
-    const BasePotential& potential, const unsigned int gridSizeE) :
-    interpLcirc(potential)
-{
-    if(!isAxisymmetric(potential))
-        throw std::invalid_argument("Potential is not axisymmetric, "
-            "interfocal distance estimator is not suitable for this case");
-
-    if(gridSizeE<10 || gridSizeE>500)
-        throw std::invalid_argument("InterfocalDistanceFinder: incorrect grid size");
-
-    // find out characteristic energy values
-    double Ein  = potential.value(coord::PosCar(0, 0, 0));
-    double Eout = 0;  // default assumption for Phi(r=infinity)
-    if(!isFinite(Ein) || Ein>=Eout)
-        throw std::runtime_error("InterfocalDistanceFinder: weird behaviour of potential");
-
-    // create a grid in energy
-    Ein *= 1-0.5/gridSizeE;  // slightly offset from zero
-    std::vector<double> gridE(gridSizeE);
-    for(unsigned int i=0; i<gridSizeE; i++) 
-        gridE[i] = Ein + i*(Eout-Ein)/gridSizeE;
-
-    // create a uniform grid in Lz/Lcirc(E)
-    const unsigned int gridSizeLzrel = gridSizeE<80 ? gridSizeE/4 : 20;
-    std::vector<double> gridLzrel(gridSizeLzrel);
-    for(unsigned int i=0; i<gridSizeLzrel; i++)
-        gridLzrel[i] = (i+0.01) / (gridSizeLzrel-0.98);
-
-    // fill a 2d grid in (E, Lz/Lcirc(E) )
-    math::Matrix<double> grid2dD(gridSizeE, gridSizeLzrel);  // 2d grid for interfocal distance
-    math::Matrix<double> grid2dR(gridSizeE, gridSizeLzrel);  // 2d grid for Rthin
-#ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic)
-#endif
-    for(int iE=0; iE<(int)gridSizeE; iE++) {
-        double Rc = R_circ(potential, gridE[iE]);
-        double Lc = Rc * v_circ(potential, Rc);  // almost the same as interpLcirc(gridE[iE]);
-        for(unsigned int iL=0; iL<gridSizeLzrel; iL++) {
-            double Lz = gridLzrel[iL] * Lc;
-            double Rthin;
-            grid2dD(iE, iL) = estimateInterfocalDistanceShellOrbit(potential, gridE[iE], Lz, &Rthin);
-            grid2dR(iE, iL) = Rthin / Rc;
-        }
-    }
-
-    // debugging output
-    if(utils::verbosityLevel >= utils::VL_VERBOSE) {
-        std::ofstream strm("ifd");
-        for(unsigned int iE=0; iE<gridE.size(); iE++) {
-            double Rc = R_circ(potential, gridE[iE]);
-            for(unsigned int iL=0; iL<gridLzrel.size(); iL++) {
-                strm << Rc << '\t' << gridLzrel[iL] << '\t' <<
-                grid2dD(iE, iL) << '\t' << grid2dR(iE, iL) << '\n';
-            }
-            strm << '\n';
-        }
-    }
-
-    // create 2d interpolators
-    interpD = math::LinearInterpolator2d(gridE, gridLzrel, grid2dD);
-    interpR = math::LinearInterpolator2d(gridE, gridLzrel, grid2dR);
-}
-
-double InterfocalDistanceFinder::value(double E, double Lz) const
-{
-    E = fmin(fmax(E, interpD.xmin()), interpD.xmax());
-    double Lc = interpLcirc.L_circ(E);
-    double Lzrel = fmin(fmax(fabs(Lz)/Lc, interpD.ymin()), interpD.ymax());
-    return interpD.value(E, Lzrel);
-}
-
-double InterfocalDistanceFinder::Rthin(double E, double Lz) const
-{
-    E = fmin(fmax(E, interpR.xmin()), interpR.xmax());
-    double Lc = interpLcirc.L_circ(E);
-    double Rc = interpLcirc.R_circ(E);
-    double Lzrel = fmin(fmax(fabs(Lz)/Lc, interpR.ymin()), interpR.ymax());
-    return fmax(interpR.value(E, Lzrel), 0) * Rc;
 }
 
 }  // namespace actions

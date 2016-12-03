@@ -22,6 +22,9 @@ static const double DELTALOG = 0.125;
 /// required tolerance for the root-finder
 static const double EPSROOT  = 1e-6;
 
+/// tolerance on the 2nd derivative of a function of phase volume for grid generation
+static const double EPSDER2  = 1e-6;
+
 /// fixed order of Gauss-Legendre quadrature
 static const int GLORDER = 8;
 
@@ -101,16 +104,16 @@ public:
         B = B0;
         A = (logrho[0] - logrho[1]) / (exp(B*logh[0]) - exp(B*logh[1]));
         logrho0 = logrho[0] - A * exp(B*logh[0]);
-        if(!isFinite(logrho0))
+        if(!isFinite(logrho0) || fabs(logrho[0]-logrho0) > 0.1)
             return;
 
         // now need to determine the critical value of log(h)
         // below which we will use the asymptotic expansion
-        for(unsigned int i=3; i<logh.size(); i++) {
+        for(unsigned int i=1; i<logh.size(); i++) {
             loghmin = logh[i];
             double corelogrho, coredlogrho, cored2logrho;  // values returned by the asymptotic expansion
             asympt(logh[i], &corelogrho, &coredlogrho, &cored2logrho);
-            if(!(fabs((corelogrho-logrho[i]) / (corelogrho-logrho0)) < 1e-4)) {
+            if(!(fabs((corelogrho-logrho[i]) / (corelogrho-logrho0)) < 0.01)) {
                 utils::msg(utils::VL_VERBOSE, "makeEddingtonDF",
                     "Density core: rho="+utils::toString(exp(logrho0))+"*(1"+(A>0?"+":"")+
                     utils::toString(A)+"*h^"+utils::toString(B)+") at h<"+utils::toString(exp(loghmin)));
@@ -163,7 +166,7 @@ class DFSphericalIntegrand: public math::IFunctionNdim {
 public:
     DFSphericalIntegrand(const math::IFunction& _pot, const math::IFunction& _df) :
         pot(_pot), df(_df), pv(pot) {}
-
+    
     /// un-scale r and v and return the jacobian of this transformation
     double unscalerv(double scaledr, double scaledv, double& r, double& v, double& Phi) const { 
         r   = exp( 1/(1-scaledr) - 1/scaledr );
@@ -188,6 +191,42 @@ public:
 };
 
 
+/** helper class for setting up a grid for log(rho) in log(h) used in the Eddington inversion */
+class LogRhoOfLogH: public math::IFunction {
+    const math::IFunction& density;
+    const potential::PhaseVolume& phasevol;
+    const math::IFunction& pot;
+public:
+    LogRhoOfLogH(const math::IFunction& _density,
+        const potential::PhaseVolume& _phasevol, const math::IFunction& _pot) :
+        density(_density), phasevol(_phasevol), pot(_pot) {}
+
+    virtual void evalDeriv(double logh, double* logrho, double* der, double* der2) const
+    {
+        double h = exp(logh), g, dgdh;
+        double E = phasevol.E(h, &g, &dgdh);
+        double r = R_max(potential::FunctionToPotentialWrapper(pot), E);
+        double dPhidr, d2Phidr2;
+        pot.evalDeriv(r, NULL, &dPhidr, &d2Phidr2);
+        math::PointNeighborhood rho(density, r);
+        // now we have the full transformation chain h -> E -> r -> rho,
+        // with two derivatives at each stage, and will combine them to obtain
+        // log(rho) and its derivatives w.r.t. log(h)
+        double drhodh = rho.fder / dPhidr / g;
+        if(logrho)
+            *logrho = log(rho.f0);
+        if(der)
+            *der  = drhodh * h / rho.f0;
+        if(der2) {
+            double d2rhodh2 = rho.fder2 / pow_2(dPhidr * g) -
+                rho.fder / (g*g * dPhidr) * (d2Phidr2 / pow_2(dPhidr) + dgdh);
+            *der2 = (d2rhodh2 * h + (1 - drhodh * h / rho.f0) * drhodh) * h / rho.f0;
+        }
+    }
+
+    virtual unsigned int numDerivs()   const { return 2; }
+};
+
 }  // internal namespace
 
 //---- Eddington inversion ----//
@@ -200,8 +239,9 @@ void makeEddingtonDF(const math::IFunction& density, const math::IFunction& pote
 
     // 2. prepare grids
     std::vector<double> gridlogh, gridPhi, gridlogrho;
-    if(gridh.empty()) {   // no input: use the grid in h from the PhaseVolume object
-        gridlogh = math::createUniformGrid(200, phasevol.gridlogh().front(), phasevol.gridlogh().back());
+    if(gridh.empty()) {   // no input: estimate the grid extent
+        gridlogh = math::createInterpolationGrid(
+            LogRhoOfLogH(density, phasevol, potential), EPSDER2);
     } else {              // input grid in h was provided
         gridlogh.resize(gridh.size());
         std::transform(gridh.begin(), gridh.end(), gridlogh.begin(), log);
@@ -227,7 +267,7 @@ void makeEddingtonDF(const math::IFunction& density, const math::IFunction& pote
     gridf.resize(gridsize);   // f(h_i) = int_{h[i]}^{infinity}    
     gridh.resize(gridsize);
     std::transform(gridlogh.begin(), gridlogh.end(), gridh.begin(), exp);
-
+    
     // 3. construct a spline for log(rho) as a function of log(h),
     // optionally with an asymptotic expansion in the case of a constant-density core
     DensityInterp densityInterp(gridlogh, gridlogrho);
@@ -522,7 +562,7 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
 {
     // 1. determine the range of h that covers the region of interest
     // and construct the grid in log[h(Phi)]
-    std::vector<double> gridLogH = phasevol.gridlogh();
+    std::vector<double> gridLogH = math::createInterpolationGrid(math::LogLogScaledFnc(df), EPSDER2);
 
     // 2. store the values of f, g, h at grid nodes (ensure to consider only positive values of f)
     std::vector<double> gridF, gridG, gridH;
@@ -691,9 +731,9 @@ DiffusionCoefs::DiffusionCoefs(const potential::PhaseVolume& phasevol, const mat
 {
     // 1. determine the range of h that covers the region of interest
     // and construct the grid in X = log[h(Phi)] and Y = log[h(E)/h(Phi)]
-    const double logHmin         = phasevol.gridlogh().front(),  logHmax = phasevol.gridlogh().back();
-    const unsigned int npoints   = static_cast<unsigned int>(fmax(100, (logHmax-logHmin)/0.5));
-    std::vector<double> gridLogH = math::createUniformGrid(npoints, logHmin, logHmax);
+    std::vector<double> gridLogH = math::createInterpolationGrid(math::LogLogScaledFnc(df), EPSDER2);
+    const double logHmin         = gridLogH.front(),  logHmax = gridLogH.back();
+    const unsigned int npoints   = gridLogH.size();
     const unsigned int npointsY  = 100;
     const double mindeltaY       = fmin(0.1, (logHmax-logHmin)/npointsY);
     std::vector<double> gridY    = math::createNonuniformGrid(npointsY, mindeltaY, logHmax-logHmin, true);

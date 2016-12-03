@@ -227,71 +227,9 @@ public:
     }
     virtual unsigned int numDerivs() const { return 2; }
 };
-
-/** Construct a grid for interpolating a function with a cubic spline.
-    x is supposed to be a log-scaled coordinate, i.e., it does not attain very large values.
-    The function is assumed to have linear asymptotic behaviour at x -> +- infinity,
-    and the goal is to place the grid nodes such that the typical error in the interpolating
-    spline is less than the provided tolerance eps.
-    The error in the cubic spline approximation of a sufficiently smooth function
-    is <= 5/384 h^4 |f""(x)|, where h is the grid spacing and f"" is the fourth derivative
-    (which we have to estimate by finite differences, using the second derivatives provided
-    by the function). Note, however, that if the input function is a spline interpolator itself,
-    its smoothness is not quite as high, and the accuracy of the secondary interpolation deteriorates
-    somewhat (but is still at an acceptable level, taking into account that the original function
-    itself is an approximation).
-    We start from x=xinit and scan in both directions, adding grid nodes at intervals determined
-    by the above relation, and stop when the second derivative is less than the threshold eps.
-    Typically the nodes will be more sparsely spaced towards the end of the grid.
-    The approach is intended for functions that take x=log(y), so that the range of x is rather moderate.
-    \param[in] fnc  is the function f(x), only its second derivative is examined;
-    \param[in] eps  is the tolerance parameter;
-    \param[in] xinit  is the initial search point (expand in both directions from there);
-    \return  the grid in x.
-*/
-static std::vector<double> createInterpolationGrid(const math::IFunction& fnc, double eps, double xinit=0)
-{
-    // restrict the search to |x|<=xmax, assuming that x=log(something)
-    const double xmax = 25.;  // exp(xmax) ~ 0.7e11
-    double eps4=pow(eps*384/5, 0.25);
-    double d2f0, d2fm, d2fp;
-    fnc.evalDeriv(xinit,      NULL, NULL, &d2f0);
-    fnc.evalDeriv(xinit-eps4, NULL, NULL, &d2fm);
-    fnc.evalDeriv(xinit+eps4, NULL, NULL, &d2fp);
-    double d3f0 = (d2f0-d2fm) / eps4, d3fp = (d2fp-d2f0) / eps4;
-    double dx = -eps4;
-    double x  = xinit;
-    d2fp = d2f0;
-    std::vector<double> result(1, xinit);
-    int stage=0;
-    while(stage<2) {
-        x += dx;
-        double d2f;
-        fnc.evalDeriv(x, NULL, NULL, &d2f);
-        double d3f = (d2f-d2fp) / dx;
-        double dif = fabs((d3f-d3fp) / dx) + 0.1 * (fabs(d3fp) + fabs(d3f));  // estimate of 4th derivative
-        d2fp       = d2f;
-        d3fp       = d3f;
-        dx         = eps4 / pow(dif, 0.25) * (stage*2-1);
-        result.push_back(x);
-        if(fabs(d2f) < eps || fabs(x)>xmax || !isFinite(d2f+dx)) {
-            if(stage==0) {
-                std::reverse(result.begin(), result.end());
-                x   = 0;
-                dx  = eps4;
-                d2fp= d2f0;
-                d3fp= d3f0;
-            }
-            ++stage;
-        }
-    }
-    utils::msg(utils::VL_DEBUG, "createInterpolationGrid", "Grid in log(r): [" +
-        utils::toString(result.front()) + ":" + utils::toString(result.back()) + "], " +
-        utils::toString(result.size()) + " nodes");
-    return result;
-}
-
+    
 }  // internal namespace
+
 
 double v_circ(const BasePotential& potential, double radius)
 {
@@ -452,7 +390,7 @@ Interpolator::Interpolator(const BasePotential& potential)
         throw std::runtime_error("Interpolator: potential cannot be computed at r=0");
     invPhi0 = 1./Phi0;
 
-    std::vector<double> gridLogR = createInterpolationGrid(
+    std::vector<double> gridLogR = math::createInterpolationGrid(
         ScalePhi(PotentialWrapper(potential)), ACCURACY_INTERP);
     unsigned int gridsize = gridLogR.size();
     std::vector<double>   // various arrays:
@@ -626,7 +564,8 @@ PhaseVolume::PhaseVolume(const math::IFunction& pot)
     if(!(Phi0<0))
         throw std::invalid_argument("PhaseVolume: invalid value of Phi(r=0)");
     invPhi0 = 1/Phi0;
-    std::vector<double> gridr = createInterpolationGrid(ScalePhi(pot), ACCURACY_INTERP);  // grid in log(r)
+    // create grid in log(r)
+    std::vector<double> gridr = math::createInterpolationGrid(ScalePhi(pot), ACCURACY_INTERP);
     std::transform(gridr.begin(), gridr.end(), gridr.begin(), exp);  // convert to grid in r
     unsigned int gridsize = gridr.size();
     std::vector<double> gridE(gridsize), gridH(gridsize), gridG(gridsize);
