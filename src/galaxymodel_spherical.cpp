@@ -11,6 +11,7 @@
 #include <stdexcept>
 //debugging output
 #include <fstream>
+#include <iostream>
 
 namespace galaxymodel{
 
@@ -589,9 +590,13 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
         (gridLogH[npoints-1] - gridLogH[npoints-2]);
     if(!(innerFslope > -1))
         throw std::runtime_error("SphericalModel: f(h) rises too rapidly as h-->0");
-    if(!(outerFslope < -1))
+    if(!(outerFslope < -1)){
+        std::ofstream strm("end");
+        for(unsigned int i=0; i<gridH.size(); i++)
+            strm << gridH[i] << '\t' << gridF[i] << '\n';
+        strm.close();
         throw std::runtime_error("SphericalModel: f(h) falls off too slowly as h-->infinity");
-
+    }
     // 3b. determine the asymptotic behaviour of h(E), or rather, g(h) = dh/dE:
     // -E ~ h^outerEslope  and  g(h) ~ h^(1-outerEslope)  as  h-->inf,
     // and in the nearly Keplerian potential at large radii outerEslope should be ~ -2/3.
@@ -912,7 +917,7 @@ static potential::Interpolator computePotential(
         std::vector<potential::PtrPotential> components(2);
         components[0] = modelPotential;
         components[1] = externalPotential;
-        return potential::Interpolator(potential::CompositeCyl(components));
+        return potential::Interpolator(*externalPotential);
     } else
         return potential::Interpolator(*modelPotential);
 }
@@ -1072,6 +1077,7 @@ double FokkerPlanckSolver::doStep(double dt)
     for(unsigned int i=0; i<gridsize; i++)
         maxdf = fmax(maxdf, fabs(log(newf[i]/gridf[i])));
     gridf = newf;
+    std::cout<<gridh[0]<<" "<<gridh[gridh.size()-1]<<std::endl;
     return maxdf;
 }
 
