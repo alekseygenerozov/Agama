@@ -925,7 +925,7 @@ static potential::Interpolator computePotential(
 
 FokkerPlanckSolver::FokkerPlanckSolver(
     const math::IFunction& initDensity, const math::IFunction& bkgdDensity, const potential::PtrPotential& externalPotential,
-    const std::vector<double>& inputgridh) :
+    const std::vector<double>& inputgridh, const double mr) :
     extPot(externalPotential),
     totalPot(computePotential(initDensity, externalPotential, 0, 0, /*diagnostic output*/ Phi0)),
     phasevol(totalPot),
@@ -952,6 +952,7 @@ FokkerPlanckSolver::FokkerPlanckSolver(
             }
         }
     }
+    mass_ratio=mr;
     // compute diffusion coefficients
     reinitDifCoefs();
 }
