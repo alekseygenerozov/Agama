@@ -197,7 +197,7 @@ int main(int argc, char* argv[])
     
     double timesim = 0, dt = (dtmin>0 ? dtmin : 1e-8), prevtimeout = -INFINITY;
     int nstep = 0, prevnstepout = -nstepout;
-    while(timesim <= time && nstep < 1e6) {
+    while(timesim <= time) {
         if(nstep % nsubstep == 0)
             std::cout <<
             "time: " + utils::pp(timesim, 9) + "\t"

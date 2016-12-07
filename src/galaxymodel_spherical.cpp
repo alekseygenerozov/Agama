@@ -668,7 +668,7 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
     }
     // add the contribution of integrals from the last grid point up to infinity (very small anyway)
     //gridFGint.back() -= gridF.back() * gridH.back() / (1 + outerFslope);
-    gridFHint.back() -= gridF.back() * pow_2(gridH.back()) / gridG.back() / (1 + outerEslope + outerFslope);
+    //gridFHint.back() -= gridF.back() * pow_2(gridH.back()) / gridG.back() / (1 + outerEslope + outerFslope);
     totalMass = gridFGint.back();
 
     // 5. construct 1d interpolating splines for these integrals
