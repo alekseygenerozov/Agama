@@ -140,6 +140,7 @@ void help()
     "it also has other parameters, see readme)\n"
     "mbh=(0)          additional central mass (black hole)\n"
     "src=0 Source of black holes\n"
+    "mass_ratio=(0.1) mass ratio for extra background component"
     "time=...         total evolution time (required)\n"
     "eps=(0.001)      max relative change of DF in one timestep of the FP solver "
     "(determines the timestep)\n"
@@ -179,6 +180,7 @@ int main(int argc, char* argv[])
     int nsubstep= args.getInt("nsubstep", 8);
     int nstepout= args.getInt("nstepout", 0);
     double timeout=args.getDouble("timeout", 0);
+    double mass_ratio=args.getDouble("mass_ratio", 0.1);
     bool updatepot=args.getBool("updatepot", true);
     std::string fileout = args.getString("fileout");
     if(fileout.empty())
@@ -191,12 +193,14 @@ int main(int argc, char* argv[])
     potential::PtrDensity initModel = args.contains("density") ?
         potential::createDensity(args) :
         createModelFromFile(args.getString("filein").c_str(), mbh);
+    potential::PtrDensity bkgdModel=createModelFromFile(args.getString("background").c_str(), mbh);
     potential::PtrPotential extPot(mbh>0 ? new potential::Plummer(mbh, 0) : NULL);
-    galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), extPot, gridh, src);
+    galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), potential::DensityWrapper(*bkgdModel), extPot, gridh, src, mass_ratio);
+
     
     double timesim = 0, dt = (dtmin>0 ? dtmin : 1e-8), prevtimeout = -INFINITY;
     int nstep = 0, prevnstepout = -nstepout;
-    while(timesim <= time && nstep < 1e6) {
+    while(timesim <= time) {
         if(nstep % nsubstep == 0)
             std::cout <<
             "time: " + utils::pp(timesim, 9) + "\t"

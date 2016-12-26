@@ -603,6 +603,7 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
 //    if(!(outerFslope < -1))
 //        throw std::runtime_error("SphericalModel: f(h) falls off too slowly as h-->infinity");
 
+
     // 3b. determine the asymptotic behaviour of h(E), or rather, g(h) = dh/dE:
     // -E ~ h^outerEslope  and  g(h) ~ h^(1-outerEslope)  as  h-->inf,
     // and in the nearly Keplerian potential at large radii outerEslope should be ~ -2/3.
@@ -690,9 +691,11 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
         gridFint [i] = log(gridFint[i]);
         gridFGint[i] = log(gridFGint[i]);
         gridFHint[i] = log(gridFHint[i]);
-        if(!(gridFder[i]<=0 && gridFGder[i]>=0 && gridFHder[i]>=0 && 
-            isFinite(gridFint[i] + gridFGint[i] + gridFHint[i])))
+        if(!(gridFder[i]<=0 && gridFGder[i]>=0 && gridFHder[i]>=0 &&
+            isFinite(gridFint[i] + gridFGint[i] + gridFHint[i]))){
+            std::cout<<i<<" "<<gridFint[i]<<" "<<gridFGint[i]<<" "<<gridFHint[i];
             throw std::runtime_error("SphericalModel: cannot construct valid interpolators");
+        }
     }
     // integrals of f*g and f*h have finite limit as h-->inf;
     // extrapolate them as constants beyond the last grid point
@@ -923,7 +926,7 @@ static potential::Interpolator computePotential(
         std::vector<potential::PtrPotential> components(2);
         components[0] = modelPotential;
         components[1] = externalPotential;
-        return potential::Interpolator(potential::CompositeCyl(components));
+        return potential::Interpolator(*externalPotential);
     } else
         return potential::Interpolator(*modelPotential);
 }
@@ -931,8 +934,9 @@ static potential::Interpolator computePotential(
 } // internal namespace
 
 FokkerPlanckSolver::FokkerPlanckSolver(
-    const math::IFunction& initDensity, const potential::PtrPotential& externalPotential,
-    const std::vector<double>& inputgridh, const double src) :
+    const math::IFunction& initDensity, const math::IFunction& bkgdDensity, const potential::PtrPotential& externalPotential,
+    const std::vector<double>& inputgridh, const double src, const double mr) :
+
     extPot(externalPotential),
     totalPot(computePotential(initDensity, externalPotential, 0, 0, /*diagnostic output*/ Phi0)),
     phasevol(totalPot),
@@ -940,6 +944,8 @@ FokkerPlanckSolver::FokkerPlanckSolver(
 {
     // construct the initial distribution function
     makeEddingtonDF(initDensity, totalPot, /*output*/ gridh, gridf);
+    //Mass ratio of the 2 different species
+    makeEddingtonDF(bkgdDensity, totalPot, /*output*/ gridh, gridf2);
     if(!inputgridh.empty()) {
         // a grid in phase space was provided and we will try to respect it,
         // even though the Eddington inversion routine may have eliminated some of its nodes:
@@ -957,6 +963,7 @@ FokkerPlanckSolver::FokkerPlanckSolver(
             }
         }
     }
+    mass_ratio=mr;
     // compute diffusion coefficients
     reinitDifCoefs();
     unsigned int gridsize = gridh.size();
@@ -1015,10 +1022,12 @@ void FokkerPlanckSolver::reinitDifCoefs()
 {
     // 1. construct the interpolated distribution function from the values of f on the grid
     math::LogLogSpline df(gridh, gridf);
+    math::LogLogSpline df2(gridh, gridf2);
 
     // 2. construct the spherical model for this DF in the current potential, used to compute dif.coefs
     SphericalModel model(phasevol, df);
     double mult = 16*M_PI*M_PI;
+    SphericalModel model2(phasevol, df2);
     // 2a. store diagnostic quantities
     Mass = model.cumulMass();
     Etot = model.cumulEtotal();
@@ -1044,13 +1053,17 @@ void FokkerPlanckSolver::reinitDifCoefs()
     // 3a. intermediate quantities W_{+,-} and C
     for(unsigned int i=1; i<gridsize; i++) {
         double
-            intf  = model.I0(xcenter[i]),
-            intfg = model.cumulMass(xcenter[i]),
-            intfh = model.cumulEkin(xcenter[i]) * (2./3),
-            h     = exp(xcenter[i]), g;
+                intf  = model.I0(xcenter[i]),
+                intf2  = model2.I0(xcenter[i]),
+                intfg = model.cumulMass(xcenter[i]),
+                intfg2 = model2.cumulMass(xcenter[i]),
+                intfh = model.cumulEkin(xcenter[i]) * (2./3),
+                intfh2 = model2.cumulEkin(xcenter[i]) * (2./3),
+                h     = exp(xcenter[i]), g;
         phasevol.E(h, &g);
-        double B  = mult * intfg;                   // drift coefficient D_h
-        double C  = mult * g * (intf + intfh / h);  // diffusion coefficient D_hh / h
+        //Needs fixing (mass ratio/normalization).
+        double B  = mult * (intfg+mass_ratio*intfg2);                   // drift coefficient D_h
+        double C  = mult * g * (intf + intfh / h +pow(mass_ratio,2)*intf2 + pow(mass_ratio,2)*intfh2 / h);  // diffusion coefficient D_hh / h
         // we use  D_hh / h  here because the derivative of f is taken w.r.t. ln h
         Cdiv  [i] = C / (xnode[i] - xnode[i-1]);
         double w  = B / Cdiv[i];
@@ -1100,6 +1113,7 @@ double FokkerPlanckSolver::doStep(double dt)
     for(unsigned int i=0; i<gridsize; i++)
         maxdf = fmax(maxdf, fabs(log(newf[i]/gridf[i])));
     gridf = newf;
+    std::cout<<gridh[0]<<" "<<gridh[gridh.size()-1]<<std::endl;
     return maxdf;
 }
 
