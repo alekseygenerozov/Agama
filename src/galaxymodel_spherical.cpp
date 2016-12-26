@@ -600,8 +600,8 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
         (gridLogH[npoints-1] - gridLogH[npoints-2]);
     if(!(innerFslope > -1))
         throw std::runtime_error("SphericalModel: f(h) rises too rapidly as h-->0");
-    if(!(outerFslope < -1))
-        throw std::runtime_error("SphericalModel: f(h) falls off too slowly as h-->infinity");
+//    if(!(outerFslope < -1))
+//        throw std::runtime_error("SphericalModel: f(h) falls off too slowly as h-->infinity");
 
     // 3b. determine the asymptotic behaviour of h(E), or rather, g(h) = dh/dE:
     // -E ~ h^outerEslope  and  g(h) ~ h^(1-outerEslope)  as  h-->inf,
@@ -676,8 +676,8 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
         gridFHint[i] += gridFHint[i-1];
     }
     // add the contribution of integrals from the last grid point up to infinity (very small anyway)
-    gridFGint.back() -= gridF.back() * gridH.back() / (1 + outerFslope);
-    gridFHint.back() -= gridF.back() * pow_2(gridH.back()) / gridG.back() / (1 + outerEslope + outerFslope);
+//    gridFGint.back() -= gridF.back() * gridH.back() / (1 + outerFslope);
+//    gridFHint.back() -= gridF.back() * pow_2(gridH.back()) / gridG.back() / (1 + outerEslope + outerFslope);
     totalMass = gridFGint.back();
 
     // 5. construct 1d interpolating splines for these integrals
