@@ -182,6 +182,7 @@ int main(int argc, char* argv[])
     double timeout=args.getDouble("timeout", 0);
     double mass_ratio=args.getDouble("mass_ratio", 0.1);
     bool updatepot=args.getBool("updatepot", true);
+    bool kep=args.getBool("kep", false);
     std::string fileout = args.getString("fileout");
     if(fileout.empty())
         timeout = nstepout = 0;
@@ -195,7 +196,7 @@ int main(int argc, char* argv[])
         createModelFromFile(args.getString("filein").c_str(), mbh);
     potential::PtrDensity bkgdModel=createModelFromFile(args.getString("background").c_str(), mbh);
     potential::PtrPotential extPot(mbh>0 ? new potential::Plummer(mbh, 0) : NULL);
-    galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), potential::DensityWrapper(*bkgdModel), extPot, gridh, src, mass_ratio);
+    galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), potential::DensityWrapper(*bkgdModel), extPot, gridh, src, mass_ratio, kep);
 
     
     double timesim = 0, dt = (dtmin>0 ? dtmin : 1e-8), prevtimeout = -INFINITY;

@@ -159,7 +159,7 @@ public:
     */
     FokkerPlanckSolver(const math::IFunction& initDensity, const math::IFunction& bkgdDensity,
         const potential::PtrPotential& externalPotential = potential::PtrPotential(),
-        const std::vector<double>& gridh = std::vector<double>(), const double src=0., const double mr=0.1);
+        const std::vector<double>& gridh = std::vector<double>(), const double src=0., const double mr=0.1, bool kep=false);
 
 
     /** Recompute the potential and the phase volume mapping (h <-> E) by integrating the DF over velocity,

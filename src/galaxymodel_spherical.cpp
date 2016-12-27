@@ -916,17 +916,21 @@ namespace {
 // helper routine for solving the Poisson equation and constructing the spherical potential interpolator
 static potential::Interpolator computePotential(
     const math::IFunction& modelDensity, const potential::PtrPotential& externalPotential,
-    double rmin, double rmax, /*output*/ double& Phi0)
+    double rmin, double rmax, /*output*/ double& Phi0, bool kep=false)
 {
     potential::PtrPotential modelPotential =
         potential::Multipole::create(potential::FunctionToDensityWrapper(modelDensity),
         /*lmax*/ 0, /*mmax*/ 0, /*gridsize*/ 60, rmin, rmax);
     Phi0 = modelPotential->value(coord::PosCyl(0,0,0));
     if(externalPotential) {
-        std::vector<potential::PtrPotential> components(2);
-        components[0] = modelPotential;
-        components[1] = externalPotential;
-        return potential::Interpolator(*externalPotential);
+        if (kep)
+                return potential::Interpolator(*externalPotential);
+        else{
+            std::vector<potential::PtrPotential> components(2);
+            components[0] = modelPotential;
+            components[1] = externalPotential;
+            return potential::Interpolator(potential::CompositeCyl(components));
+        }
     } else
         return potential::Interpolator(*modelPotential);
 }
@@ -935,10 +939,10 @@ static potential::Interpolator computePotential(
 
 FokkerPlanckSolver::FokkerPlanckSolver(
     const math::IFunction& initDensity, const math::IFunction& bkgdDensity, const potential::PtrPotential& externalPotential,
-    const std::vector<double>& inputgridh, const double src, const double mr) :
+    const std::vector<double>& inputgridh, const double src, const double mr, bool kep) :
 
     extPot(externalPotential),
-    totalPot(computePotential(initDensity, externalPotential, 0, 0, /*diagnostic output*/ Phi0)),
+    totalPot(computePotential(initDensity, externalPotential, 0, 0, /*diagnostic output*/ Phi0, kep)),
     phasevol(totalPot),
     gridh(inputgridh)
 {
