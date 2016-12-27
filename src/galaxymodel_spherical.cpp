@@ -948,8 +948,13 @@ FokkerPlanckSolver::FokkerPlanckSolver(
 {
     // construct the initial distribution function
     makeEddingtonDF(initDensity, totalPot, /*output*/ gridh, gridf);
+    gridh2=gridh;
+    makeEddingtonDF(bkgdDensity, totalPot, /*output*/ gridh2, gridf2);
+
     //Mass ratio of the 2 different species
-    makeEddingtonDF(bkgdDensity, totalPot, /*output*/ gridh, gridf2);
+//    std::cout<<gridh2[0]<<" "<<gridh2[gridh2.size()-1]<<std::endl;
+//    std::cout<<gridh[0]<<" "<<gridh[gridh.size()-1]<<std::endl;
+//    std::cout<<gridh.size()<<" "<<gridh2.size()<<std::endl;
     if(!inputgridh.empty()) {
         // a grid in phase space was provided and we will try to respect it,
         // even though the Eddington inversion routine may have eliminated some of its nodes:
@@ -1026,7 +1031,7 @@ void FokkerPlanckSolver::reinitDifCoefs()
 {
     // 1. construct the interpolated distribution function from the values of f on the grid
     math::LogLogSpline df(gridh, gridf);
-    math::LogLogSpline df2(gridh, gridf2);
+    math::LogLogSpline df2(gridh2, gridf2);
 
     // 2. construct the spherical model for this DF in the current potential, used to compute dif.coefs
     SphericalModel model(phasevol, df);

@@ -145,6 +145,7 @@ public:
     potential::Interpolator totalPot;   ///< total potential
     potential::PhaseVolume  phasevol;   ///< mapping between energy and phase volume
     std::vector<double> gridh;          ///< grid in h (phase volume), stays fixed throughout the evolution
+    std::vector<double> gridh2;         /// 2nd grid in h for background (better to use single grid).
     std::vector<double> gridf;          ///< values of distribution function at grid nodes
     std::vector<double> gridf2;          ///< values of (2nd) distribution function at grid nodes
     std::vector<double> diag, above, below; ///< coefficients of the tridiagonal system solved at each step
