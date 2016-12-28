@@ -948,9 +948,6 @@ FokkerPlanckSolver::FokkerPlanckSolver(
 {
     // construct the initial distribution function
     makeEddingtonDF(initDensity, totalPot, /*output*/ gridh, gridf);
-    gridh2=gridh;
-    makeEddingtonDF(bkgdDensity, totalPot, /*output*/ gridh2, gridf2);
-
     //Mass ratio of the 2 different species
 //    std::cout<<gridh2[0]<<" "<<gridh2[gridh2.size()-1]<<std::endl;
 //    std::cout<<gridh[0]<<" "<<gridh[gridh.size()-1]<<std::endl;
@@ -972,6 +969,19 @@ FokkerPlanckSolver::FokkerPlanckSolver(
             }
         }
     }
+    //Putting in background density...
+    gridh2=gridh;
+    makeEddingtonDF(bkgdDensity, totalPot, /*output*/ gridh2, gridf2);
+    math::LogLogSpline spl(gridh2, gridf2);
+    gridf2.clear();
+    for(unsigned int i=0; i<gridh.size(); i++) {
+        double dfval = spl(gridh[i]);
+        gridf2.push_back(dfval);
+    }
+    std::ofstream strm("debug");
+    for(unsigned int i=0; i<gridh.size(); i++)
+        strm<<utils::pp(gridh[i], 9)+'\t'+utils::pp(gridf2[i], 9)+'\n';
+
     mass_ratio=mr;
     // compute diffusion coefficients
     reinitDifCoefs();
@@ -1031,7 +1041,7 @@ void FokkerPlanckSolver::reinitDifCoefs()
 {
     // 1. construct the interpolated distribution function from the values of f on the grid
     math::LogLogSpline df(gridh, gridf);
-    math::LogLogSpline df2(gridh2, gridf2);
+    math::LogLogSpline df2(gridh, gridf2);
 
     // 2. construct the spherical model for this DF in the current potential, used to compute dif.coefs
     SphericalModel model(phasevol, df);
