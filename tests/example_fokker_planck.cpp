@@ -194,6 +194,7 @@ int main(int argc, char* argv[])
     potential::PtrDensity initModel = args.contains("density") ?
         potential::createDensity(args) :
         createModelFromFile(args.getString("filein").c_str(), mbh);
+    //Clunky way to include background population...Needs improvement'
     potential::PtrDensity bkgdModel=createModelFromFile(args.getString("background").c_str(), mbh);
     potential::PtrPotential extPot(mbh>0 ? new potential::Plummer(mbh, 0) : NULL);
     galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), potential::DensityWrapper(*bkgdModel), extPot, gridh, src, mass_ratio, kep);

@@ -1080,9 +1080,16 @@ void FokkerPlanckSolver::reinitDifCoefs()
                 intfh2 = model2.cumulEkin(xcenter[i]) * (2./3),
                 h     = exp(xcenter[i]), g;
         phasevol.E(h, &g);
-        //Needs fixing (mass ratio/normalization).
-        double B  = mult * (intfg+intfg2);                   // drift coefficient D_h
-        double C  = mult * g * (intf + intfh / h +mass_ratio*intf2 + mass_ratio*intfh2 / h);  // diffusion coefficient D_hh / h
+        //To not include background set mass_ratio to be less than or equal to 0! (Not very elegant).
+        if (mass_ratio>0.){
+            double B  = mult * (intfg+intfg2);                   // drift coefficient D_h
+            double C  = mult * g * (intf + intfh / h +mass_ratio*intf2 + mass_ratio*intfh2 / h);  // diffusion coefficient D_hh / h
+        }
+        else{
+            double B  = mult * (intfg);                   // drift coefficient D_h
+            double C  = mult * g * (intf + intfh / h);  // diffusion coefficient D_hh / h
+        }
+
         // we use  D_hh / h  here because the derivative of f is taken w.r.t. ln h
         Cdiv  [i] = C / (xnode[i] - xnode[i-1]);
         double w  = B / Cdiv[i];
