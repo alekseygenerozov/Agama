@@ -1081,13 +1081,14 @@ void FokkerPlanckSolver::reinitDifCoefs()
                 h     = exp(xcenter[i]), g;
         phasevol.E(h, &g);
         //To not include background set mass_ratio to be less than or equal to 0! (Not very elegant).
+        double B, C;
         if (mass_ratio>0.){
-            double B  = mult * (intfg+intfg2);                   // drift coefficient D_h
-            double C  = mult * g * (intf + intfh / h +mass_ratio*intf2 + mass_ratio*intfh2 / h);  // diffusion coefficient D_hh / h
+            B  = mult * (intfg+intfg2);                   // drift coefficient D_h
+            C  = mult * g * (intf + intfh / h +mass_ratio*intf2 + mass_ratio*intfh2 / h);  // diffusion coefficient D_hh / h
         }
         else{
-            double B  = mult * (intfg);                   // drift coefficient D_h
-            double C  = mult * g * (intf + intfh / h);  // diffusion coefficient D_hh / h
+            B  = mult * (intfg);                   // drift coefficient D_h
+            C  = mult * g * (intf + intfh / h);  // diffusion coefficient D_hh / h
         }
 
         // we use  D_hh / h  here because the derivative of f is taken w.r.t. ln h
