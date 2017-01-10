@@ -88,13 +88,15 @@ void exportTable(const char* filename, const galaxymodel::FokkerPlanckSolver& fp
         gridr  [i] = pot.R_max(gridPhi[i]);
     }
     math::LogLogSpline df(gridh, gridf);
+    math::LogLogSpline df2(gridh, fp.gridf2);
     std::vector<double> gridrho = galaxymodel::computeDensity(df, pv, gridPhi);
     galaxymodel::SphericalModel model(pv, df);
-    double mult = 16*M_PI*M_PI * model.cumulMass();
+    galaxymodel::SphericalModel model2(pv, df2);
+    double mult = 16*M_PI*M_PI;
     
     std::ofstream strm(filename);
     strm << "r       \tM       \tPhi     \trho     \tf       \tg       \th       \t"
-    "D_h      \tD_hh     \tFlux     \tdf/dh\n";
+    "D_h      \tD_hh     \tFlux     \tFlux2     \tdf/dh\n";
     for(unsigned int i=0; i<gridh.size(); i++) {
         double h=gridh[i], f=gridf[i], Phi=gridPhi[i], rho=gridrho[i], r=gridr[i], g, dPhidr, dfdh;
         df.evalDeriv(h, NULL, &dfdh);
@@ -104,11 +106,19 @@ void exportTable(const char* filename, const galaxymodel::FokkerPlanckSolver& fp
         M     = dPhidr * r*r,
         logh  = log(h),
         intf  = model.I0(logh),
+        intf2  = model2.I0(logh),
         intfg = model.cumulMass(logh),
+        intfg2 = model2.cumulMass(logh),
         intfh = model.cumulEkin(logh) * (2./3),
-        D_h   = mult * intfg,                   // drift coefficient D_h
-        D_hh  = mult * g * (h * intf + intfh),  // diffusion coefficient D_hh
-        Flux  = -(D_hh * dfdh + D_h * f);
+        intfh2 = model2.cumulEkin(logh) * (2./3),
+        D_h=mult*intfg,
+        D_hh=mult* g * (intf*h + intfh),
+        D_h2=mult*intfg2,
+        D_hh2=fp.mass_ratio*mult* g * (intf2*h + intfh2),
+        Flux  = -(D_hh* dfdh + D_h * f),
+        Flux2 = -(D_hh2* dfdh + D_h2 * f);
+        if (fp.mass_ratio<=0.)
+                Flux2=0;
         strm <<
             utils::pp(r,   14) + '\t' +
             utils::pp(M,   14) + '\t' +
@@ -120,6 +130,7 @@ void exportTable(const char* filename, const galaxymodel::FokkerPlanckSolver& fp
             utils::pp(D_h, 14) + '\t' +
             utils::pp(D_hh,14) + '\t' +
             utils::pp(Flux,14) + '\t' +
+            utils::pp(Flux2,14) + '\t' +
             utils::pp(dfdh,14) + '\n';
     }
 }

@@ -918,19 +918,18 @@ static potential::Interpolator computePotential(
     const math::IFunction& modelDensity, const potential::PtrPotential& externalPotential,
     double rmin, double rmax, /*output*/ double& Phi0, bool kep=false)
 {
+    //Short-circuit the rest of routine if potential is Keplerian.
+    if ((kep) && (externalPotential))
+        return potential::Interpolator(*externalPotential);
     potential::PtrPotential modelPotential =
         potential::Multipole::create(potential::FunctionToDensityWrapper(modelDensity),
         /*lmax*/ 0, /*mmax*/ 0, /*gridsize*/ 60, rmin, rmax);
     Phi0 = modelPotential->value(coord::PosCyl(0,0,0));
     if(externalPotential) {
-        if (kep)
-                return potential::Interpolator(*externalPotential);
-        else{
-            std::vector<potential::PtrPotential> components(2);
-            components[0] = modelPotential;
-            components[1] = externalPotential;
-            return potential::Interpolator(potential::CompositeCyl(components));
-        }
+        std::vector<potential::PtrPotential> components(2);
+        components[0] = modelPotential;
+        components[1] = externalPotential;
+        return potential::Interpolator(potential::CompositeCyl(components));
     } else
         return potential::Interpolator(*modelPotential);
 }
