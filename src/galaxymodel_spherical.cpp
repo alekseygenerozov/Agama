@@ -623,8 +623,12 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
     double innerEslope = gridH.front() / gridG.front() / innerE;
     double outerEslope = gridH.back()  / gridG.back()  / outerE;
     double outerRatio  = outerFslope  / outerEslope;
-    if(!(outerRatio > 0 && innerEslope + innerFslope > -1))
+    if(!(outerRatio > 0 && innerEslope + innerFslope > -1)){
+        if(utils::verbosityLevel >= utils::VL_VERBOSE) {
+            std::cout<<outerRatio<<" "<<innerEslope<<" "<<innerFslope<<std::endl;
+        }
         throw std::runtime_error("SphericalModel: weird asymptotic behaviour of phase volume");
+    }
 
     // 4. compute integrals
     // \int f(E) dE        = \int f(h) / g(h) h d(log h),
