@@ -667,6 +667,7 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
     // summing contributions from all intervals of h above its current value
     // the outermost segment from h_max to infinity is integrated analytically
     gridFint.back() = -gridF.back() * outerE / (1 + outerRatio);
+    //gridFint.back() = -gridF.back() * outerE / (1 + outerRatio)*(1.-pow(0.5, 1.+outerRatio));
     for(int i=npoints-1; i>=1; i--) {
         gridFint[i-1] += gridFint[i];
     }
@@ -1143,7 +1144,8 @@ double FokkerPlanckSolver::doStep(double dt)
     for(unsigned int i=0; i<gridsize; i++)
         maxdf = fmax(maxdf, fabs(log(newf[i]/gridf[i])));
     gridf = newf;
-    std::cout<<gridh[0]<<" "<<gridh[gridh.size()-1]<<std::endl;
+//    gridf[0]=100.*MIN_VALUE;
+    //std::cout<<gridh[0]<<" "<<gridh[gridh.size()-1]<<std::endl;
     return maxdf;
 }
 
