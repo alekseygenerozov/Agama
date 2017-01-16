@@ -994,6 +994,8 @@ FokkerPlanckSolver::FokkerPlanckSolver(
     reinitDifCoefs();
     unsigned int gridsize = gridh.size();
     src1=src;
+    sink=false;
+
     i0=0;
     double h0;
     phasevol.evalDeriv(-0.6, &h0);
@@ -1147,7 +1149,8 @@ double FokkerPlanckSolver::doStep(double dt)
     for(unsigned int i=0; i<gridsize; i++)
         maxdf = fmax(maxdf, fabs(log(newf[i]/gridf[i])));
     gridf = newf;
-//    gridf[0]=100.*MIN_VALUE;
+    if (sink)
+        gridf[0]=100.*MIN_VALUE;
     //std::cout<<gridh[0]<<" "<<gridh[gridh.size()-1]<<std::endl;
     return maxdf;
 }

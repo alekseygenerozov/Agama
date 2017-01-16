@@ -88,6 +88,7 @@ void exportTable(const char* filename, const galaxymodel::FokkerPlanckSolver& fp
         gridr  [i] = pot.R_max(gridPhi[i]);
     }
     math::LogLogSpline df(gridh, gridf);
+    std::cout<<df(pv(gridPhi[0]))<<std::endl;
     math::LogLogSpline df2(gridh, fp.gridf2);
     std::vector<double> gridrho = galaxymodel::computeDensity(df, pv, gridPhi);
     galaxymodel::SphericalModel model(pv, df);
@@ -150,7 +151,7 @@ void help()
     "beta=(4)         outer power-law slope (for SpheroidDensity only; "
     "it also has other parameters, see readme)\n"
     "mbh=(0)          additional central mass (black hole)\n"
-    "src=0 Source of black holes\n"
+    "src=(0)          stars injected per unit time\n"
     "mass_ratio=(0.1) mass ratio for extra background component"
     "time=...         total evolution time (required)\n"
     "eps=(0.001)      max relative change of DF in one timestep of the FP solver "
@@ -170,6 +171,7 @@ void help()
     "if not provided, don't output anything\n"
     "timeout=(0)      (maximum) time interval between storing the output profiles (0 means unlimited)\n"
     "nstepout=(0)     maximum number of FP steps between outputs (0 means unlimited; "
+    "sink=(false)     whether or not to include sink at center\n"
     "if neither of the two parameters is set, will not produce any output files)\n";
     exit(0);
 }
@@ -194,6 +196,7 @@ int main(int argc, char* argv[])
     double mass_ratio=args.getDouble("mass_ratio", 0.1);
     bool updatepot=args.getBool("updatepot", true);
     bool kep=args.getBool("kep", false);
+    bool sink=args.getBool("sink", false);
     std::string fileout = args.getString("fileout");
     if(fileout.empty())
         timeout = nstepout = 0;
@@ -209,7 +212,11 @@ int main(int argc, char* argv[])
     potential::PtrDensity bkgdModel=createModelFromFile(args.getString("background").c_str(), mbh);
     potential::PtrPotential extPot(mbh>0 ? new potential::Plummer(mbh, 0) : NULL);
     galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), potential::DensityWrapper(*bkgdModel), extPot, gridh, src, mass_ratio, kep);
-
+    if (sink)
+        fp.sink=true;
+    else
+        fp.sink=false;
+    std::cout<<"sink:"<<fp.sink<<std::endl;
     
     double timesim = 0, dt = (dtmin>0 ? dtmin : 1e-8), prevtimeout = -INFINITY;
     int nstep = 0, prevnstepout = -nstepout;
