@@ -678,8 +678,9 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
     // 4c. integrands of f*g dE  and  f*h dE;  note that g = dh/dE.
     // compute from inside out, summing contributions from all previous intervals of h
     // integrals over the first segment (0..gridH[0]) are computed analytically
-    gridFGint[0] = gridF[0] * gridH[0] / (1 + innerFslope);
-    gridFHint[0] = gridF[0] * pow_2(gridH[0]) / gridG[0] / (1 + innerEslope + innerFslope);
+    std::cout<<"FG:"<<gridFGint[0]<<std::endl;
+    gridFGint[0] = gridF[0] * gridH[0] / (1 + innerFslope)*(1-pow(0.99, 1.+innerFslope));
+    gridFHint[0] = gridF[0] * pow_2(gridH[0]) / (gridG[0])/ (1 + innerEslope + innerFslope)*(1-pow(0.99, 1.+innerEslope+innerFslope));
     for(unsigned int i=1; i<npoints; i++) {
         gridFGint[i] += gridFGint[i-1];
         gridFHint[i] += gridFHint[i-1];
