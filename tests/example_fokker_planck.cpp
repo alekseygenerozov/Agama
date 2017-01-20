@@ -147,6 +147,7 @@ void help()
     "that was computed using the criterion of max relative DF change)\n"
     "nsubstep=(8)     # of FP timesteps between each recomputation of potential and diffusion coefs\n"
     "updatepot=(true) whether to update the gravitational potential self-consistently "
+    "kep=(false)      whether to force a Keplerian potential."
     "(if false, the potential will be fixed to its initial profile, but the diffusion coefficients "
     "are still recomputed after every 'nsubstep' FP steps)\n"
     "hmin=(),hmax=()  the extent of the grid in phase volume h; the grid is logarithmically spaced "
@@ -178,6 +179,7 @@ int main(int argc, char* argv[])
     int nstepout= args.getInt("nstepout", 0);
     double timeout=args.getDouble("timeout", 0);
     bool updatepot=args.getBool("updatepot", true);
+    bool kep=args.getBool("kep", false);
     std::string fileout = args.getString("fileout");
     if(fileout.empty())
         timeout = nstepout = 0;
@@ -190,7 +192,7 @@ int main(int argc, char* argv[])
         potential::createDensity(args) :
         createModelFromFile(args.getString("filein").c_str(), mbh);
     potential::PtrPotential extPot(mbh>0 ? new potential::Plummer(mbh, 0) : NULL);
-    galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), extPot, gridh);
+    galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), extPot, gridh, kep);
     
     double timesim = 0, dt = (dtmin>0 ? dtmin : 1e-8), prevtimeout = -INFINITY;
     int nstep = 0, prevnstepout = -nstepout;

@@ -11,6 +11,7 @@
 #include <stdexcept>
 //debugging output
 #include <fstream>
+#include <iostream>
 
 namespace galaxymodel{
 
@@ -902,8 +903,11 @@ namespace {
 // helper routine for solving the Poisson equation and constructing the spherical potential interpolator
 static potential::Interpolator computePotential(
     const math::IFunction& modelDensity, const potential::PtrPotential& externalPotential,
-    double rmin, double rmax, /*output*/ double& Phi0)
+    double rmin, double rmax, /*output*/ double& Phi0, const bool kep=false)
 {
+    //Short-circuit the rest of routine if potential is Keplerian.
+    if ((kep) && (externalPotential))
+        return potential::Interpolator(*externalPotential);
     potential::PtrPotential modelPotential =
         potential::Multipole::create(potential::FunctionToDensityWrapper(modelDensity),
         /*lmax*/ 0, /*mmax*/ 0, /*gridsize*/ 60, rmin, rmax);
@@ -919,11 +923,10 @@ static potential::Interpolator computePotential(
 
 } // internal namespace
 
-FokkerPlanckSolver::FokkerPlanckSolver(
-    const math::IFunction& initDensity, const potential::PtrPotential& externalPotential,
-    const std::vector<double>& inputgridh) :
+FokkerPlanckSolver::FokkerPlanckSolver(const math::IFunction& initDensity, const potential::PtrPotential& externalPotential,const std::vector<double>& inputgridh, bool kep) :
+
     extPot(externalPotential),
-    totalPot(computePotential(initDensity, externalPotential, 0, 0, /*diagnostic output*/ Phi0)),
+    totalPot(computePotential(initDensity, externalPotential, 0, 0, /*diagnostic output*/ Phi0, kep)),
     phasevol(totalPot),
     gridh(inputgridh)
 {

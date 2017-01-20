@@ -157,7 +157,7 @@ public:
     */
     FokkerPlanckSolver(const math::IFunction& initDensity,
         const potential::PtrPotential& externalPotential = potential::PtrPotential(),
-        const std::vector<double>& gridh = std::vector<double>());
+        const std::vector<double>& gridh = std::vector<double>(), bool kep=false);
 
     /** Recompute the potential and the phase volume mapping (h <-> E) by integrating the DF over velocity,
         and solving the Poisson equation (adding the external potential if present).
