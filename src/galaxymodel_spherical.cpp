@@ -585,7 +585,7 @@ SphericalModel::SphericalModel(const potential::PhaseVolume& _phasevol, const ma
 
     // 3a. determine the asymptotic behaviour of f(h):
     // f(h) ~ h^outerFslope as h-->inf  or  h^innerFslope as h-->0
-    double innerFslope = log(gridF[1] / gridF[0]) / (gridLogH[1] - gridLogH[0]);
+    double innerFslope = log(gridF[2] / gridF[1]) / (gridLogH[2] - gridLogH[1]);
     double outerFslope = log(gridF[npoints-1] / gridF[npoints-2]) /
         (gridLogH[npoints-1] - gridLogH[npoints-2]);
     if(!(innerFslope > -1))
@@ -951,6 +951,7 @@ FokkerPlanckSolver::FokkerPlanckSolver(const math::IFunction& initDensity, const
     }
     // compute diffusion coefficients
     reinitDifCoefs();
+    sink=false;
 }
 
 void FokkerPlanckSolver::reinitPotential()
@@ -1067,6 +1068,8 @@ double FokkerPlanckSolver::doStep(double dt)
     for(unsigned int i=0; i<gridsize; i++)
         maxdf = fmax(maxdf, fabs(log(newf[i]/gridf[i])));
     gridf = newf;
+    if (sink)
+        gridf[0]=100.*MIN_VALUE;
     return maxdf;
 }
 

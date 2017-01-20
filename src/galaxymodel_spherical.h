@@ -178,7 +178,7 @@ public:
 
     /// diagnostic quantities: total mass, stellar potential at origin, total energy and kinetic energy
     double Mass, Phi0, Etot, Ekin;
-
+    bool sink;
 };
 
 

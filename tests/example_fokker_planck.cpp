@@ -158,6 +158,7 @@ void help()
     "if not provided, don't output anything\n"
     "timeout=(0)      (maximum) time interval between storing the output profiles (0 means unlimited)\n"
     "nstepout=(0)     maximum number of FP steps between outputs (0 means unlimited; "
+    "sink=(false)     whether or not to include sink at center\n"
     "if neither of the two parameters is set, will not produce any output files)\n";
     exit(0);
 }
@@ -180,6 +181,7 @@ int main(int argc, char* argv[])
     double timeout=args.getDouble("timeout", 0);
     bool updatepot=args.getBool("updatepot", true);
     bool kep=args.getBool("kep", false);
+    bool sink=args.getBool("sink", false);
     std::string fileout = args.getString("fileout");
     if(fileout.empty())
         timeout = nstepout = 0;
@@ -193,7 +195,8 @@ int main(int argc, char* argv[])
         createModelFromFile(args.getString("filein").c_str(), mbh);
     potential::PtrPotential extPot(mbh>0 ? new potential::Plummer(mbh, 0) : NULL);
     galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), extPot, gridh, kep);
-    
+    fp.sink=sink;
+
     double timesim = 0, dt = (dtmin>0 ? dtmin : 1e-8), prevtimeout = -INFINITY;
     int nstep = 0, prevnstepout = -nstepout;
     while(timesim <= time && nstep < 1e6) {
