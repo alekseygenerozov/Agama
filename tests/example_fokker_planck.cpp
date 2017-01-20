@@ -172,6 +172,8 @@ void help()
     "timeout=(0)      (maximum) time interval between storing the output profiles (0 means unlimited)\n"
     "nstepout=(0)     maximum number of FP steps between outputs (0 means unlimited; "
     "sink=(false)     whether or not to include sink at center\n"
+    "rcapt=(0)        capture radius for stars."
+    "floss=(0)            tweak strength of the loss term."
     "if neither of the two parameters is set, will not produce any output files)\n";
     exit(0);
 }
@@ -188,6 +190,7 @@ int main(int argc, char* argv[])
     double dtmax= args.getDouble("dtmax", INFINITY);
     double hmin = args.getDouble("hmin", 0);
     double hmax = args.getDouble("hmax", 0);
+    double rcapt = args.getDouble("rcapt", 0.);
     double src  = args.getDouble("src", 0);
     int gridsize= args.getInt("gridsize", 200);
     int nsubstep= args.getInt("nsubstep", 8);
@@ -197,6 +200,7 @@ int main(int argc, char* argv[])
     bool updatepot=args.getBool("updatepot", true);
     bool kep=args.getBool("kep", false);
     bool sink=args.getBool("sink", false);
+    double floss=args.getDouble("floss", 0.);
     std::string fileout = args.getString("fileout");
     if(fileout.empty())
         timeout = nstepout = 0;
@@ -212,11 +216,16 @@ int main(int argc, char* argv[])
     potential::PtrDensity bkgdModel=createModelFromFile(args.getString("background").c_str(), mbh);
     potential::PtrPotential extPot(mbh>0 ? new potential::Plummer(mbh, 0) : NULL);
     galaxymodel::FokkerPlanckSolver fp(potential::DensityWrapper(*initModel), potential::DensityWrapper(*bkgdModel), extPot, gridh, src, mass_ratio, kep);
+    //If statement is unnceccessary here...
     if (sink)
         fp.sink=true;
     else
         fp.sink=false;
+    fp.rcapt=rcapt;
+    fp.mbh=mbh;
+    fp.floss=floss;
     std::cout<<"sink:"<<fp.sink<<std::endl;
+    std::cout<<"rcapt:"<<fp.rcapt<<std::endl;
     
     double timesim = 0, dt = (dtmin>0 ? dtmin : 1e-8), prevtimeout = -INFINITY;
     int nstep = 0, prevnstepout = -nstepout;

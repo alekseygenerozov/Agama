@@ -187,6 +187,9 @@ public:
     int i0;
     double mass_ratio;
     bool sink;
+    double mbh;
+    double rcapt;
+    double floss;
 };
 
 

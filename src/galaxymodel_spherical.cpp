@@ -995,6 +995,8 @@ FokkerPlanckSolver::FokkerPlanckSolver(
     unsigned int gridsize = gridh.size();
     src1=src;
     sink=false;
+    rcapt=0;
+    floss=0;
 
     i0=0;
     double h0;
@@ -1060,7 +1062,19 @@ void FokkerPlanckSolver::reinitDifCoefs()
     Mass = model.cumulMass();
     Etot = model.cumulEtotal();
     Ekin = model.cumulEkin();
-    
+
+    std::vector<double> gridr(gridh.size()), gridPhi(gridh.size()),gridSigma(gridh.size()),gridTrx(gridh.size());
+    for(unsigned int i=0; i<gridh.size(); i++) {
+        gridPhi[i] = phasevol. E(gridh[i]);
+        gridr  [i] = totalPot.R_max(gridPhi[i]);
+    }
+    //To do: calculate sigma directly by computing moment of distribution function
+    std::vector<double> gridrho = galaxymodel::computeDensity(df, phasevol, gridPhi);
+    for(unsigned int i=0; i<gridh.size(); i++) {
+        gridSigma [i] = pow(mbh/gridr[i], 0.5);
+        gridTrx [i] = pow(gridSigma[i], 3)/(gridrho[i]);
+    }
+
     // 2b. allocate temporary arrays of various coefficients
     unsigned int gridsize = gridh.size();  // = M+1
     std::vector<double>     // notation follows Park&Petrosian 1996 for the Chang&Cooper scheme (eqs.27-34)
@@ -1121,6 +1135,8 @@ void FokkerPlanckSolver::reinitDifCoefs()
         if(i<gridsize-1)
             above[i]   = -denom * Cdiv[i+1] * Wplus[i+1];
         diag[i] = denom * (Cdiv[i] * Wplus[i] + Cdiv[i+1] * Wminus[i+1]);
+        if (rcapt>0)
+            diag[i]=diag[i]+(floss/gridTrx[i]/log(gridr[i]/rcapt));
     }
 }
 
@@ -1151,6 +1167,7 @@ double FokkerPlanckSolver::doStep(double dt)
     gridf = newf;
     if (sink)
         gridf[0]=100.*MIN_VALUE;
+
     //std::cout<<gridh[0]<<" "<<gridh[gridh.size()-1]<<std::endl;
     return maxdf;
 }
